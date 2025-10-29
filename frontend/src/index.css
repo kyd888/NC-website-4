@@ -2,6 +2,21 @@
 html,body,#root{height:100%;width:100%;max-width:100%;overflow-x:hidden;}
 @supports(overflow:clip){html,body{overflow-x:clip;}}
 html{-webkit-text-size-adjust:100%;}
+:root{
+  --safe-area-top: 0px;
+  --safe-area-right: 0px;
+  --safe-area-bottom: 0px;
+  --safe-area-left: 0px;
+  --header-offset: 0px;
+}
+@supports (top: env(safe-area-inset-top)) {
+  :root{
+    --safe-area-top: env(safe-area-inset-top);
+    --safe-area-right: env(safe-area-inset-right);
+    --safe-area-bottom: env(safe-area-inset-bottom);
+    --safe-area-left: env(safe-area-inset-left);
+  }
+}
 body{
   background:#f2f2ee;
   color:#111;
@@ -10,6 +25,7 @@ body{
   overscroll-behavior-x:none;
   touch-action:pan-y;
   margin:0;
+  scroll-padding-top: calc(var(--header-offset, 0px) + var(--safe-area-top, 0px));
 }
 a{color:inherit;text-decoration:none}
 button{background:none;border:0;color:inherit;cursor:pointer;touch-action:manipulation}
@@ -45,6 +61,19 @@ input,select,textarea{font-size:16px}
 .account-avatar .dot-stack{display:flex;align-items:center;justify-content:center;gap:3px;}
 .account-avatar .dot-stack span{display:block;width:6px;height:6px;border-radius:50%;background:#111;transition:background .2s ease;}
 .account-button.is-guest .dot-stack span{background:#fff;border:1px solid rgba(0,0,0,.3);}
+
+.page-content{
+  padding-top: calc(var(--header-offset, 0px) + var(--safe-area-top, 0px));
+  padding-left: var(--safe-area-left, 0px);
+  padding-right: var(--safe-area-right, 0px);
+  min-height: calc(100vh - var(--safe-area-bottom, 0px));
+  padding-bottom: var(--safe-area-bottom, 0px);
+}
+@supports (height: 100dvh) {
+  .page-content{
+    min-height: calc(100dvh - var(--safe-area-bottom, 0px));
+  }
+}
 
 /* === Raise the product slightly === */
 .section {
@@ -426,7 +455,30 @@ input,select,textarea{font-size:16px}
 
 
 .payment-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);z-index:60;}
-.payment-sheet{position:fixed;left:0;right:0;bottom:0;margin:0 auto;max-width:480px;background:#fff;border-top-left-radius:24px;border-top-right-radius:24px;padding:24px 22px calc(28px + env(safe-area-inset-bottom));box-shadow:0 -36px 90px rgba(0,0,0,.22);z-index:61;}
+.payment-sheet{
+  position:fixed;
+  left:0;
+  right:0;
+  bottom:0;
+  margin:0 auto;
+  max-width:480px;
+  background:#fff;
+  border-top-left-radius:24px;
+  border-top-right-radius:24px;
+  padding:24px 22px calc(28px + env(safe-area-inset-bottom));
+  box-shadow:0 -36px 90px rgba(0,0,0,.22);
+  z-index:61;
+  max-height: calc(100vh - var(--safe-area-top, 0px) - var(--header-offset, 0px) - 16px);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-gutter: stable both-edges;
+}
+@supports (height: 100dvh) {
+  .payment-sheet{
+    max-height: calc(100dvh - var(--safe-area-top, 0px) - var(--header-offset, 0px) - 16px);
+  }
+}
 .payment-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
 .payment-close{border:none;background:none;color:#777;font-size:13px;text-transform:uppercase;letter-spacing:.24em;cursor:pointer;}
 .payment-form{display:grid;gap:16px;}
