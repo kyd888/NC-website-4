@@ -455,6 +455,15 @@ catalogRouter.post("/cart/remove", (req, res) => {
   });
 });
 
+catalogRouter.get("/cart/state", (req, res) => {
+  const { session } = ensureSession(req, res);
+  res.json({
+    ok: true,
+    cart: serializeCart(session),
+    remaining: getAllRemaining(),
+  });
+});
+
 catalogRouter.post("/checkout/create-intent", async (req, res) => {
   if (!stripe) {
     return res.status(500).json({ error: "Stripe is not configured" });
