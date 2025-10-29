@@ -1,0 +1,18 @@
+[
+  {
+    "id": "fa438fef-fb8e-4b65-b8f8-a951279e6679",
+    "email": "keenan.jones2000@gmail.com",
+    "passwordHash": "88b49cccec0e411ab7b14e9f89b6a3fc:d49663ba30580ac0d3cb546d8c2f95531df06323f950a683bfaad19a38188096c64368bd88465d38bfa2c492795053ee9616dce9e252a8bad64c346f12a82118",
+    "name": "Keenan Jones",
+    "defaultShipping": {
+      "line1": "3413 S Umbrella Ave, Broken arrow, Oklahoma, 74012",
+      "city": "Broken Arrow",
+      "state": "OK",
+      "postalCode": "74012",
+      "country": "US"
+    },
+    "createdAt": "2025-10-21T16:45:19.364Z",
+    "updatedAt": "2025-10-24T00:38:54.280Z",
+    "lastLoginAt": "2025-10-24T00:38:35.231Z"
+  }
+]

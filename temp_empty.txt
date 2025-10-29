@@ -1,0 +1,13 @@
+        <div className="empty-state">
+          <div className="empty-card">
+            <div className="empty-glow" />
+            <div className="empty-badge">DROP PAUSED</div>
+            <h2>Curating the next release</h2>
+            <p>
+              The next capsule is being finished in the studio. Keep this window open and we’ll light it up the moment inventory lands.
+            </p>
+            <button type="button" className="empty-refresh" onClick={refetchCatalog}>
+              Refresh catalog
+            </button>
+          </div>
+        </div>

@@ -1,0 +1,26 @@
+[
+  {
+    "productId": "tee-black",
+    "saves": [
+      {
+        "email": "keenan.jones2000@gmail.com",
+        "savedAt": "2025-10-22T01:16:54.721Z"
+      },
+      {
+        "email": "kydmgmt@gmail.com",
+        "savedAt": "2025-10-23T04:31:51.389Z"
+      }
+    ],
+    "releases": []
+  },
+  {
+    "productId": "socks-white",
+    "saves": [
+      {
+        "email": "keenan.jones2000@gmail.com",
+        "savedAt": "2025-10-22T01:33:36.858Z"
+      }
+    ],
+    "releases": []
+  }
+]
