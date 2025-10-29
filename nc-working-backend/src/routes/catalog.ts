@@ -655,8 +655,10 @@ function readSessionId(req: Request) {
 }
 
 function setSessionCookie(res: Response, id: string) {
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(id)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_MS / 1000}${secure}`;
+  const isProduction = process.env.NODE_ENV === "production";
+  const secure = isProduction ? "; Secure" : "";
+  const sameSite = isProduction ? "None" : "Lax";
+  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(id)}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${SESSION_TTL_MS / 1000}${secure}`;
   if (typeof res.append === "function") {
     res.append("Set-Cookie", cookie);
   } else {
