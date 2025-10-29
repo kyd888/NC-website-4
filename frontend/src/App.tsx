@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
@@ -128,6 +128,7 @@ const formatHoldCountdown = (seconds: number) => {
 const MULTIPLY = "\u00D7";
 
 function App() {
+  const headerRef = useRef<HTMLElement | null>(null);
   const {
     state: dropState,
     remainingById,
@@ -160,6 +161,48 @@ function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const [refreshKey, setRefreshKey] = useState(0);
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const root = document.documentElement;
+
+    const updateOffset = () => {
+      const headerStyles = getComputedStyle(header);
+      const position = headerStyles.position;
+      if (position !== "fixed" && position !== "sticky") {
+        root.style.setProperty("--header-offset", "0px");
+        return;
+      }
+      const height = header.getBoundingClientRect().height;
+      const safeTopValue = getComputedStyle(root).getPropertyValue("--safe-area-top") || "0";
+      const safeTop = Number.parseFloat(safeTopValue) || 0;
+      const offset = Math.max(0, Math.ceil(height - safeTop));
+      root.style.setProperty("--header-offset", `${offset}px`);
+    };
+
+    let frame = 0;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(updateOffset);
+    };
+
+    updateOffset();
+
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    if (observer) observer.observe(header);
+
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+      cancelAnimationFrame(frame);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -670,7 +713,7 @@ function App() {
 
   return (
     <div className="grain" style={{ background: "#f2f2ee" }}>
-      <header className="header">
+      <header ref={headerRef} className="header">
         <div className="container header-row">
           <div className="brand">
             <img className="brand-mark" src="/logo.png" alt="NC" />
@@ -705,6 +748,7 @@ function App() {
         </div>
       </header>
 
+      <main className="page-content" role="main">
       {loadingCatalog && <div style={{ padding: 24 }}>Loading catalog...</div>}
       {!loadingCatalog && loadError && <div style={{ padding: 24 }}>{loadError}</div>}
       {!loadingCatalog && !loadError && visibleCatalog.length === 0 && (
@@ -1003,6 +1047,7 @@ function App() {
         )}
       </AnimatePresence>
 
+      </main>
       <PaymentModal
         open={paymentModalOpen}
         intent={paymentIntentState}
@@ -1912,3 +1957,4 @@ function StripePaymentForm({
 
 
 export default App;
+
