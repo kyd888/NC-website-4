@@ -178,11 +178,7 @@ function App() {
         const data = await res.json().catch(() => null);
         if (cancelled || !data) return;
         if (data.cart) {
-          const items = toCartList(data.cart);
-          setCart(items);
-          if (items.length) {
-            setCartOpen(true);
-          }
+          setCart(toCartList(data.cart));
         }
       } catch {
         // ignore
