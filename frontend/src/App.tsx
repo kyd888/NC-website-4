@@ -167,6 +167,30 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadCart = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/cart/state`, {
+          headers: { Accept: "application/json" },
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (cancelled || !data) return;
+        if (data.cart) {
+          setCart(toCartList(data.cart));
+        }
+      } catch {
+        // ignore
+      }
+    };
+    loadCart();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     setCart((prev) => {
       const filtered = prev.filter(
         (item) => !item.holdExpiresAt || item.holdExpiresAt > nowTick,
