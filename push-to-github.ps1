@@ -1,6 +1,6 @@
 # push-to-github.ps1
 param(
-  [string]$RepoUrl = "https://github.com/kyd888/https-github.com-kyd888-NC-website-3.git",
+  [string]$RepoUrl = "https://github.com/kyd888/NC-website-4.git",
   [string]$Branch = "main"
 )
 
