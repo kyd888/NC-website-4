@@ -178,7 +178,11 @@ function App() {
         const data = await res.json().catch(() => null);
         if (cancelled || !data) return;
         if (data.cart) {
-          setCart(toCartList(data.cart));
+          const items = toCartList(data.cart);
+          setCart(items);
+          if (items.length) {
+            setCartOpen(true);
+          }
         }
       } catch {
         // ignore
@@ -1912,9 +1916,3 @@ function StripePaymentForm({
 
 
 export default App;
-
-
-
-
-
-
