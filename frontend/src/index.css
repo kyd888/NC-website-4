@@ -2,6 +2,23 @@
 html,body,#root{height:100%;width:100%;max-width:100%;overflow-x:hidden;}
 @supports(overflow:clip){html,body{overflow-x:clip;}}
 html{-webkit-text-size-adjust:100%;}
+html{
+  scrollbar-width:thin;
+  scrollbar-color:rgba(17,17,17,.28) transparent;
+}
+html::-webkit-scrollbar{
+  width:8px;
+}
+html::-webkit-scrollbar-track{
+  background:transparent;
+}
+html::-webkit-scrollbar-thumb{
+  background:rgba(17,17,17,.28);
+  border-radius:999px;
+}
+html::-webkit-scrollbar-thumb:hover{
+  background:rgba(17,17,17,.42);
+}
 :root{
   --safe-area-top: 0px;
   --safe-area-right: 0px;
@@ -101,6 +118,7 @@ input,select,textarea{font-size:16px}
   width: auto;
   height: auto;
   object-fit: contain;
+  transform: translateY(-12px);
 }
 
 
@@ -654,19 +672,19 @@ input,select,textarea{font-size:16px}
 
 /* --- optional variants --- */
 
-/* “info” (blue-grey) */
+/* â€œinfoâ€ (blue-grey) */
 .save-sheet__note--info{
   background:#f5f7fb; border-color:#e1e6f2; color:#1f2a44;
 }
 .save-sheet__note--info::after{ background: linear-gradient(180deg,#1f2a44,#4b5d85); }
 
-/* “success” (green) */
+/* â€œsuccessâ€ (green) */
 .save-sheet__note--success{
   background:#eef8f2; border-color:#d7edde; color:#155437;
 }
 .save-sheet__note--success::after{ background: linear-gradient(180deg,#0f6b3a,#5aa673); }
 
-/* “warning” (amber) */
+/* â€œwarningâ€ (amber) */
 .save-sheet__note--warn{
   background:#fff7ea; border-color:#ffe6bf; color:#6b4a0f;
 }
