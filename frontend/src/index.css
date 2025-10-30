@@ -473,7 +473,10 @@ input,select,textarea{font-size:16px}
   overscroll-behavior:contain;
   -webkit-overflow-scrolling:touch;
   scrollbar-gutter: stable both-edges;
+  -ms-overflow-style: none; /* IE 10+ */
+  scrollbar-width: none; /* Firefox */
 }
+.payment-sheet::-webkit-scrollbar{display:none;} /* Chrome/Safari */
 @supports (height: 100dvh) {
   .payment-sheet{
     max-height: calc(100dvh - var(--safe-area-top, 0px) - var(--header-offset, 0px) - 16px);
