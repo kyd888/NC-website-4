@@ -101,40 +101,41 @@ input,select,textarea{font-size:16px}
   align-items:center;
   justify-content:center;
   gap:32px;
-  min-height: calc(100vh - var(--header-offset, 0px) - var(--safe-area-bottom, 0px));
+  min-height: calc(100vh - var(--safe-area-bottom, 0px));
   overflow:hidden;
 }
 @supports (height: 100dvh) {
   .page-content--single{
-    min-height: calc(100dvh - var(--header-offset, 0px) - var(--safe-area-bottom, 0px));
+    min-height: calc(100dvh - var(--safe-area-bottom, 0px));
   }
 }
 .page-content--single .section{
   width:100%;
+  min-height:auto;
   padding-top:0;
   padding-bottom:0;
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
-  min-height:min(61rem, calc(100vh - var(--header-offset, 0px) - var(--safe-area-bottom, 0px)));
 }
-@supports (height: 100dvh) {
-  .page-content--single .section{
-    min-height:min(61rem, calc(100dvh - var(--header-offset, 0px) - var(--safe-area-bottom, 0px)));
-  }
-}
-.page-content--single .media{
-  padding:16px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-}
-.page-content--single .media img{
-  max-height:min(34.5rem, calc(100vh - var(--header-offset, 0px) - var(--safe-area-bottom, 0px) - 16rem));
+.page-content--single .meta{
+  margin-top:24px;
 }
 .page-content--multi{
   display:block;
+}
+
+.page-content--single .media{
+  padding:16px;
+}
+.page-content--single .media img{
+  max-height:min(65vh, 540px);
+}
+.meta--single{
+  position:static;
+  width:100%;
+  padding-bottom:calc(24px + var(--safe-area-bottom, 0px));
 }
 
 /* === Raise the product slightly === */
