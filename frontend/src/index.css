@@ -102,6 +102,7 @@ input,select,textarea{font-size:16px}
   justify-content:center;
   gap:32px;
   min-height: calc(100vh - var(--safe-area-bottom, 0px));
+  overflow:hidden;
 }
 @supports (height: 100dvh) {
   .page-content--single{
@@ -110,12 +111,32 @@ input,select,textarea{font-size:16px}
 }
 .page-content--single .section{
   width:100%;
-  padding-top: calc(8vh + var(--safe-area-top, 0px));
-  padding-bottom: calc(8vh + var(--safe-area-bottom, 0px));
-  min-height:auto;
+  padding-top:0;
+  padding-bottom:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  min-height:min(61rem, calc(100vh - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px)));
+}
+@supports (height: 100dvh) {
+  .page-content--single .section{
+    min-height:min(61rem, calc(100dvh - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px)));
+  }
 }
 .page-content--single .meta{
-  margin-top:16px;
+  margin-top:24px;
+}
+.page-content--single .media{
+  padding:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.page-content--single .media img{
+  max-height:min(34.5rem, 70vh);
+  width:auto;
+  height:auto;
 }
 .page-content--multi{
   display:block;
