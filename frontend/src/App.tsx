@@ -126,9 +126,36 @@ const formatHoldCountdown = (seconds: number) => {
 };
 
 const MULTIPLY = "\u00D7";
+const SESSION_STORAGE_KEY = "nc_session_id";
+
+async function fetchWithSession(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  if (typeof window !== "undefined") {
+    const sessionId = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (sessionId) {
+      headers.set("x-session-id", sessionId);
+    }
+  }
+
+  const response = await fetch(input, {
+    ...init,
+    headers,
+    credentials: init.credentials ?? "include",
+  });
+
+  if (typeof window !== "undefined") {
+    const newSession = response.headers.get("x-session-id");
+    if (newSession) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, newSession);
+    }
+  }
+
+  return response;
+}
 
 function App() {
   const headerRef = useRef<HTMLElement | null>(null);
+  const metaRef = useRef<HTMLDivElement | null>(null);
   const {
     state: dropState,
     remainingById,
@@ -163,46 +190,69 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useLayoutEffect(() => {
-    const header = headerRef.current;
-    if (!header) return;
     const root = document.documentElement;
 
-    const updateOffset = () => {
-      const headerStyles = getComputedStyle(header);
-      const position = headerStyles.position;
-      if (position !== "fixed" && position !== "sticky") {
+    const updateOffsets = () => {
+      const header = headerRef.current;
+      const headerStyles = header ? getComputedStyle(header) : null;
+      const position = headerStyles?.position ?? "";
+      if (header && (position === "fixed" || position === "sticky")) {
+        const height = header.getBoundingClientRect().height;
+        const safeTopValue = getComputedStyle(root).getPropertyValue("--safe-area-top") || "0";
+        const safeTop = Number.parseFloat(safeTopValue) || 0;
+        const offset = Math.max(0, Math.ceil(height - safeTop));
+        root.style.setProperty("--header-offset", `${offset}px`);
+      } else {
         root.style.setProperty("--header-offset", "0px");
-        return;
       }
-      const height = header.getBoundingClientRect().height;
-      const safeTopValue = getComputedStyle(root).getPropertyValue("--safe-area-top") || "0";
-      const safeTop = Number.parseFloat(safeTopValue) || 0;
-      const offset = Math.max(0, Math.ceil(height - safeTop));
-      root.style.setProperty("--header-offset", `${offset}px`);
+
+      const meta = metaRef.current;
+      if (meta) {
+        const metaHeight = Math.ceil(meta.getBoundingClientRect().height);
+        root.style.setProperty("--meta-offset", `${metaHeight}px`);
+      } else {
+        root.style.setProperty("--meta-offset", "0px");
+      }
     };
 
     let frame = 0;
     const schedule = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(updateOffset);
+      frame = requestAnimationFrame(updateOffsets);
     };
 
-    updateOffset();
+    let observers: ResizeObserver[] = [];
+    const setupObservers = () => {
+      observers.forEach((observer) => observer.disconnect());
+      observers = [];
+      if (typeof ResizeObserver === "undefined") return;
+      const header = headerRef.current;
+      if (header) {
+        const observer = new ResizeObserver(schedule);
+        observer.observe(header);
+        observers.push(observer);
+      }
+      const meta = metaRef.current;
+      if (meta) {
+        const observer = new ResizeObserver(schedule);
+        observer.observe(meta);
+        observers.push(observer);
+      }
+    };
 
-    const observer =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
-    if (observer) observer.observe(header);
+    updateOffsets();
+    setupObservers();
 
     window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", schedule);
 
     return () => {
-      if (observer) observer.disconnect();
+      observers.forEach((observer) => observer.disconnect());
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
       cancelAnimationFrame(frame);
     };
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -213,9 +263,8 @@ function App() {
     let cancelled = false;
     const loadCart = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/cart/state`, {
+        const res = await fetchWithSession(`${BACKEND_URL}/api/cart/state`, {
           headers: { Accept: "application/json" },
-          credentials: "include",
         });
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
@@ -265,9 +314,8 @@ function App() {
     const fetchCatalog = async () => {
       setLoadingCatalog(true);
       try {
-        const res = await fetch(`${BACKEND_URL}/api/products`, {
+        const res = await fetchWithSession(`${BACKEND_URL}/api/products`, {
           headers: { Accept: "application/json" },
-          credentials: "include",
         });
         if (!res.ok) throw new Error(`Request failed: ${res.status}`);
         const data = await res.json();
@@ -471,11 +519,10 @@ function App() {
 
   async function addToCart(productId: string) {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/cart/add`, {
+      const res = await fetchWithSession(`${BACKEND_URL}/api/cart/add`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId, qty: 1 }),
-        credentials: "include",
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) {
@@ -522,11 +569,10 @@ function App() {
         if (name) payload.name = name;
       }
 
-      const res = await fetch(`${BACKEND_URL}/api/save`, {
+      const res = await fetchWithSession(`${BACKEND_URL}/api/save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        credentials: "include",
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) {
@@ -605,11 +651,10 @@ function App() {
 
   async function removeFromCart(productId: string, qty = 1, message?: string) {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/cart/remove`, {
+      const res = await fetchWithSession(`${BACKEND_URL}/api/cart/remove`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId, qty }),
-        credentials: "include",
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) {
@@ -637,9 +682,8 @@ function App() {
     setCheckoutLoading(true);
     setPaymentError(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/checkout/create-intent`, {
+      const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, {
         method: "POST",
-        credentials: "include",
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.clientSecret) {
@@ -662,9 +706,8 @@ function App() {
 
   async function finalizeCheckout(paymentIntentId: string, customer: CheckoutCustomer): Promise<boolean> {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/checkout/confirm`, {
+      const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paymentIntentId, customer }),
       });
@@ -813,7 +856,7 @@ function App() {
       ))}
 
       {active && (
-        <div className="meta">
+        <div ref={metaRef} className="meta">
           <div style={{ display: "grid", gap: 6 }}>
             <div className="title-wrap">
               <AnimatePresence mode="wait" initial={false}>
@@ -1982,6 +2025,4 @@ function StripePaymentForm({
 
 
 export default App;
-
-
 
