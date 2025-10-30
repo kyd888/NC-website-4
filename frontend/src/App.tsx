@@ -730,6 +730,13 @@ function App() {
   const pageContentClass = singleItemMode
     ? "page-content page-content--single"
     : "page-content page-content--multi";
+  const metaClassName = [
+    "meta",
+    singleItemMode ? "meta--single" : "",
+    itemsTotal > 0 ? "meta--has-cart" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="grain" style={{ background: "#f2f2ee" }}>
@@ -808,7 +815,7 @@ function App() {
       ))}
 
       {active && (
-        <div className="meta">
+        <div className={metaClassName}>
           <div style={{ display: "grid", gap: 6 }}>
             <div className="title-wrap">
               <AnimatePresence mode="wait" initial={false}>
