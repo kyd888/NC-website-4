@@ -118,7 +118,7 @@ input,select,textarea{font-size:16px}
   width: auto;
   height: auto;
   object-fit: contain;
-  transform: translateY(-20px);
+  transform: translateY(-16px);
 }
 
 
@@ -127,7 +127,7 @@ input,select,textarea{font-size:16px}
   .section {
     min-height: calc(100vh - 140px);
     padding-top: calc(10vh + env(safe-area-inset-top));
-    padding-bottom: calc(15vh + env(safe-area-inset-bottom));
+    padding-bottom: calc(12vh + env(safe-area-inset-bottom));
   }
 }
 
