@@ -404,6 +404,7 @@ function App() {
   );
 
   const activeRemaining = active ? remainingById[active.id] ?? 0 : 0;
+  const singleItemMode = visibleCatalog.length === 1;
   const isLive = dropState === "live";
   const canAdd = Boolean(active && isLive && activeRemaining > 0);
   const showSave = Boolean(active && (!isLive || activeRemaining <= 0));
@@ -711,6 +712,25 @@ function App() {
 
   const refetchCatalog = () => setRefreshKey((key) => key + 1);
 
+  useEffect(() => {
+    const body = document.body;
+    if (singleItemMode) {
+      body.classList.add("single-item-mode");
+      body.classList.remove("multi-item-mode");
+    } else {
+      body.classList.remove("single-item-mode");
+      body.classList.add("multi-item-mode");
+    }
+    return () => {
+      body.classList.remove("single-item-mode");
+      body.classList.remove("multi-item-mode");
+    };
+  }, [singleItemMode]);
+
+  const pageContentClass = singleItemMode
+    ? "page-content page-content--single"
+    : "page-content page-content--multi";
+
   return (
     <div className="grain" style={{ background: "#f2f2ee" }}>
       <header ref={headerRef} className="header">
@@ -748,7 +768,7 @@ function App() {
         </div>
       </header>
 
-      <main className="page-content" role="main">
+      <main className={pageContentClass} role="main">
       {loadingCatalog && <div style={{ padding: 24 }}>Loading catalog...</div>}
       {!loadingCatalog && loadError && <div style={{ padding: 24 }}>{loadError}</div>}
       {!loadingCatalog && !loadError && visibleCatalog.length === 0 && (
@@ -1957,4 +1977,3 @@ function StripePaymentForm({
 
 
 export default App;
-
