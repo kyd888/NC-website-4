@@ -251,10 +251,15 @@ function App() {
       if (!src) return "";
       src = src.replace(/\\/g, "/");
       src = src.replace(/^\/?public\//i, "/");
-      if (!/^https?:\/\//i.test(src) && !src.startsWith("/")) {
+      if (/^data:/i.test(src)) return src;
+      if (/^https?:\/\//i.test(src)) return src;
+      if (src.startsWith("//")) {
+        return window.location?.protocol ? `${window.location.protocol}${src}` : `https:${src}`;
+      }
+      if (!src.startsWith("/")) {
         src = "/" + src;
       }
-      return src;
+      return `${BACKEND_URL}${src}`;
     };
 
     const fetchCatalog = async () => {
@@ -730,13 +735,6 @@ function App() {
   const pageContentClass = singleItemMode
     ? "page-content page-content--single"
     : "page-content page-content--multi";
-  const metaClassName = [
-    "meta",
-    singleItemMode ? "meta--single" : "",
-    itemsTotal > 0 ? "meta--has-cart" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
 
   return (
     <div className="grain" style={{ background: "#f2f2ee" }}>
@@ -815,7 +813,7 @@ function App() {
       ))}
 
       {active && (
-        <div className={metaClassName}>
+        <div className="meta">
           <div style={{ display: "grid", gap: 6 }}>
             <div className="title-wrap">
               <AnimatePresence mode="wait" initial={false}>
@@ -1984,3 +1982,6 @@ function StripePaymentForm({
 
 
 export default App;
+
+
+
