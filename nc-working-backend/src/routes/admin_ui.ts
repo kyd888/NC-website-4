@@ -232,8 +232,11 @@ adminUiRouter.get("/", (_req, res) => {
                 <div><label>Tags (comma separated)</label><input id="np_tags" placeholder="T-Shirt, Essentials" /></div>
               </div>
               <div class="btnline">
+                <input id="np_upload" type="file" accept="image/*" style="display:none" />
+                <button class="btn" id="btnUploadProdImage" type="button">Upload image</button>
                 <button class="btn primary" id="btnAddProd" type="button">Add product</button>
               </div>
+              <div class="form-note" id="np_status"></div>
             </div>
           </div>
         </section>
@@ -307,6 +310,11 @@ adminUiRouter.get("/", (_req, res) => {
   const vaultReadyInfo = document.getElementById("vaultReadyInfo");
   const vaultSavesList = document.getElementById("vaultSavesList");
   const newProductTags = document.getElementById("np_tags");
+  const newProductIdInput = document.getElementById("np_id");
+  const newProductImageInput = document.getElementById("np_image");
+  const newProductUploadInput = document.getElementById("np_upload");
+  const newProductUploadButton = document.getElementById("btnUploadProdImage");
+  const newProductStatus = document.getElementById("np_status");
 
   const storedKey = window.localStorage.getItem("nc_admin_key");
   if (storedKey) keyInput.value = storedKey;
@@ -777,10 +785,11 @@ adminUiRouter.get("/", (_req, res) => {
     }
   }
 
-  async function handleUpload(productId, input) {
+  async function handleUpload(productId, input, options = {}) {
+    const { skipPatchOnMissing = false, refresh = true } = options;
     try {
       requireKey();
-      if (!input.files || !input.files.length) return;
+      if (!input.files || !input.files.length) return null;
       const fd = new FormData();
       fd.append("file", input.files[0]);
       const res = await fetch("/api/admin/upload-image", {
@@ -792,16 +801,82 @@ adminUiRouter.get("/", (_req, res) => {
       if (!res.ok || !data.url) {
         throw new Error(data.error || "Upload failed");
       }
-      await apiJson("/api/admin/products/" + encodeURIComponent(productId), {
-        method: "PATCH",
-        body: { imageUrl: data.url },
-      });
-      await refreshProducts();
+      let patched = false;
+      if (options.patch !== false) {
+        try {
+          await apiJson("/api/admin/products/" + encodeURIComponent(productId), {
+            method: "PATCH",
+            body: { imageUrl: data.url },
+          });
+          patched = true;
+        } catch (err) {
+          const message = typeof err?.message === "string" ? err.message.toLowerCase() : "";
+          const skip = skipPatchOnMissing && message.includes("not found");
+          if (!skip) {
+            throw err;
+          }
+        }
+      }
+      if (patched && refresh) {
+        await refreshProducts();
+      }
+      if (typeof options.onUploaded === "function") {
+        options.onUploaded(data.url, patched);
+      }
+      return { url: data.url, patched };
     } catch (err) {
       alert(err.message || String(err));
+      return null;
     } finally {
       input.value = "";
     }
+  }
+
+  if (newProductUploadButton && newProductUploadInput) {
+    newProductUploadButton.addEventListener("click", () => {
+      try {
+        requireKey();
+      } catch {
+        return;
+      }
+      const productId = newProductIdInput ? newProductIdInput.value.trim() : "";
+      if (!productId) {
+        alert("Enter the product ID first so the image can be linked.");
+        return;
+      }
+      newProductUploadInput.click();
+    });
+
+    newProductUploadInput.addEventListener("change", async () => {
+      if (!newProductUploadInput.files || !newProductUploadInput.files.length) return;
+      const productId = newProductIdInput ? newProductIdInput.value.trim() : "";
+      if (!productId) {
+        alert("Enter the product ID first so the image can be linked.");
+        newProductUploadInput.value = "";
+        return;
+      }
+      if (newProductStatus) {
+        newProductStatus.textContent = "";
+      }
+      const result = await handleUpload(productId, newProductUploadInput, {
+        skipPatchOnMissing: true,
+        refresh: false,
+      });
+      if (!result) {
+        return;
+      }
+      if (newProductImageInput) {
+        newProductImageInput.value = result.url;
+      }
+      if (newProductStatus) {
+        newProductStatus.textContent = result.patched
+          ? "Image uploaded and product updated."
+          : "Image uploaded. Complete the product details and click Add product to create it.";
+      }
+      if (result.patched) {
+        await refreshProducts();
+      }
+    });
   }
 
   async function handleToggle(product, nextEnabled) {
@@ -1384,6 +1459,7 @@ adminUiRouter.get("/", (_req, res) => {
       const priceCents = Number(document.getElementById("np_price").value.trim());
       const imageUrl = document.getElementById("np_image").value.trim();
       const tags = parseTags(newProductTags ? newProductTags.value : "");
+      if (newProductStatus) newProductStatus.textContent = "";
       if (!id || !title || !Number.isFinite(priceCents)) {
         alert("Fill all fields.");
         return;
@@ -1403,10 +1479,14 @@ adminUiRouter.get("/", (_req, res) => {
       document.getElementById("np_price").value = "";
       document.getElementById("np_image").value = "";
       if (newProductTags) newProductTags.value = "";
+      if (newProductStatus) newProductStatus.textContent = "Product saved.";
       dropQty[id] = 0;
       await refreshProducts();
     } catch (err) {
       alert(err.message || String(err));
+      if (newProductStatus) {
+        newProductStatus.textContent = err.message || String(err);
+      }
     }
   });
 
@@ -1477,7 +1557,5 @@ adminUiRouter.get("/", (_req, res) => {
 </body>
 </html>`);
 });
-
-
 
 
