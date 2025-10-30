@@ -648,11 +648,20 @@ function ensureSession(req: Request, res: Response) {
   if (sid !== sidFromCookie) {
     setSessionCookie(res, sid);
   }
+  res.setHeader("X-Session-Id", sid);
 
   return { id: sid, session };
 }
 
 function readSessionId(req: Request) {
+  const headerId = req.get("x-session-id");
+  if (typeof headerId === "string") {
+    const trimmed = headerId.trim();
+    if (/^[A-Za-z0-9\-_]{8,}$/.test(trimmed)) {
+      return trimmed;
+    }
+  }
+
   const header = req.headers.cookie;
   if (!header) return null;
   const cookies = header.split(";").map((part) => part.trim());
