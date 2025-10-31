@@ -422,14 +422,10 @@ function App() {
     return visibleCatalog.find((item) => item.id === activeId) ?? fallback;
   }, [visibleCatalog, activeId]);
 
-  const totalRemaining = useMemo(
-    () =>
-      Object.entries(remainingById).reduce(
-        (acc, [, qty]) => (Number.isFinite(qty) ? acc + qty : acc),
-        0,
-      ),
-    [remainingById],
-  );
+  const totalRemaining = useMemo(() => {
+    const entries = Object.entries(remainingById) as Array<[string, number]>;
+    return entries.reduce((acc, [, qty]) => acc + qty, 0);
+  }, [remainingById]);
 
   const activeRemaining = active ? remainingById[active.id] ?? 0 : 0;
   const singleItemMode = visibleCatalog.length === 1;
@@ -2000,3 +1996,9 @@ function StripePaymentForm({
 
 
 export default App;
+
+
+
+
+
+
