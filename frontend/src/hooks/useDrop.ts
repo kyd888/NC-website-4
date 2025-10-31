@@ -1,222 +1,174 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchWithSession } from "../lib/session";
 
-export type ShippingAddress = {
-  line1: string;
-  line2?: string;
-  city?: string;
-  state?: string;
-  postalCode?: string;
-  country?: string;
-};
-
-export type AccountUser = {
+type DropState = "idle" | "scheduled" | "live";
+type DropInfo = {
   id: string;
-  email: string;
-  name?: string;
-  defaultShipping?: ShippingAddress;
-  createdAt: string;
-  updatedAt: string;
+  code?: string;
+  startsAt: string;
+  endsAt: string;
+  status?: DropState | "ended";
 };
 
-export type OrderLineItem = {
+type DropProduct = {
+  id: string;
+  title: string;
+  priceCents?: number;
+  imageUrl?: string;
+  remaining: number;
+  tags?: string[] | string;
+};
+
+type VaultPendingRelease = {
+  releaseId: string;
+  restockQty: number;
+  durationMinutes: number;
+  triggeredAt: string;
+};
+
+type VaultRelease = {
+  id: string;
   productId: string;
-  productTitle?: string;
-  qty: number;
-  priceCents: number;
-  lineTotalCents: number;
+  restockQty: number;
+  durationMinutes: number;
+  triggeredAt: string;
+  dropId?: string;
+  startsAt?: string;
+  endsAt?: string;
+  notifiedEmails?: string[];
+  status: "pending" | "live" | "completed";
 };
 
-export type AccountOrder = {
-  orderId: string;
-  ts: string;
-  totalCents: number;
-  totalItems: number;
-  paymentRef?: string;
-  shippingAddress?: ShippingAddress;
-  customerName?: string;
-  customerEmail?: string;
-  items: OrderLineItem[];
+export type VaultInfo = {
+  saves: number;
+  threshold: number;
+  pendingRelease?: VaultPendingRelease | null;
+  activeRelease?: VaultRelease | null;
+  lastRelease?: VaultRelease | null;
 };
 
-type ApiResponse<T> = { ok: true } & T;
+type DropResponse = {
+  state?: DropState;
+  drop?: DropInfo | null;
+  products?: DropProduct[];
+  remaining?: Record<string, number>;
+  vault?: Record<string, VaultInfo>;
+};
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetchWithSession(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}));
-    const message =
-      (typeof errorBody?.error === "string" && errorBody.error) ||
-      res.statusText ||
-      "Request failed";
-    throw new Error(message);
-  }
-  return (await res.json()) as T;
-}
+export function useDrop(baseUrl: string) {
+  const [state, setState] = useState<DropState>("idle");
+  const [drop, setDrop] = useState<DropInfo | null>(null);
+  const [products, setProducts] = useState<DropProduct[]>([]);
+  const [remainingById, setRemainingById] = useState<Record<string, number>>({});
+  const [vaultById, setVaultById] = useState<Record<string, VaultInfo>>({});
+  const cancelledRef = useRef(false);
 
-export function useAccount(apiBase: string) {
-  const [user, setUser] = useState<AccountUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [orders, setOrders] = useState<AccountOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const meEndpoint = `${apiBase}/api/account/me`;
-
-  const loadUser = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadState = useCallback(async () => {
     try {
-      const data = await fetchJson<ApiResponse<{ user: AccountUser }>>(meEndpoint, {
-        method: "GET",
+      const res = await fetchWithSession(`${baseUrl}/api/drop/state`, {
+        headers: { Accept: "application/json" },
       });
-      setUser(data.user);
-    } catch (err) {
-      setUser(null);
-      if (err instanceof Error && err.message !== "Unauthorized") {
-        setError(err.message);
+      if (!res.ok) throw new Error(`Drop state ${res.status}`);
+      const data: DropResponse = await res.json();
+      if (cancelledRef.current) return;
+
+      const nextState: DropState = data.state ?? "idle";
+      setState(nextState);
+      setDrop(data.drop ?? null);
+
+      const rem = data.remaining ?? {};
+      setRemainingById(rem);
+      setVaultById(data.vault ?? {});
+
+      if (Array.isArray(data.products)) {
+        setProducts(
+          data.products.map((p) => ({
+            id: p.id,
+            title: p.title,
+            priceCents: p.priceCents,
+            imageUrl: p.imageUrl,
+            remaining: rem[p.id] ?? p.remaining ?? 0,
+            tags: Array.isArray(p.tags)
+              ? p.tags
+              : typeof p.tags === "string"
+              ? p.tags
+                  .split(",")
+                  .map((tag) => tag.trim())
+                  .filter(Boolean)
+              : undefined,
+          })),
+        );
+      } else {
+        setProducts([]);
       }
-    } finally {
-      setLoading(false);
+    } catch {
+      if (!cancelledRef.current) {
+        setState("idle");
+        setDrop(null);
+        setProducts([]);
+        setRemainingById({});
+        setVaultById({});
+      }
     }
-  }, [meEndpoint]);
+  }, [baseUrl]);
 
   useEffect(() => {
-    void loadUser();
-  }, [loadUser]);
+    cancelledRef.current = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let es: EventSource | null = null;
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      setError(null);
-      const data = await fetchJson<ApiResponse<{ user: AccountUser }>>(
-        `${apiBase}/api/account/login`,
-        {
-          method: "POST",
-          body: JSON.stringify({ email, password }),
-        },
-      );
-      setUser(data.user);
-      return data.user;
-    },
-    [apiBase],
-  );
+    const connectStream = () => {
+      es = new EventSource(`${baseUrl}/api/inventory/stream`);
+      es.addEventListener("inv", (evt) => {
+        if (cancelledRef.current) return;
+        try {
+          const payload = JSON.parse((evt as MessageEvent).data) as {
+            productId: string;
+            remaining: number;
+          };
+          setRemainingById((prev) => ({
+            ...prev,
+            [payload.productId]: payload.remaining,
+          }));
+          setProducts((prev) =>
+            prev.map((item) =>
+              item.id === payload.productId
+                ? { ...item, remaining: payload.remaining }
+                : item,
+            ),
+          );
+        } catch {
+          // ignore malformed SSE payload
+        }
+      });
+      es.onerror = () => {
+        es?.close();
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(connectStream, 1500);
+      };
+    };
 
-  const register = useCallback(
-    async (params: { email: string; password: string; name?: string }) => {
-      setError(null);
-      const data = await fetchJson<ApiResponse<{ user: AccountUser }>>(
-        `${apiBase}/api/account/register`,
-        {
-          method: "POST",
-          body: JSON.stringify(params),
-        },
-      );
-      setUser(data.user);
-      return data.user;
-    },
-    [apiBase],
-  );
+    void loadState();
+    connectStream();
 
-  const logout = useCallback(async () => {
-    await fetchJson<ApiResponse<Record<string, never>>>(`${apiBase}/api/account/logout`, {
-      method: "POST",
-    });
-    setUser(null);
-    setOrders([]);
-  }, [apiBase]);
+    return () => {
+      cancelledRef.current = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
+    };
+  }, [baseUrl, loadState]);
 
-  const saveShipping = useCallback(
-    async (address: ShippingAddress) => {
-      if (!user) return null;
-      const data = await fetchJson<ApiResponse<{ user: AccountUser }>>(
-        `${apiBase}/api/account/shipping`,
-        {
-          method: "POST",
-          body: JSON.stringify(address),
-        },
-      );
-      setUser(data.user);
-      return data.user;
-    },
-    [apiBase, user],
-  );
-
-  const updateProfile = useCallback(
-    async (input: { name?: string; defaultShipping?: ShippingAddress }) => {
-      if (!user) return null;
-      const data = await fetchJson<ApiResponse<{ user: AccountUser }>>(
-        `${apiBase}/api/account/profile`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(input),
-        },
-      );
-      setUser(data.user);
-      return data.user;
-    },
-    [apiBase, user],
-  );
-
-  const loadOrders = useCallback(async () => {
-    if (!user) {
-      setOrders([]);
-      return;
-    }
-    setOrdersLoading(true);
-    try {
-      const data = await fetchJson<ApiResponse<{ orders: AccountOrder[] }>>(
-        `${apiBase}/api/account/orders`,
-        {
-          method: "GET",
-        },
-      );
-      setOrders(data.orders);
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      }
-    } finally {
-      setOrdersLoading(false);
-    }
-  }, [apiBase, user]);
-
-  const value = useMemo(
+  return useMemo(
     () => ({
-      user,
-      loading,
-      error,
-      orders,
-      ordersLoading,
-      login,
-      register,
-      logout,
-      refreshUser: loadUser,
-      saveShipping,
-      updateProfile,
-      loadOrders,
-      setOrders,
+      state,
+      drop,
+      products,
+      remainingById,
+      vaultById,
+      refresh: loadState,
     }),
-    [
-      user,
-      loading,
-      error,
-      orders,
-      ordersLoading,
-      login,
-      register,
-      logout,
-      loadUser,
-      saveShipping,
-      updateProfile,
-      loadOrders,
-    ],
+    [state, drop, products, remainingById, vaultById, loadState],
   );
-
-  return value;
 }
+
+export default useDrop;
