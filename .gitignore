@@ -2,3 +2,8 @@
 .env
 frontend/.env
 nc-working-backend/.env
+nc-working-backend/dist/
+node_modules/
+frontend/node_modules/
+nc-working-backend/node_modules/
+**/node_modules/
