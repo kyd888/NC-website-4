@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { fetchWithSession } from "../lib/session";
 
 export type ShippingAddress = {
   line1: string;
@@ -41,13 +42,12 @@ export type AccountOrder = {
 type ApiResponse<T> = { ok: true } & T;
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithSession(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {}),
     },
-    credentials: "include",
   });
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
@@ -220,3 +220,4 @@ export function useAccount(apiBase: string) {
 
   return value;
 }
+
