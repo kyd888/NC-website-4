@@ -48,6 +48,7 @@ app.use(
       }
     },
     credentials: true,
+    exposedHeaders: ["X-Session-Id"],
   }),
 );
 
