@@ -19,6 +19,7 @@ export type ReceiptItem = {
   qty: number;
   priceCents: number;
   lineTotalCents: number;
+  imageUrl?: string;
 };
 
 export type ReceiptEmailPayload = {
@@ -105,6 +106,10 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
 });
 
+const RECEIPT_FALLBACK_IMAGE =
+  process.env.NC_RECEIPT_FALLBACK_IMAGE ||
+  "https://via.placeholder.com/160x160/111111/FFFFFF?text=NC";
+
 // Shorten long order IDs for display (e.g., ABCD…WXYZ)
 function condenseOrderId(orderId: string) {
   const clean = (orderId || "").replace(/[^a-zA-Z0-9]/g, "");
@@ -168,38 +173,50 @@ function formatItemsText(items: ReceiptItem[]) {
   return items
     .map((item) => {
       const title = item.title || item.productId || "Item";
-      const qty = Number.isFinite(item.qty) ? item.qty : 0;
+      const qty = Number.isFinite(item.qty) ? Number(item.qty) : 0;
       const subtotal = currencyFormatter.format((item.lineTotalCents || 0) / 100);
-      // Example: - Hoodie x2 | $80.00
       return `- ${title} x${qty} | ${subtotal}`;
     })
     .join("\n");
 }
 
 function formatItemsHtml(items: ReceiptItem[]) {
+  if (!items.length) {
+    return `<div style="padding:12px;font-family:Arial,sans-serif;font-size:13px;color:#6b7280;">No items found for this order.</div>`;
+  }
+
   const rows = items
     .map((item) => {
       const title = escapeHtml(item.title || item.productId || "Item");
       const qty = String(item.qty ?? 0);
       const subtotal = currencyFormatter.format((item.lineTotalCents || 0) / 100);
+      const imageSrc = escapeHtml(
+        item.imageUrl && /^https?:\/\//i.test(item.imageUrl)
+          ? item.imageUrl
+          : RECEIPT_FALLBACK_IMAGE,
+      );
       return `<tr>
-        <td style="padding:8px 0;">${title}</td>
-        <td style="text-align:center;padding:8px 0;">${qty}</td>
-        <td style="text-align:right;padding:8px 0;">${escapeHtml(subtotal)}</td>
+        <td style="padding:12px 0;border-bottom:1px solid rgba(17,17,17,.08);">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+            <tr>
+              <td style="width:96px;padding-right:16px;vertical-align:top;">
+                <div style="width:96px;height:96px;border-radius:22px;overflow:hidden;background:#111;">
+                  <img src="${imageSrc}" alt="${title}" style="display:block;width:96px;height:96px;object-fit:cover;"/>
+                </div>
+              </td>
+              <td style="vertical-align:top;">
+                <div style="font-weight:600;font-size:15px;letter-spacing:-0.01em;color:#111;">${title}</div>
+                <div style="margin-top:8px;font-size:12px;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;">Qty ${qty}</div>
+                <div style="margin-top:12px;font-weight:600;font-size:14px;color:#111;">${escapeHtml(subtotal)}</div>
+              </td>
+            </tr>
+          </table>
+        </td>
       </tr>`;
     })
     .join("");
 
-  return `<table style="width:100%;border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif;font-size:14px;">
-    <thead>
-      <tr>
-        <th style="text-align:left;border-bottom:1px solid #ddd;padding:6px 0;">Item</th>
-        <th style="text-align:center;border-bottom:1px solid #ddd;padding:6px 0;">Qty</th>
-        <th style="text-align:right;border-bottom:1px solid #ddd;padding:6px 0;">Subtotal</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>`;
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0;">${rows}</table>`;
 }
 
 function formatWindowLabel(minutes: number) {
@@ -230,11 +247,16 @@ export async function sendReceiptEmail(payload: ReceiptEmailPayload) {
   if (!transporter) return false;
 
   const from = process.env.SMTP_FROM!; // expected to be like Name <noreply@example.com>
-  const subject = `Your NC order ${condenseOrderId(payload.orderId)}`;
+  const orderLabel = condenseOrderId(payload.orderId);
+  const subject = `Your NC order ${orderLabel}`;
   const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
   const itemsText = formatItemsText(payload.items || []);
   const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
   const addressText = formatAddress(payload.shippingAddress);
+  const siteUrl =
+    process.env.FRONTEND_ORIGIN ??
+    process.env.BACKEND_ORIGIN ??
+    "https://nc-website.com";
 
   const textBody = `${greeting}
 
@@ -250,22 +272,84 @@ ${addressText}
 
 We will reach out when your order ships. If you have any questions, reply to this email.
 
+Visit us: ${siteUrl}
+
 The NC team`;
 
-  const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;">
-    <div style="text-align:center;margin-bottom:12px;">
-      <img src="cid:nc-logo" alt="NC" style="max-width:180px;height:auto;"/>
-    </div>
-    <p>${escapeHtml(greeting)}</p>
-    <p>Thanks for your purchase. Here are your order details:</p>
-    <p><strong>Order ID:</strong> ${escapeHtml(condenseOrderId(payload.orderId))}<br/>
-    ${payload.paymentRef ? `<strong>Payment reference:</strong> ${escapeHtml(payload.paymentRef)}<br/>` : ""}
-    <strong>Items:</strong></p>
-    ${formatItemsHtml(payload.items || [])}
-    <p><strong>Order total:</strong> ${escapeHtml(totalText)}</p>
-    <p><strong>Shipping to:</strong><br/>${escapeHtml(addressText).replace(/\n/g, "<br/>")}</p>
-    <p>We will reach out when your order ships. If you have any questions, reply to this email.</p>
-    <p>The NC team</p>
+  const addressHtml = escapeHtml(addressText).replace(/\n/g, "<br/>");
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:48px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border-radius:32px;background:#ffffff;padding:40px 36px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+            <tr>
+              <td style="text-align:center;padding-bottom:20px;">
+                <img src="cid:nc-logo" alt="NC logo" style="max-width:160px;height:auto;display:inline-block;"/>
+              </td>
+            </tr>
+            <tr>
+              <td style="text-align:center;padding-bottom:6px;">
+                <div style="font-size:12px;letter-spacing:0.32em;text-transform:uppercase;color:#6b6b6b;">Order Receipt</div>
+                <div style="margin-top:10px;font-size:26px;font-weight:700;letter-spacing:-0.03em;">#${escapeHtml(orderLabel)}</div>
+              </td>
+            </tr>
+            ${
+              payload.paymentRef
+                ? `<tr><td style="text-align:center;font-size:12px;color:#6b7280;padding-bottom:18px;">
+                    Payment reference: <span style="font-weight:600;color:#111;">${escapeHtml(payload.paymentRef)}</span>
+                  </td></tr>`
+                : ""
+            }
+            <tr>
+              <td style="padding:24px 0;border-top:1px solid rgba(17,17,17,.08);border-bottom:1px solid rgba(17,17,17,.08);">
+                ${formatItemsHtml(payload.items || [])}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                  <tr>
+                    <td style="width:50%;padding-right:14px;vertical-align:top;">
+                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Order Summary</div>
+                      <div style="margin-top:14px;font-size:16px;font-weight:700;">${escapeHtml(totalText)}</div>
+                      <div style="margin-top:10px;font-size:13px;color:#6b7280;line-height:1.6;">${escapeHtml(
+                        payload.items?.length === 1
+                          ? "1 item"
+                          : `${payload.items?.length ?? 0} items`,
+                      )}</div>
+                    </td>
+                    <td style="width:50%;padding-left:14px;vertical-align:top;">
+                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Shipping Address</div>
+                      <div style="margin-top:14px;font-size:14px;line-height:1.7;color:#111;">${addressHtml}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:32px;text-align:center;">
+                <a href="${escapeHtml(siteUrl)}" style="display:inline-block;padding:14px 28px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:600;letter-spacing:0.2em;text-transform:uppercase;font-size:12px;">Visit NC Studio</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:24px;font-size:13px;line-height:1.7;color:#111;">
+                <p style="margin:0 0 18px 0;">${escapeHtml(
+                  greeting,
+                )}</p>
+                <p style="margin:0 0 18px 0;">Thanks for your purchase. We’ll reach out as soon as your order ships. If you have any questions, simply reply to this email.</p>
+                <p style="margin:0;">The NC team</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:28px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">
+                ${escapeHtml(siteUrl)}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
   </div>`;
 
   try {
