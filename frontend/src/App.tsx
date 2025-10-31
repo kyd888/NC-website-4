@@ -252,7 +252,7 @@ function App() {
       window.removeEventListener("orientationchange", schedule);
       cancelAnimationFrame(frame);
     };
-  }, [active]);
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 1000);
@@ -2025,4 +2025,3 @@ function StripePaymentForm({
 
 
 export default App;
-
