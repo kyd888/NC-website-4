@@ -10,6 +10,7 @@ import {
   type ShippingAddress as AccountShippingAddress,
 } from "./hooks/useAccount";
 import { requireBackendUrl, stripePublishableKey } from "./config";
+import { fetchWithSession } from "./lib/session";
 
 type BackendProduct = {
   id: string;
@@ -126,32 +127,6 @@ const formatHoldCountdown = (seconds: number) => {
 };
 
 const MULTIPLY = "\u00D7";
-const SESSION_STORAGE_KEY = "nc_session_id";
-
-async function fetchWithSession(input: RequestInfo | URL, init: RequestInit = {}) {
-  const headers = new Headers(init.headers || {});
-  if (typeof window !== "undefined") {
-    const sessionId = window.localStorage.getItem(SESSION_STORAGE_KEY);
-    if (sessionId) {
-      headers.set("x-session-id", sessionId);
-    }
-  }
-
-  const response = await fetch(input, {
-    ...init,
-    headers,
-    credentials: init.credentials ?? "include",
-  });
-
-  if (typeof window !== "undefined") {
-    const newSession = response.headers.get("x-session-id");
-    if (newSession) {
-      window.localStorage.setItem(SESSION_STORAGE_KEY, newSession);
-    }
-  }
-
-  return response;
-}
 
 function App() {
   const headerRef = useRef<HTMLElement | null>(null);
