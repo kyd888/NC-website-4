@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fetchWithSession } from "../lib/session";
 
 type DropState = "idle" | "scheduled" | "live";
 type DropInfo = {
@@ -64,8 +65,7 @@ export function useDrop(baseUrl: string) {
 
   const loadState = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/drop/state`, {
-        credentials: "include",
+      const res = await fetchWithSession(`${baseUrl}/api/drop/state`, {
         headers: { Accept: "application/json" },
       });
       if (!res.ok) throw new Error(`Drop state ${res.status}`);
@@ -170,3 +170,4 @@ export function useDrop(baseUrl: string) {
     [state, drop, products, remainingById, vaultById, loadState],
   );
 }
+
