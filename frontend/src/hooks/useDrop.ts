@@ -170,4 +170,3 @@ export function useDrop(baseUrl: string) {
     [state, drop, products, remainingById, vaultById, loadState],
   );
 }
-
