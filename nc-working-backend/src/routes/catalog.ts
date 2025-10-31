@@ -16,7 +16,6 @@ import {
   recordProductViews,
   getRecentlyLiveProductIds,
   getVaultSaveWindowMs,
-  getCurrentDropProductIds,
 } from "../lib/inventory.js";
 import { recordSale } from "../lib/sales.js";
 import { sendReceiptEmail } from "../lib/mailer.js";
@@ -78,7 +77,7 @@ const SAVE_WINDOW_MS = getVaultSaveWindowMs();
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripe =
   typeof stripeSecretKey === "string" && stripeSecretKey.length > 0
-    ? new Stripe(stripeSecretKey, { apiVersion: "2023-10-16" })
+    ? new Stripe(stripeSecretKey)
     : null;
 if (!stripe) {
   console.warn("[stripe] STRIPE_SECRET_KEY is missing; payment endpoints disabled.");
@@ -168,6 +167,15 @@ function summarizeCart(entries: [string, number][]) {
   }
 
   return { lines, grossCents, totalItems } as const;
+}
+
+function toAbsoluteUrl(input: string | undefined, baseUrl: string): string | undefined {
+  if (!input) return undefined;
+  if (/^https?:\/\//i.test(input)) return input;
+  if (input.startsWith("//")) return `https:${input}`;
+  const normalizedBase = baseUrl ? baseUrl.replace(/\/+$/g, "") : "";
+  const normalizedPath = input.startsWith("/") ? input : `/${input}`;
+  return normalizedBase ? `${normalizedBase}${normalizedPath}` : input;
 }
 
 catalogRouter.get("/products", (_req, res) => {
@@ -573,12 +581,16 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
   }
 
   const orderId = paymentIntentId ?? `order_${randomUUID()}`;
+  const assetBase = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "";
   const orderItems = summary.lines.map((line) => ({
     productId: line.product.id,
     title: line.product.title,
     qty: line.qty,
     priceCents: line.product.priceCents,
     lineTotalCents: line.product.priceCents * line.qty,
+    imageUrl: line.product.imageUrl
+      ? toAbsoluteUrl(line.product.imageUrl, assetBase)
+      : undefined,
   }));
 
   for (const item of orderItems) {
