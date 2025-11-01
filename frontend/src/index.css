@@ -147,7 +147,7 @@ input,select,textarea{font-size:16px}
     transform:translateY(calc(-112px - (var(--meta-offset, 0px) / 2)));
   }
   .section:last-of-type .media img{
-    transform:translateY(calc(-48px - (var(--meta-offset, 0px) / 2)));
+    transform:translateY(calc(-16px - (var(--meta-offset, 0px) / 2)));
   }
 }
 
