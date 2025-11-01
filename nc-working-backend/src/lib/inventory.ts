@@ -1,4 +1,6 @@
 import { EventEmitter } from "events";
+import fs from "fs";
+import path from "path";
 import dayjs from "dayjs";
 import { nanoid } from "nanoid";
 import type { CatalogItem, Drop, DropCode, DropStatus, RemainingMap } from "./types.js";
@@ -66,8 +68,11 @@ let currentViews: Record<string, number> = {};
 let currentDropStartedAt: string | null = null;
 let dropHistory: DropAnalytics[] = [];
 let lastLiveSeen: Record<string, string> = {};
+let catalogPersistTimer: NodeJS.Timeout | null = null;
 
 const DROP_HISTORY_LIMIT = 20;
+const DATA_DIR = path.resolve("data");
+const CATALOG_FILE = path.join(DATA_DIR, "catalog.json");
 
 export function getVaultSaveWindowMs() {
   return DEFAULT_SAVE_WINDOW_MS;
@@ -94,6 +99,91 @@ function normalizeProduct(input: CatalogItem): CatalogItem {
     enabled: input.enabled !== false,
     tags: normalizeTags(input.tags),
   };
+}
+
+function ensureCatalogDataDir() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") {
+      console.error("[catalog] Failed to ensure data directory:", error);
+    }
+  }
+}
+
+function sanitizeCatalogEntry(entry: unknown): CatalogItem | null {
+  if (!entry || typeof entry !== "object") return null;
+  const source = entry as Record<string, unknown>;
+  const id = typeof source.id === "string" ? source.id.trim() : "";
+  const title = typeof source.title === "string" ? source.title.trim() : "";
+  const priceRaw = source.priceCents;
+  const priceCents = Number(priceRaw);
+  if (!id || !title || !Number.isFinite(priceCents)) return null;
+  const imageUrl =
+    typeof source.imageUrl === "string" && source.imageUrl.trim().length > 0
+      ? source.imageUrl.trim()
+      : undefined;
+  const enabled = source.enabled !== false;
+  const tags = normalizeTags(source.tags as any);
+  return normalizeProduct({
+    id,
+    title,
+    priceCents: Math.round(priceCents),
+    imageUrl,
+    enabled,
+    tags,
+  });
+}
+
+function loadCatalogFromDisk(): CatalogItem[] | null {
+  ensureCatalogDataDir();
+  if (!fs.existsSync(CATALOG_FILE)) return null;
+  try {
+    const raw = fs.readFileSync(CATALOG_FILE, "utf8");
+    if (!raw.trim()) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const sanitized = parsed
+      .map((entry) => sanitizeCatalogEntry(entry))
+      .filter((item): item is CatalogItem => item !== null);
+    return sanitized;
+  } catch (error) {
+    console.error("[catalog] Failed to load catalog from disk:", error);
+    return null;
+  }
+}
+
+function serializeCatalogForDisk(item: CatalogItem) {
+  const record: Record<string, unknown> = {
+    id: item.id,
+    title: item.title,
+    priceCents: Math.round(Number(item.priceCents) || 0),
+  };
+  if (item.imageUrl) record.imageUrl = item.imageUrl;
+  if (item.enabled === false) record.enabled = false;
+  const tags = normalizeTags(item.tags);
+  if (tags.length) record.tags = tags;
+  return record;
+}
+
+function persistCatalogNow() {
+  try {
+    ensureCatalogDataDir();
+    const payload = catalog.map((item) => serializeCatalogForDisk(item));
+    fs.writeFileSync(CATALOG_FILE, JSON.stringify(payload, null, 2), "utf8");
+  } catch (error) {
+    console.error("[catalog] Failed to persist catalog to disk:", error);
+  }
+}
+
+function scheduleCatalogPersist() {
+  if (catalogPersistTimer) {
+    clearTimeout(catalogPersistTimer);
+  }
+  catalogPersistTimer = setTimeout(() => {
+    catalogPersistTimer = null;
+    persistCatalogNow();
+  }, 50);
 }
 
 function cloneRemainingMap(map: RemainingMap): RemainingMap {
@@ -204,9 +294,15 @@ function buildDropAnalyticsSnapshot(
 
 export function seedInventory() {
   if (catalog.length) return;
+  const loaded = loadCatalogFromDisk();
+  if (Array.isArray(loaded)) {
+    catalog = loaded;
+    return;
+  }
   catalog = [
     { id: "tee-black", title: "NC Tee - Black", priceCents: 4000, enabled: true, tags: ["T-Shirt"] },
   ];
+  persistCatalogNow();
 }
 
 export function listCatalog(): CatalogItem[] {
@@ -234,6 +330,7 @@ export function upsertProduct(p: CatalogItem) {
   } else {
     catalog.push(next);
   }
+  scheduleCatalogPersist();
 }
 
 export function patchProduct(id: string, patch: Partial<CatalogItem>) {
@@ -245,6 +342,7 @@ export function patchProduct(id: string, patch: Partial<CatalogItem>) {
     merged.tags = normalizeTags(patch.tags as any);
   }
   catalog[i] = normalizeProduct(merged);
+  scheduleCatalogPersist();
   return true;
 }
 
@@ -252,6 +350,7 @@ export function deleteProduct(id: string) {
   catalog = catalog.filter((x) => x.id !== id);
   delete remaining[id];
   emitInventory(id);
+  scheduleCatalogPersist();
 }
 
 function toRemainingMap(input: RemainingMap | number): RemainingMap {
