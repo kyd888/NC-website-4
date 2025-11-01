@@ -126,7 +126,7 @@ input,select,textarea{font-size:16px}
 @media (max-width: 440px) {
   .section {
     min-height: calc(100vh - 140px);
-    padding-top: calc(10vh + env(safe-area-inset-top));
+    padding-top: calc(8vh + env(safe-area-inset-top));
     padding-bottom: calc(12vh + env(safe-area-inset-bottom));
   }
 }
