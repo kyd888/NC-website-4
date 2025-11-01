@@ -146,6 +146,9 @@ input,select,textarea{font-size:16px}
   .media img{
     transform:translateY(calc(-112px - (var(--meta-offset, 0px) / 2)));
   }
+  .section:first-of-type .media img{
+    transform:translateY(calc(-128px - (var(--meta-offset, 0px) / 2)));
+  }
   .section:last-of-type .media img{
     transform:translateY(calc(-4px - (var(--meta-offset, 0px) / 2)));
   }
