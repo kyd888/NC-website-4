@@ -400,12 +400,12 @@ input,select,textarea{font-size:16px}
 
 @media (max-width: 520px){
   .section {
-    min-height: calc(100vh - 150px);
-    padding-top: calc(6vh + env(safe-area-inset-top));
-    padding-bottom: 22vh;
+    min-height: calc(100svh - var(--header-offset, 0px) - var(--meta-offset, 0px));
+    padding-top: clamp(64px, 12vh, 112px);
+    padding-bottom: clamp(64px, 12vh, 112px);
   }
   .media img {
-    max-height: 58vh;
+    max-height: 58svh;
   }
   .meta-actions,
   .meta-actions.has-bag{
@@ -434,36 +434,7 @@ input,select,textarea{font-size:16px}
   .cart-line__total{
     align-self:flex-end;
   }
-}.media img {
-    max-height: 58vh;
-  }
-  .meta-actions{
-    flex-direction:column;
-    align-items:stretch;
-    gap:10px;
-  }
-  .meta-primary,
-  .meta-secondary{
-    width:100%;
-    justify-content:stretch;
-  }
-  .meta-primary .cta,
-  .meta-secondary .bag-cta{
-    width:100%;
-    justify-content:center;
-    box-shadow:0 12px 24px rgba(0,0,0,.12);
-  }
-  .meta-secondary{
-    margin-left:0;
-  }
-  .cart-line{
-    flex-direction:column;
-    gap:12px;
-  }
-  .cart-line__total{
-    align-self:flex-end;
-  }
-
+}
 
 /* ===== Payment Buttons ===== */
 .pay-buttons{display:grid;grid-template-columns:1fr;gap:8px;margin:8px 16px}
