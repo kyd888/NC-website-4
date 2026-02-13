@@ -69,10 +69,13 @@ let currentDropStartedAt: string | null = null;
 let dropHistory: DropAnalytics[] = [];
 let lastLiveSeen: Record<string, string> = {};
 let catalogPersistTimer: NodeJS.Timeout | null = null;
+let runtimePersistTimer: NodeJS.Timeout | null = null;
+let runtimeStateLoaded = false;
 
 const DROP_HISTORY_LIMIT = 20;
 const DATA_DIR = path.resolve("data");
 const CATALOG_FILE = path.join(DATA_DIR, "catalog.json");
+const INVENTORY_STATE_FILE = path.join(DATA_DIR, "inventory-state.json");
 
 export function getVaultSaveWindowMs() {
   return DEFAULT_SAVE_WINDOW_MS;
@@ -194,6 +197,202 @@ function cloneRemainingMap(map: RemainingMap): RemainingMap {
   return out;
 }
 
+function cloneViewsMap(map: Record<string, number>) {
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(map)) {
+    out[key] = Math.max(0, Math.floor(Number(value) || 0));
+  }
+  return out;
+}
+
+function sanitizeDateMap(input: unknown) {
+  const out: Record<string, string> = {};
+  if (!input || typeof input !== "object") return out;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof key !== "string" || !key.trim()) continue;
+    if (typeof value !== "string") continue;
+    const ts = new Date(value).getTime();
+    if (!Number.isFinite(ts)) continue;
+    out[key] = new Date(ts).toISOString();
+  }
+  return out;
+}
+
+function sanitizeDrop(input: unknown): Drop | null {
+  if (!input || typeof input !== "object") return null;
+  const value = input as Record<string, unknown>;
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  const startsAt = typeof value.startsAt === "string" ? value.startsAt : "";
+  const endsAt = typeof value.endsAt === "string" ? value.endsAt : "";
+  const code = value.code === "VAULT" ? "VAULT" : value.code === "MANUAL" ? "MANUAL" : null;
+  const status =
+    value.status === "scheduled" || value.status === "live" || value.status === "ended"
+      ? value.status
+      : null;
+  if (!id || !startsAt || !endsAt || !code || !status) return null;
+  if (!Number.isFinite(new Date(startsAt).getTime())) return null;
+  if (!Number.isFinite(new Date(endsAt).getTime())) return null;
+  return { id, code, startsAt, endsAt, status };
+}
+
+function sanitizeDropAnalyticsRow(input: unknown): DropAnalytics | null {
+  if (!input || typeof input !== "object") return null;
+  const value = input as Record<string, unknown>;
+  if (typeof value.id !== "string" || typeof value.code !== "string" || typeof value.status !== "string") {
+    return null;
+  }
+  if (typeof value.scheduledStartsAt !== "string" || typeof value.scheduledEndsAt !== "string") return null;
+  const products = Array.isArray(value.products)
+    ? value.products
+        .map((row) => {
+          if (!row || typeof row !== "object") return null;
+          const r = row as Record<string, unknown>;
+          if (typeof r.productId !== "string") return null;
+          return {
+            productId: r.productId,
+            title: typeof r.title === "string" ? r.title : r.productId,
+            priceCents: Math.max(0, Math.floor(Number(r.priceCents) || 0)),
+            initialQty: Math.max(0, Math.floor(Number(r.initialQty) || 0)),
+            remainingQty: Math.max(0, Math.floor(Number(r.remainingQty) || 0)),
+            soldQty: Math.max(0, Math.floor(Number(r.soldQty) || 0)),
+            views: Math.max(0, Math.floor(Number(r.views) || 0)),
+            revenueCents: Math.max(0, Math.floor(Number(r.revenueCents) || 0)),
+            sellThrough: Math.max(0, Math.min(1, Number(r.sellThrough) || 0)),
+          } satisfies DropProductAnalytics;
+        })
+        .filter((row): row is DropProductAnalytics => row !== null)
+    : [];
+  const totalsRaw = value.totals && typeof value.totals === "object" ? (value.totals as Record<string, unknown>) : {};
+  return {
+    id: value.id,
+    code: value.code === "VAULT" ? "VAULT" : "MANUAL",
+    status:
+      value.status === "scheduled" || value.status === "live" || value.status === "ended"
+        ? value.status
+        : "ended",
+    scheduledStartsAt: value.scheduledStartsAt,
+    scheduledEndsAt: value.scheduledEndsAt,
+    startedAt: typeof value.startedAt === "string" ? value.startedAt : null,
+    endedAt: typeof value.endedAt === "string" ? value.endedAt : null,
+    durationSeconds: Number.isFinite(Number(value.durationSeconds)) ? Number(value.durationSeconds) : null,
+    products,
+    totals: {
+      initialQty: Math.max(0, Math.floor(Number(totalsRaw.initialQty) || 0)),
+      soldQty: Math.max(0, Math.floor(Number(totalsRaw.soldQty) || 0)),
+      remainingQty: Math.max(0, Math.floor(Number(totalsRaw.remainingQty) || 0)),
+      revenueCents: Math.max(0, Math.floor(Number(totalsRaw.revenueCents) || 0)),
+      views: Math.max(0, Math.floor(Number(totalsRaw.views) || 0)),
+      sellThrough: Math.max(0, Math.min(1, Number(totalsRaw.sellThrough) || 0)),
+    },
+  };
+}
+
+function persistRuntimeStateNow() {
+  try {
+    ensureCatalogDataDir();
+    const payload = {
+      version: 1,
+      currentDrop,
+      remaining: cloneRemainingMap(remaining),
+      plannedInitial: cloneRemainingMap(plannedInitial),
+      currentViews: cloneViewsMap(currentViews),
+      currentDropStartedAt,
+      dropHistory: dropHistory.slice(-DROP_HISTORY_LIMIT),
+      lastLiveSeen: sanitizeDateMap(lastLiveSeen),
+      autoDrop,
+    };
+    fs.writeFileSync(INVENTORY_STATE_FILE, JSON.stringify(payload, null, 2), "utf8");
+  } catch (error) {
+    console.error("[inventory] Failed to persist runtime state:", error);
+  }
+}
+
+function scheduleRuntimePersist() {
+  if (runtimePersistTimer) {
+    clearTimeout(runtimePersistTimer);
+  }
+  runtimePersistTimer = setTimeout(() => {
+    runtimePersistTimer = null;
+    persistRuntimeStateNow();
+  }, 80);
+}
+
+function loadRuntimeStateFromDisk() {
+  ensureCatalogDataDir();
+  if (!fs.existsSync(INVENTORY_STATE_FILE)) return;
+  try {
+    const raw = fs.readFileSync(INVENTORY_STATE_FILE, "utf8");
+    if (!raw.trim()) return;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const loadedDrop = sanitizeDrop(parsed.currentDrop);
+    currentDrop = loadedDrop;
+    remaining = cloneRemainingMap(parsed.remaining as RemainingMap);
+    plannedInitial = cloneRemainingMap(parsed.plannedInitial as RemainingMap);
+    currentViews = cloneViewsMap((parsed.currentViews ?? {}) as Record<string, number>);
+    currentDropStartedAt = typeof parsed.currentDropStartedAt === "string" ? parsed.currentDropStartedAt : null;
+    lastLiveSeen = sanitizeDateMap(parsed.lastLiveSeen);
+    dropHistory = Array.isArray(parsed.dropHistory)
+      ? parsed.dropHistory
+          .map((row) => sanitizeDropAnalyticsRow(row))
+          .filter((row): row is DropAnalytics => row !== null)
+          .slice(-DROP_HISTORY_LIMIT)
+      : [];
+
+    if (parsed.autoDrop && typeof parsed.autoDrop === "object") {
+      const cfg = parsed.autoDrop as Record<string, unknown>;
+      autoDrop = {
+        ...autoDrop,
+        enabled: cfg.enabled === true,
+        minVelocityToStayLive: Number.isFinite(Number(cfg.minVelocityToStayLive))
+          ? Number(cfg.minVelocityToStayLive)
+          : autoDrop.minVelocityToStayLive,
+        minVelocityToStart: Number.isFinite(Number(cfg.minVelocityToStart))
+          ? Number(cfg.minVelocityToStart)
+          : autoDrop.minVelocityToStart,
+        defaultDurationMinutes: Number.isFinite(Number(cfg.defaultDurationMinutes))
+          ? Math.max(1, Math.floor(Number(cfg.defaultDurationMinutes)))
+          : autoDrop.defaultDurationMinutes,
+        initialQty: Number.isFinite(Number(cfg.initialQty))
+          ? Math.max(1, Math.floor(Number(cfg.initialQty)))
+          : autoDrop.initialQty,
+        productIds: Array.isArray(cfg.productIds)
+          ? cfg.productIds
+              .map((id) => String(id).trim())
+              .filter((id) => id.length > 0)
+          : autoDrop.productIds,
+      };
+    }
+  } catch (error) {
+    console.error("[inventory] Failed to load runtime state:", error);
+  }
+}
+
+function restoreRuntimeLifecycle() {
+  if (!currentDrop) return;
+  if (currentDrop.status === "scheduled") {
+    scheduleLifecycle();
+    return;
+  }
+  if (currentDrop.status === "live") {
+    if (!currentDropStartedAt) {
+      currentDropStartedAt = currentDrop.startsAt;
+    }
+    const endTs = new Date(currentDrop.endsAt).getTime();
+    if (Number.isFinite(endTs) && endTs <= Date.now()) {
+      endCurrentDrop();
+      return;
+    }
+    scheduleEndTimer();
+    emitSnapshot(remaining);
+    return;
+  }
+  currentDrop = null;
+  plannedInitial = {};
+  remaining = {};
+  currentViews = {};
+  currentDropStartedAt = null;
+}
+
 function collectDropSales(dropId: string) {
   const perProduct: Record<string, { qty: number; revenueCents: number }> = {};
   const sales = listSales(5000);
@@ -293,16 +492,22 @@ function buildDropAnalyticsSnapshot(
 }
 
 export function seedInventory() {
-  if (catalog.length) return;
-  const loaded = loadCatalogFromDisk();
-  if (Array.isArray(loaded)) {
-    catalog = loaded;
-    return;
+  if (!catalog.length) {
+    const loaded = loadCatalogFromDisk();
+    if (Array.isArray(loaded)) {
+      catalog = loaded;
+    } else {
+      catalog = [
+        { id: "tee-black", title: "NC Tee - Black", priceCents: 4000, enabled: true, tags: ["T-Shirt"] },
+      ];
+      persistCatalogNow();
+    }
   }
-  catalog = [
-    { id: "tee-black", title: "NC Tee - Black", priceCents: 4000, enabled: true, tags: ["T-Shirt"] },
-  ];
-  persistCatalogNow();
+  if (!runtimeStateLoaded) {
+    runtimeStateLoaded = true;
+    loadRuntimeStateFromDisk();
+    restoreRuntimeLifecycle();
+  }
 }
 
 export function listCatalog(): CatalogItem[] {
@@ -351,6 +556,7 @@ export function deleteProduct(id: string) {
   delete remaining[id];
   emitInventory(id);
   scheduleCatalogPersist();
+  scheduleRuntimePersist();
 }
 
 function toRemainingMap(input: RemainingMap | number): RemainingMap {
@@ -421,6 +627,7 @@ function activateDrop() {
   currentViews = {};
   currentDropStartedAt = new Date().toISOString();
   scheduleEndTimer();
+  scheduleRuntimePersist();
 }
 
 function scheduleLifecycle() {
@@ -468,6 +675,7 @@ export function createManualDrop(opts: {
   currentDrop = drop;
   events.emit("drop:event", { type: "scheduled", drop: { ...currentDrop } } as DropEvent);
   scheduleLifecycle();
+  scheduleRuntimePersist();
   return currentDrop;
 }
 
@@ -511,6 +719,7 @@ export function endCurrentDrop() {
   currentViews = {};
   currentDropStartedAt = null;
   emitSnapshot(remaining);
+  scheduleRuntimePersist();
 }
 
 export function reserve(productId: string, qty: number) {
@@ -520,6 +729,7 @@ export function reserve(productId: string, qty: number) {
   if (left < amount) return false;
   remaining[productId] = left - amount;
   emitInventory(productId);
+  scheduleRuntimePersist();
   return true;
 }
 
@@ -527,11 +737,13 @@ export function release(productId: string, qty: number) {
   const amount = Math.max(1, Math.floor(qty));
   remaining[productId] = (remaining[productId] ?? 0) + amount;
   emitInventory(productId);
+  scheduleRuntimePersist();
 }
 
 export function resetRemaining(map: RemainingMap) {
   remaining = { ...map };
   emitSnapshot(remaining);
+  scheduleRuntimePersist();
 }
 
 export function onInventoryUpdate(listener: (event: InventoryEvent) => void) {
@@ -548,6 +760,7 @@ export function getRecentlyLiveProductIds(windowMs = DEFAULT_SAVE_WINDOW_MS) {
   if (!Number.isFinite(windowMs) || windowMs <= 0) return [];
   const now = Date.now();
   const eligible: string[] = [];
+  let cleaned = false;
   for (const [productId, iso] of Object.entries(lastLiveSeen)) {
     const ts = new Date(iso).getTime();
     if (!Number.isFinite(ts)) continue;
@@ -555,8 +768,10 @@ export function getRecentlyLiveProductIds(windowMs = DEFAULT_SAVE_WINDOW_MS) {
       eligible.push(productId);
     } else if (now - ts > windowMs * 8) {
       delete lastLiveSeen[productId];
+      cleaned = true;
     }
   }
+  if (cleaned) scheduleRuntimePersist();
   return eligible;
 }
 
@@ -644,6 +859,7 @@ export function recordProductViews(ids: string[]) {
   for (const id of ids) {
     currentViews[id] = (currentViews[id] ?? 0) + 1;
   }
+  scheduleRuntimePersist();
 }
 
 export function getCurrentDropAnalytics(): DropAnalytics | null {
@@ -681,6 +897,7 @@ export function setLiveInventory(productId: string, nextQty: number) {
     lastLiveSeen[productId] = new Date().toISOString();
   }
   emitInventory(productId);
+  scheduleRuntimePersist();
   const analytics = getCurrentDropAnalytics();
   return analytics?.products.find((p) => p.productId === productId) ?? null;
 }
@@ -708,6 +925,7 @@ export function addInventoryToLive(additions: RemainingMap | number) {
     applied[productId] = { remainingQty: nextRemaining, addedQty: addQty };
     emitInventory(productId);
   }
+  scheduleRuntimePersist();
   return {
     applied,
     analytics: getCurrentDropAnalytics(),
@@ -725,6 +943,7 @@ export function ensureLiveDropWindow(durationMinutes: number) {
     currentDrop = { ...currentDrop, endsAt: desiredEnd.toISOString() };
     extended = true;
     scheduleEndTimer();
+    scheduleRuntimePersist();
   }
   return { drop: getCurrentDrop(), extended };
 }
@@ -765,6 +984,7 @@ export function getAutoDropConfig() {
 
 export function setAutoDropConfig(cfg: Partial<AutoDropConfig>) {
   autoDrop = { ...autoDrop, ...cfg };
+  scheduleRuntimePersist();
 }
 
 setInterval(() => {
