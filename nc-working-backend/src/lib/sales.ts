@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { dbEnabled, dbQuery, logDbError } from "./db.js";
 
 export type Sale = {
   id: string;
@@ -28,11 +29,118 @@ export type Sale = {
 
 let sales: Sale[] = [];
 const MAX_SALES = 5000;
-const DATA_DIR = path.resolve("data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const DATA_FILE = path.join(DATA_DIR, "sales.json");
+const CSV_FILE = path.join(DATA_DIR, "orders_export.csv");
 
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+function formatUsd(cents: number) {
+  return (Math.max(0, Number(cents) || 0) / 100).toFixed(2);
+}
+
+function escapeCsv(value: unknown) {
+  const text = String(value ?? "");
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function summarizeOrderItems(items: OrderLineItem[]) {
+  return items
+    .map((item) => {
+      const title = item.productTitle?.trim() || item.productId;
+      return `${title} x${item.qty}`;
+    })
+    .join("; ");
+}
+
+function writeOrdersCsv() {
+  try {
+    ensureDataDir();
+    const orders = groupSalesByOrder(
+      sales
+        .slice()
+        .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()),
+    );
+    const header = [
+      "order_id",
+      "ordered_at",
+      "customer_name",
+      "customer_email",
+      "shipping_line_1",
+      "shipping_line_2",
+      "shipping_city",
+      "shipping_state",
+      "shipping_postal_code",
+      "shipping_country",
+      "items_bought",
+      "total_items",
+      "order_total_usd",
+      "running_total_revenue_usd",
+      "payment_ref",
+      "drop_id",
+      "user_id",
+    ];
+
+    let runningRevenueCents = 0;
+    const rows = orders.map((order) => {
+      runningRevenueCents += order.totalCents;
+      return [
+        order.orderId,
+        order.ts,
+        order.customerName ?? "",
+        order.customerEmail ?? "",
+        order.shippingAddress?.line1 ?? "",
+        order.shippingAddress?.line2 ?? "",
+        order.shippingAddress?.city ?? "",
+        order.shippingAddress?.state ?? "",
+        order.shippingAddress?.postalCode ?? "",
+        order.shippingAddress?.country ?? "",
+        summarizeOrderItems(order.items),
+        order.totalItems,
+        formatUsd(order.totalCents),
+        formatUsd(runningRevenueCents),
+        order.paymentRef ?? "",
+        order.dropId ?? "",
+        order.userId ?? "",
+      ]
+        .map(escapeCsv)
+        .join(",");
+    });
+
+    const summary = summarizeSales(sales);
+    rows.push(
+      [
+        "TOTALS",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        `${orders.length} orders`,
+        summary.items,
+        formatUsd(summary.grossCents),
+        formatUsd(summary.grossCents),
+        "",
+        "",
+        "",
+      ]
+        .map(escapeCsv)
+        .join(","),
+    );
+
+    fs.writeFileSync(CSV_FILE, [header.join(","), ...rows].join("\n"), "utf8");
+  } catch (error) {
+    console.error("[sales] Failed to persist orders_export.csv", error);
+  }
 }
 
 function sanitizeShippingAddress(input: unknown): Sale["shippingAddress"] | undefined {
@@ -82,9 +190,11 @@ function sanitizeSale(input: unknown): Sale | null {
 }
 
 function saveToDisk() {
+  if (dbEnabled) return;
   try {
     ensureDataDir();
     fs.writeFileSync(DATA_FILE, JSON.stringify(sales, null, 2), "utf8");
+    writeOrdersCsv();
   } catch (error) {
     console.error("[sales] Failed to persist sales.json", error);
   }
@@ -107,7 +217,92 @@ function loadFromDisk() {
   }
 }
 
-loadFromDisk();
+if (!dbEnabled) {
+  loadFromDisk();
+  writeOrdersCsv();
+}
+
+function rowToSale(value: any): Sale | null {
+  if (!value || typeof value !== "object") return null;
+  return sanitizeSale({
+    id: value.id,
+    ts: value.ts instanceof Date ? value.ts.toISOString() : value.ts,
+    productId: value.product_id ?? value.productId,
+    qty: value.qty,
+    priceCents: value.price_cents ?? value.priceCents,
+    ref: value.ref,
+    ua: value.ua,
+    userId: value.user_id ?? value.userId,
+    customerName: value.customer_name ?? value.customerName,
+    customerEmail: value.customer_email ?? value.customerEmail,
+    productTitle: value.product_title ?? value.productTitle,
+    dropId: value.drop_id ?? value.dropId,
+    shippingAddress: value.shipping_address ?? value.shippingAddress,
+    orderId: value.order_id ?? value.orderId,
+    lineTotalCents: value.line_total_cents ?? value.lineTotalCents,
+  });
+}
+
+export async function loadSalesFromDb() {
+  if (!dbEnabled) return;
+  try {
+    const result = await dbQuery(
+      `SELECT id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
+        customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents
+       FROM sales
+       ORDER BY ts ASC
+       LIMIT $1`,
+      [MAX_SALES],
+    );
+    sales = result.rows.map(rowToSale).filter((row): row is Sale => row !== null).slice(-MAX_SALES);
+    writeOrdersCsv();
+  } catch (error) {
+    logDbError("failed to load sales", error);
+  }
+}
+
+export async function upsertSaleToDb(sale: Sale) {
+  if (!dbEnabled) return;
+  await dbQuery(
+    `INSERT INTO sales (
+      id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
+      customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    ON CONFLICT (id) DO UPDATE SET
+      ts = EXCLUDED.ts,
+      product_id = EXCLUDED.product_id,
+      qty = EXCLUDED.qty,
+      price_cents = EXCLUDED.price_cents,
+      ref = EXCLUDED.ref,
+      ua = EXCLUDED.ua,
+      user_id = EXCLUDED.user_id,
+      customer_name = EXCLUDED.customer_name,
+      customer_email = EXCLUDED.customer_email,
+      product_title = EXCLUDED.product_title,
+      drop_id = EXCLUDED.drop_id,
+      shipping_address = EXCLUDED.shipping_address,
+      order_id = EXCLUDED.order_id,
+      line_total_cents = EXCLUDED.line_total_cents`,
+    [
+      sale.id,
+      sale.ts,
+      sale.productId,
+      sale.qty,
+      sale.priceCents,
+      sale.ref ?? null,
+      sale.ua ?? null,
+      sale.userId ?? null,
+      sale.customerName ?? null,
+      sale.customerEmail ?? null,
+      sale.productTitle ?? null,
+      sale.dropId ?? null,
+      sale.shippingAddress ?? null,
+      sale.orderId ?? null,
+      sale.lineTotalCents ?? sale.qty * sale.priceCents,
+    ],
+  );
+}
 
 export function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: string }) {
   const row: Sale = {
@@ -138,7 +333,12 @@ export function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: string
   };
   sales.push(row);
   if (sales.length > MAX_SALES) sales = sales.slice(-MAX_SALES);
-  saveToDisk();
+  if (dbEnabled) {
+    void upsertSaleToDb(row).catch((error) => logDbError("failed to persist sale", error));
+    writeOrdersCsv();
+  } else {
+    saveToDisk();
+  }
   return row;
 }
 
@@ -229,5 +429,13 @@ export function summarizeSales(rows: Sale[]) {
     items,
     grossCents,
   };
+}
+
+export function getSalesCsvPath() {
+  ensureDataDir();
+  if (!fs.existsSync(CSV_FILE)) {
+    writeOrdersCsv();
+  }
+  return CSV_FILE;
 }
 

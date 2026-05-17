@@ -8,7 +8,7 @@ services:
     region: oregon
 
     buildCommand: npm ci && npm run build
-    startCommand: npm run start
+    startCommand: node dist/scripts/migrate.js && npm run start
 
     healthCheckPath: /api/health
 
@@ -24,6 +24,8 @@ services:
         sync: false
       # Optional: if you want to explicitly allow backend origin in CORS
       - key: BACKEND_ORIGIN
+        sync: false
+      - key: DATABASE_URL
         sync: false
 
     disks:

@@ -9,6 +9,7 @@ import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
 import { seedInventory } from "./lib/inventory.js";
+import { initializePersistentStores } from "./lib/persistence.js";
 
 dotenv.config();
 
@@ -71,6 +72,7 @@ app.get("/", (_req, res) => {
   res.json({ ok: true, service: "nc-backend", docs: "/api/health" });
 });
 
+await initializePersistentStores();
 seedInventory();
 
 app.listen(PORT, () => {

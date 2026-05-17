@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { nanoid } from "nanoid";
 import type { CatalogItem, Drop, DropCode, DropStatus, RemainingMap } from "./types.js";
 import { listSales } from "./sales.js";
+import { dbEnabled, dbQuery, logDbError } from "./db.js";
 
 type InventoryEvent = { productId: string; remaining: number };
 type VelocityPoint = { ts: number; qty: number };
@@ -71,9 +72,10 @@ let lastLiveSeen: Record<string, string> = {};
 let catalogPersistTimer: NodeJS.Timeout | null = null;
 let runtimePersistTimer: NodeJS.Timeout | null = null;
 let runtimeStateLoaded = false;
+let dbInventoryLoaded = false;
 
 const DROP_HISTORY_LIMIT = 20;
-const DATA_DIR = path.resolve("data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const CATALOG_FILE = path.join(DATA_DIR, "catalog.json");
 const INVENTORY_STATE_FILE = path.join(DATA_DIR, "inventory-state.json");
 
@@ -139,6 +141,7 @@ function sanitizeCatalogEntry(entry: unknown): CatalogItem | null {
 }
 
 function loadCatalogFromDisk(): CatalogItem[] | null {
+  if (dbEnabled) return null;
   ensureCatalogDataDir();
   if (!fs.existsSync(CATALOG_FILE)) return null;
   try {
@@ -170,6 +173,33 @@ function serializeCatalogForDisk(item: CatalogItem) {
 }
 
 function persistCatalogNow() {
+  if (dbEnabled) {
+    const rows = catalog.map((item) => serializeCatalogForDisk(item));
+    void Promise.all(
+      rows.map((item) =>
+        dbQuery(
+          `INSERT INTO catalog (id, title, price_cents, image_url, enabled, tags, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, now())
+           ON CONFLICT (id) DO UPDATE SET
+             title = EXCLUDED.title,
+             price_cents = EXCLUDED.price_cents,
+             image_url = EXCLUDED.image_url,
+             enabled = EXCLUDED.enabled,
+             tags = EXCLUDED.tags,
+             updated_at = now()`,
+          [
+            item.id,
+            item.title,
+            item.priceCents,
+            item.imageUrl ?? null,
+            item.enabled !== false,
+            item.tags ?? [],
+          ],
+        ),
+      ),
+    ).catch((error) => logDbError("failed to persist catalog", error));
+    return;
+  }
   try {
     ensureCatalogDataDir();
     const payload = catalog.map((item) => serializeCatalogForDisk(item));
@@ -288,19 +318,13 @@ function sanitizeDropAnalyticsRow(input: unknown): DropAnalytics | null {
 }
 
 function persistRuntimeStateNow() {
+  if (dbEnabled) {
+    void persistRuntimeStateToDb().catch((error) => logDbError("failed to persist inventory state", error));
+    return;
+  }
   try {
     ensureCatalogDataDir();
-    const payload = {
-      version: 1,
-      currentDrop,
-      remaining: cloneRemainingMap(remaining),
-      plannedInitial: cloneRemainingMap(plannedInitial),
-      currentViews: cloneViewsMap(currentViews),
-      currentDropStartedAt,
-      dropHistory: dropHistory.slice(-DROP_HISTORY_LIMIT),
-      lastLiveSeen: sanitizeDateMap(lastLiveSeen),
-      autoDrop,
-    };
+    const payload = runtimeStatePayload();
     fs.writeFileSync(INVENTORY_STATE_FILE, JSON.stringify(payload, null, 2), "utf8");
   } catch (error) {
     console.error("[inventory] Failed to persist runtime state:", error);
@@ -318,6 +342,7 @@ function scheduleRuntimePersist() {
 }
 
 function loadRuntimeStateFromDisk() {
+  if (dbEnabled) return;
   ensureCatalogDataDir();
   if (!fs.existsSync(INVENTORY_STATE_FILE)) return;
   try {
@@ -391,6 +416,68 @@ function restoreRuntimeLifecycle() {
   remaining = {};
   currentViews = {};
   currentDropStartedAt = null;
+}
+
+function runtimeStatePayload() {
+  return {
+    version: 1,
+    currentDrop,
+    remaining: cloneRemainingMap(remaining),
+    plannedInitial: cloneRemainingMap(plannedInitial),
+    currentViews: cloneViewsMap(currentViews),
+    currentDropStartedAt,
+    dropHistory: dropHistory.slice(-DROP_HISTORY_LIMIT),
+    lastLiveSeen: sanitizeDateMap(lastLiveSeen),
+    autoDrop,
+  };
+}
+
+function applyRuntimeStatePayload(parsed: Record<string, unknown>) {
+  const loadedDrop = sanitizeDrop(parsed.currentDrop);
+  currentDrop = loadedDrop;
+  remaining = cloneRemainingMap(parsed.remaining as RemainingMap);
+  plannedInitial = cloneRemainingMap(parsed.plannedInitial as RemainingMap);
+  currentViews = cloneViewsMap((parsed.currentViews ?? {}) as Record<string, number>);
+  currentDropStartedAt = typeof parsed.currentDropStartedAt === "string" ? parsed.currentDropStartedAt : null;
+  lastLiveSeen = sanitizeDateMap(parsed.lastLiveSeen);
+  dropHistory = Array.isArray(parsed.dropHistory)
+    ? parsed.dropHistory
+        .map((row) => sanitizeDropAnalyticsRow(row))
+        .filter((row): row is DropAnalytics => row !== null)
+        .slice(-DROP_HISTORY_LIMIT)
+    : [];
+
+  if (parsed.autoDrop && typeof parsed.autoDrop === "object") {
+    const cfg = parsed.autoDrop as Record<string, unknown>;
+    autoDrop = {
+      ...autoDrop,
+      enabled: cfg.enabled === true,
+      minVelocityToStayLive: Number.isFinite(Number(cfg.minVelocityToStayLive))
+        ? Number(cfg.minVelocityToStayLive)
+        : autoDrop.minVelocityToStayLive,
+      minVelocityToStart: Number.isFinite(Number(cfg.minVelocityToStart))
+        ? Number(cfg.minVelocityToStart)
+        : autoDrop.minVelocityToStart,
+      defaultDurationMinutes: Number.isFinite(Number(cfg.defaultDurationMinutes))
+        ? Math.max(1, Math.floor(Number(cfg.defaultDurationMinutes)))
+        : autoDrop.defaultDurationMinutes,
+      initialQty: Number.isFinite(Number(cfg.initialQty))
+        ? Math.max(1, Math.floor(Number(cfg.initialQty)))
+        : autoDrop.initialQty,
+      productIds: Array.isArray(cfg.productIds)
+        ? cfg.productIds.map((id) => String(id).trim()).filter((id) => id.length > 0)
+        : autoDrop.productIds,
+    };
+  }
+}
+
+async function persistRuntimeStateToDb() {
+  await dbQuery(
+    `INSERT INTO inventory_state (id, state, updated_at)
+     VALUES ('default', $1, now())
+     ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
+    [runtimeStatePayload()],
+  );
 }
 
 function collectDropSales(dropId: string) {
@@ -492,6 +579,7 @@ function buildDropAnalyticsSnapshot(
 }
 
 export function seedInventory() {
+  if (dbEnabled && !dbInventoryLoaded) return;
   if (!catalog.length) {
     const loaded = loadCatalogFromDisk();
     if (Array.isArray(loaded)) {
@@ -507,6 +595,46 @@ export function seedInventory() {
     runtimeStateLoaded = true;
     loadRuntimeStateFromDisk();
     restoreRuntimeLifecycle();
+  }
+}
+
+export async function loadInventoryFromDb() {
+  if (!dbEnabled) return;
+  try {
+    const catalogRows = await dbQuery(
+      "SELECT id, title, price_cents, image_url, enabled, tags FROM catalog ORDER BY updated_at ASC, id ASC",
+    );
+    catalog = catalogRows.rows
+      .map((row) =>
+        sanitizeCatalogEntry({
+          id: row.id,
+          title: row.title,
+          priceCents: row.price_cents,
+          imageUrl: row.image_url,
+          enabled: row.enabled,
+          tags: row.tags,
+        }),
+      )
+      .filter((item): item is CatalogItem => item !== null);
+
+    const runtimeRows = await dbQuery("SELECT state FROM inventory_state WHERE id = 'default' LIMIT 1");
+    runtimeStateLoaded = true;
+    if (runtimeRows.rows[0]?.state && typeof runtimeRows.rows[0].state === "object") {
+      applyRuntimeStatePayload(runtimeRows.rows[0].state as Record<string, unknown>);
+    }
+
+    dbInventoryLoaded = true;
+    if (!catalog.length) {
+      catalog = [
+        { id: "tee-black", title: "NC Tee - Black", priceCents: 4000, enabled: true, tags: ["T-Shirt"] },
+      ];
+      persistCatalogNow();
+    }
+    restoreRuntimeLifecycle();
+  } catch (error) {
+    dbInventoryLoaded = true;
+    runtimeStateLoaded = true;
+    logDbError("failed to load inventory", error);
   }
 }
 
@@ -555,7 +683,13 @@ export function deleteProduct(id: string) {
   catalog = catalog.filter((x) => x.id !== id);
   delete remaining[id];
   emitInventory(id);
-  scheduleCatalogPersist();
+  if (dbEnabled) {
+    void dbQuery("DELETE FROM catalog WHERE id = $1", [id]).catch((error) =>
+      logDbError("failed to delete catalog product", error),
+    );
+  } else {
+    scheduleCatalogPersist();
+  }
   scheduleRuntimePersist();
 }
 

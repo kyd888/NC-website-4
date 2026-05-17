@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID, scryptSync, timingSafeEqual } from "crypto";
+import { dbEnabled, dbQuery, logDbError } from "./db.js";
 
 export type ShippingAddress = {
   line1: string;
@@ -26,7 +27,7 @@ export type PublicUser = Omit<User, "passwordHash">;
 
 type UserRecord = User;
 
-const DATA_DIR = path.resolve("data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const DATA_FILE = path.join(DATA_DIR, "users.json");
 
 const usersById = new Map<string, UserRecord>();
@@ -88,6 +89,7 @@ function validateShipping(input: unknown): ShippingAddress | undefined {
 }
 
 function saveToDisk() {
+  if (dbEnabled) return;
   try {
     ensureDataDir();
     const rows = Array.from(usersById.values()).map((user) => ({
@@ -100,7 +102,95 @@ function saveToDisk() {
   }
 }
 
-loadFromDisk();
+if (!dbEnabled) loadFromDisk();
+
+function rowToUser(entry: any): UserRecord | null {
+  if (!entry || typeof entry !== "object") return null;
+  const id = typeof entry.id === "string" ? entry.id : "";
+  const email = typeof entry.email === "string" ? entry.email.toLowerCase().trim() : "";
+  if (!id || !email) return null;
+  return {
+    id,
+    email,
+    passwordHash: typeof entry.password_hash === "string" ? entry.password_hash : entry.passwordHash ?? "",
+    name: typeof entry.name === "string" ? entry.name : undefined,
+    defaultShipping: validateShipping(entry.default_shipping ?? entry.defaultShipping),
+    createdAt:
+      entry.created_at instanceof Date
+        ? entry.created_at.toISOString()
+        : typeof entry.created_at === "string"
+          ? entry.created_at
+          : typeof entry.createdAt === "string"
+            ? entry.createdAt
+            : new Date().toISOString(),
+    updatedAt:
+      entry.updated_at instanceof Date
+        ? entry.updated_at.toISOString()
+        : typeof entry.updated_at === "string"
+          ? entry.updated_at
+          : typeof entry.updatedAt === "string"
+            ? entry.updatedAt
+            : new Date().toISOString(),
+    lastLoginAt:
+      entry.last_login_at instanceof Date
+        ? entry.last_login_at.toISOString()
+        : typeof entry.last_login_at === "string"
+          ? entry.last_login_at
+          : typeof entry.lastLoginAt === "string"
+            ? entry.lastLoginAt
+            : undefined,
+  };
+}
+
+function replaceUsers(rows: UserRecord[]) {
+  usersById.clear();
+  usersByEmail.clear();
+  for (const record of rows) {
+    usersById.set(record.id, record);
+    usersByEmail.set(record.email, record.id);
+  }
+}
+
+export async function loadUsersFromDb() {
+  if (!dbEnabled) return;
+  try {
+    const result = await dbQuery(
+      "SELECT id, email, password_hash, name, default_shipping, created_at, updated_at, last_login_at FROM users ORDER BY created_at ASC",
+    );
+    replaceUsers(result.rows.map(rowToUser).filter((row): row is UserRecord => row !== null));
+  } catch (error) {
+    logDbError("failed to load users", error);
+  }
+}
+
+function persistUser(user: UserRecord) {
+  if (!dbEnabled) {
+    saveToDisk();
+    return;
+  }
+  void dbQuery(
+    `INSERT INTO users (id, email, password_hash, name, default_shipping, created_at, updated_at, last_login_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (id) DO UPDATE SET
+       email = EXCLUDED.email,
+       password_hash = EXCLUDED.password_hash,
+       name = EXCLUDED.name,
+       default_shipping = EXCLUDED.default_shipping,
+       created_at = EXCLUDED.created_at,
+       updated_at = EXCLUDED.updated_at,
+       last_login_at = EXCLUDED.last_login_at`,
+    [
+      user.id,
+      user.email,
+      user.passwordHash,
+      user.name ?? null,
+      user.defaultShipping ?? null,
+      user.createdAt,
+      user.updatedAt,
+      user.lastLoginAt ?? null,
+    ],
+  ).catch((error) => logDbError("failed to persist user", error));
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -157,7 +247,7 @@ export function createUser(input: {
   };
   usersById.set(user.id, user);
   usersByEmail.set(email, user.id);
-  saveToDisk();
+  persistUser(user);
   return user;
 }
 
@@ -167,7 +257,7 @@ export function authenticateUser(email: string, password: string): User | null {
   if (!verifyPassword(password, user.passwordHash)) return null;
   user.lastLoginAt = new Date().toISOString();
   user.updatedAt = user.lastLoginAt;
-  saveToDisk();
+  persistUser(user);
   return user;
 }
 
@@ -186,7 +276,7 @@ export function updateUser(userId: string, changes: Partial<Omit<User, "id" | "p
     user.lastLoginAt = changes.lastLoginAt;
   }
   user.updatedAt = new Date().toISOString();
-  saveToDisk();
+  persistUser(user);
   return user;
 }
 
@@ -195,7 +285,7 @@ export function setUserPassword(userId: string, newPassword: string) {
   if (!user) throw new Error("User not found");
   user.passwordHash = hashPassword(newPassword);
   user.updatedAt = new Date().toISOString();
-  saveToDisk();
+  persistUser(user);
 }
 
 export function listUsers(): PublicUser[] {

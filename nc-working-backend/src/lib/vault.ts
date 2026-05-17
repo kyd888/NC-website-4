@@ -13,6 +13,7 @@ import {
 } from "./inventory.js";
 import { sendVaultReleaseEmail } from "./mailer.js";
 import type { Drop } from "./types.js";
+import { dbEnabled, dbQuery, logDbError } from "./db.js";
 
 type SaverEntry = {
   email: string;
@@ -73,7 +74,7 @@ export type VaultSnapshot = Record<
   }
 >;
 
-const DATA_DIR = path.resolve("data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const DATA_FILE = path.join(DATA_DIR, "vault.json");
 
 const DEFAULT_THRESHOLD = Math.max(1, Number.parseInt(process.env.VAULT_THRESHOLD || "5", 5) || 5);
@@ -146,6 +147,7 @@ function loadFromDisk() {
 }
 
 function saveToDisk() {
+  if (dbEnabled) return;
   try {
     ensureDataDir();
     const rows: StoredVaultRecord[] = Array.from(vault.values()).map((record) => ({
@@ -160,7 +162,98 @@ function saveToDisk() {
   }
 }
 
-loadFromDisk();
+if (!dbEnabled) loadFromDisk();
+
+function normalizeStoredRecord(entry: StoredVaultRecord): VaultRecord | null {
+  if (!entry || typeof entry !== "object" || typeof entry.productId !== "string") return null;
+  return {
+    productId: entry.productId,
+    saves: Array.isArray(entry.saves)
+      ? entry.saves
+          .filter((saver): saver is SaverEntry => typeof saver?.email === "string")
+          .map((saver) => ({
+            email: normalizeEmail(saver.email),
+            userId: saver.userId,
+            name: saver.name,
+            savedAt: typeof saver.savedAt === "string" ? saver.savedAt : new Date().toISOString(),
+          }))
+      : [],
+    releases: Array.isArray(entry.releases)
+      ? entry.releases
+          .filter((release): release is VaultRelease => typeof release?.id === "string")
+          .map((release) => ({
+            id: release.id,
+            productId: release.productId,
+            restockQty: release.restockQty,
+            durationMinutes: release.durationMinutes,
+            triggeredAt: release.triggeredAt,
+            dropId: release.dropId,
+            startsAt: release.startsAt,
+            endsAt: release.endsAt,
+            notifiedEmails: Array.isArray(release.notifiedEmails)
+              ? release.notifiedEmails.map((email) => normalizeEmail(String(email)))
+              : [],
+            status: release.status === "completed" ? "completed" : release.status === "live" ? "live" : "pending",
+          }))
+      : [],
+    pendingRelease: entry.pendingRelease
+      ? {
+          releaseId: entry.pendingRelease.releaseId,
+          restockQty: entry.pendingRelease.restockQty,
+          durationMinutes: entry.pendingRelease.durationMinutes,
+          triggeredAt: entry.pendingRelease.triggeredAt,
+        }
+      : null,
+  };
+}
+
+export async function loadVaultFromDb() {
+  if (!dbEnabled) return;
+  try {
+    const result = await dbQuery(
+      "SELECT product_id, saves, releases, pending_release FROM vault_records ORDER BY product_id ASC",
+    );
+    vault.clear();
+    for (const row of result.rows) {
+      const record = normalizeStoredRecord({
+        productId: row.product_id,
+        saves: row.saves,
+        releases: row.releases,
+        pendingRelease: row.pending_release,
+      });
+      if (record) vault.set(record.productId, record);
+    }
+  } catch (error) {
+    logDbError("failed to load vault records", error);
+  }
+}
+
+function persistVaultRecord(record: VaultRecord) {
+  if (!dbEnabled) {
+    saveToDisk();
+    return;
+  }
+  void dbQuery(
+    `INSERT INTO vault_records (product_id, saves, releases, pending_release, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (product_id) DO UPDATE SET
+       saves = EXCLUDED.saves,
+       releases = EXCLUDED.releases,
+       pending_release = EXCLUDED.pending_release,
+       updated_at = now()`,
+    [record.productId, record.saves, record.releases, record.pendingRelease ?? null],
+  ).catch((error) => logDbError("failed to persist vault record", error));
+}
+
+function persistVaultRecords() {
+  if (!dbEnabled) {
+    saveToDisk();
+    return;
+  }
+  for (const record of vault.values()) {
+    persistVaultRecord(record);
+  }
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -214,7 +307,7 @@ async function notifySavers(record: VaultRecord, release: VaultRelease, productT
   release.status = "live";
   record.saves = [];
   record.pendingRelease = null;
-  saveToDisk();
+  persistVaultRecord(record);
 }
 
 async function finalizeRelease(
@@ -274,7 +367,7 @@ async function triggerRelease(record: VaultRecord, productTitle: string) {
       durationMinutes,
       triggeredAt: nowIso,
     };
-    saveToDisk();
+    persistVaultRecord(record);
     return { triggered: true, pending: true };
   }
 
@@ -299,7 +392,7 @@ async function applyPendingRelease(record: VaultRecord, drop: Drop) {
   const release = record.releases.find((item) => item.id === pending.releaseId);
   if (!release) {
     record.pendingRelease = null;
-    saveToDisk();
+    persistVaultRecord(record);
     return;
   }
   addInventoryToLive({ [record.productId]: pending.restockQty });
@@ -318,7 +411,7 @@ onDropEvent(async (event) => {
       await applyPendingRelease(record, event.drop);
       changed = true;
     }
-    if (changed) saveToDisk();
+    if (changed) persistVaultRecords();
     return;
   }
   if (event.type === "ended") {
@@ -332,7 +425,7 @@ onDropEvent(async (event) => {
         changed = true;
       }
     }
-    if (changed) saveToDisk();
+    if (changed) persistVaultRecords();
   }
 });
 
@@ -369,7 +462,7 @@ export async function addSaveToVault(input: AddSaveInput) {
     name: input.name?.trim() || undefined,
     savedAt: new Date().toISOString(),
   });
-  saveToDisk();
+  persistVaultRecord(record);
 
   const result = await triggerRelease(record, product.title);
 

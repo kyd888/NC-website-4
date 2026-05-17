@@ -3,18 +3,19 @@
 ## Environment Variables
 
 ### Backend (Render)
-- `STRIPE_SECRET_KEY` – live/test secret from Stripe.
-- `ADMIN_KEY` – strong random string for admin endpoints; must match the frontend admin key when in use.
-- `FRONTEND_ORIGIN` – `https://<your-netlify-site>.netlify.app` (https, no trailing slash).
-- `FRONTEND_ORIGIN_2` – optional custom domain (`https://example.com`).
-- `BACKEND_ORIGIN` – optional explicit backend origin (`https://nc-website.onrender.com`).
-- `NODE_VERSION` – `20` (keeps Render on Node 20).
+- `STRIPE_SECRET_KEY` - live/test secret from Stripe.
+- `ADMIN_KEY` - strong random string for admin endpoints; must match the frontend admin key when in use.
+- `FRONTEND_ORIGIN` - `https://<your-netlify-site>.netlify.app` (https, no trailing slash).
+- `FRONTEND_ORIGIN_2` - optional custom domain (`https://example.com`).
+- `BACKEND_ORIGIN` - optional explicit backend origin (`https://nc-website.onrender.com`).
+- `DATABASE_URL` - Postgres connection string used for durable customers, sales, vault saves, catalog, drops, analytics, and recommendations.
+- `NODE_VERSION` - `20` (keeps Render on Node 20).
 - SMTP vars (if email is enabled): `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`.
 
 ### Frontend (Netlify)
-- `VITE_BACKEND_URL` – `https://<your-render-service>.onrender.com` (https, no trailing slash).
-- `VITE_STRIPE_PUBLISHABLE_KEY` – Stripe publishable key for the environment.
-- `VITE_ADMIN_KEY` – only when the in-browser admin UI is used; must equal the backend `ADMIN_KEY`.
+- `VITE_BACKEND_URL` - `https://<your-render-service>.onrender.com` (https, no trailing slash).
+- `VITE_STRIPE_PUBLISHABLE_KEY` - Stripe publishable key for the environment.
+- `VITE_ADMIN_KEY` - only when the in-browser admin UI is used; must equal the backend `ADMIN_KEY`.
 
 > Optional proxy: Instead of `VITE_BACKEND_URL`, add a redirect in `netlify.toml` pointing `/api/*` to the Render URL and switch the frontend calls to relative `/api/...`. Only use one approach at a time.
 
@@ -23,6 +24,7 @@
 # Backend
 cd nc-working-backend
 npm install
+npm run db:migrate
 npm run start
 # In another terminal
 curl http://localhost:8787/api/health
@@ -44,7 +46,9 @@ In the browser devtools Network tab, confirm API calls go to `http://localhost:8
 ## Deploy Steps
 1. **Render backend**
    - Set the env vars above (no trailing slash on origins).
-   - Redeploy; verify the startup log prints `CORS allowList: [...]` once, then remove or disable the log after confirming the origins.
+   - Redeploy; Render runs `node dist/scripts/migrate.js` before starting the backend.
+   - To migrate existing JSON data once, run `npm run db:import-json -- --dir ./data` from `nc-working-backend` with `DATABASE_URL` set.
+   - Verify the startup log prints `CORS allowList: [...]` once, then remove or disable the log after confirming the origins.
 2. **Netlify frontend (env approach)**
    - Set `VITE_BACKEND_URL` and `VITE_STRIPE_PUBLISHABLE_KEY`.
    - Redeploy; confirm API calls succeed.
@@ -54,4 +58,3 @@ In the browser devtools Network tab, confirm API calls go to `http://localhost:8
    - Redeploy and verify the proxy works.
 
 After verification, remove the temporary `console.log('CORS allowList:', allowList);` in `nc-working-backend/src/index.ts` to keep logs clean.
-
