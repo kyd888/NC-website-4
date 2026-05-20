@@ -11,6 +11,7 @@
 - `DATABASE_URL` - Postgres connection string used for durable customers, sales, vault saves, catalog, drops, analytics, and recommendations.
 - `NODE_VERSION` - `20` (keeps Render on Node 20).
 - SMTP vars (if email is enabled): `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`.
+- `ORDER_NOTIFY_EMAIL` - email address that receives a notification for every completed purchase.
 
 ### Frontend (Netlify)
 - `VITE_BACKEND_URL` - `https://<your-render-service>.onrender.com` (https, no trailing slash).

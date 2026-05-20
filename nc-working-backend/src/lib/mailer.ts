@@ -33,6 +33,10 @@ export type ReceiptEmailPayload = {
   paymentRef?: string;
 };
 
+export type PurchaseNotificationPayload = ReceiptEmailPayload & {
+  orderedAt?: string;
+};
+
 export type VaultReleaseEmailPayload = {
   email: string;
   productId: string;
@@ -369,6 +373,66 @@ The NC team`;
     return true;
   } catch (error) {
     console.error("[mailer] Failed to send receipt email:", error);
+    return false;
+  }
+}
+
+export async function sendPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
+  const notifyTo =
+    process.env.ORDER_NOTIFY_EMAIL ||
+    process.env.PURCHASE_NOTIFY_EMAIL ||
+    process.env.ADMIN_NOTIFY_EMAIL;
+  if (!notifyTo) return false;
+
+  const transporter = await getTransporter();
+  if (!transporter) return false;
+
+  const from = process.env.SMTP_FROM!;
+  const orderLabel = condenseOrderId(payload.orderId);
+  const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
+  const addressText = formatAddress(payload.shippingAddress);
+  const itemsText = formatItemsText(payload.items || []);
+  const orderedAt = payload.orderedAt ? formatDateTime(payload.orderedAt) : formatDateTime(new Date().toISOString());
+  const customer = [payload.customerName, payload.customerEmail].filter(Boolean).join(" | ") || "No customer info";
+  const subject = `New NC purchase ${orderLabel} | ${totalText}`;
+
+  const textBody = `New purchase received.
+
+Order ID: ${payload.orderId}
+Ordered at: ${orderedAt}
+Total: ${totalText}
+Customer: ${customer}
+${payload.paymentRef ? `Payment reference: ${payload.paymentRef}\n` : ""}
+Items:
+${itemsText}
+
+Shipping:
+${addressText}`;
+
+  const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;">
+    <h2 style="margin:0 0 12px;">New NC purchase</h2>
+    <p><strong>Order:</strong> ${escapeHtml(payload.orderId)}</p>
+    <p><strong>Ordered at:</strong> ${escapeHtml(orderedAt)}</p>
+    <p><strong>Total:</strong> ${escapeHtml(totalText)}</p>
+    <p><strong>Customer:</strong> ${escapeHtml(customer)}</p>
+    ${payload.paymentRef ? `<p><strong>Payment:</strong> ${escapeHtml(payload.paymentRef)}</p>` : ""}
+    <h3 style="margin:18px 0 8px;">Items</h3>
+    ${formatItemsHtml(payload.items || [])}
+    <h3 style="margin:18px 0 8px;">Shipping</h3>
+    <p>${escapeHtml(addressText).replace(/\n/g, "<br/>")}</p>
+  </div>`;
+
+  try {
+    await transporter.sendMail({
+      from,
+      to: notifyTo,
+      subject,
+      text: textBody,
+      html: htmlBody,
+    });
+    return true;
+  } catch (error) {
+    console.error("[mailer] Failed to send purchase notification email:", error);
     return false;
   }
 }

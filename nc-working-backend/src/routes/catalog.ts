@@ -18,7 +18,7 @@ import {
   getVaultSaveWindowMs,
 } from "../lib/inventory.js";
 import { recordSale } from "../lib/sales.js";
-import { sendReceiptEmail } from "../lib/mailer.js";
+import { sendPurchaseNotificationEmail, sendReceiptEmail } from "../lib/mailer.js";
 import type { CatalogItem } from "../lib/types.js";
 import { getAuthContext } from "../lib/auth.js";
 import { updateUser } from "../lib/users.js";
@@ -630,6 +630,18 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     shippingAddress: customer.address,
     items: orderItems,
     paymentRef: paymentIntentId ?? undefined,
+  });
+  void sendPurchaseNotificationEmail({
+    orderId,
+    totalCents: summary.grossCents,
+    customerName: customer.name,
+    customerEmail: customerEmail,
+    shippingAddress: customer.address,
+    items: orderItems,
+    paymentRef: paymentIntentId ?? undefined,
+    orderedAt: new Date().toISOString(),
+  }).catch((error) => {
+    console.error("[mailer] Purchase notification failed:", error);
   });
 
   session.cart = {};
