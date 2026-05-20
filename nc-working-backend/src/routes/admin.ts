@@ -25,6 +25,7 @@ import {
   getVaultSaveWindowMs,
 } from "../lib/inventory.js";
 import { getVaultSnapshot } from "../lib/vault.js";
+import { listUsers } from "../lib/users.js";
 
 // ensure directory exists at startup
 const UPLOAD_DIR = path.resolve("public/uploads");
@@ -43,7 +44,7 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-import { groupSalesByOrder, listSales, summarizeSales } from "../lib/sales.js";
+import { getSalesCsvPath, groupSalesByOrder, listSales, summarizeSales } from "../lib/sales.js";
 
 export const adminRouter = Router();
 
@@ -106,6 +107,51 @@ adminRouter.get("/vault-saves", requireKey, (_req, res) => {
     .filter((item): item is NonNullable<typeof item> => item !== null)
     .sort((a, b) => b.saves - a.saves);
   res.json({ ok: true, items });
+});
+
+adminRouter.get("/saved-data", requireKey, (_req, res) => {
+  const products = listCatalog();
+  const remaining = getAllRemaining();
+  const drop = getCurrentDrop();
+  const sales = listSales(1000);
+  const totals = summarizeSales(sales);
+  const orders = groupSalesByOrder(sales);
+  const vault = getVaultSnapshot();
+  const uploads = fs
+    .readdirSync(UPLOAD_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const fullPath = path.join(UPLOAD_DIR, entry.name);
+      const stat = fs.statSync(fullPath);
+      return {
+        filename: entry.name,
+        url: `/uploads/${entry.name}`,
+        sizeBytes: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+      };
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  res.json({
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    storage: {
+      database: process.env.DATABASE_URL ? "postgres" : "json",
+      uploads: "render-disk",
+    },
+    customers: listUsers(),
+    products,
+    uploads,
+    state: { drop, remaining },
+    vault,
+    sales: { rows: sales, totals, orders },
+    drops: {
+      current: getCurrentDropAnalytics(),
+      history: getDropHistory(20),
+    },
+    predictions: computePredictions(),
+    autoDrop: getAutoDropConfig(),
+  });
 });
 
 /** ========= Catalog / Products ========= **/
@@ -231,6 +277,14 @@ adminRouter.get("/sales", requireKey, (req, res) => {
   const totals = summarizeSales(sales);
   const orders = groupSalesByOrder(sales);
   res.json({ sales, totals, orders });
+});
+
+adminRouter.get("/sales/export.csv", requireKey, (_req, res) => {
+  const csvPath = getSalesCsvPath();
+  const filename = `orders-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.sendFile(csvPath);
 });
 
 /** ========= Predictions (same JSON shape as /api/predict) ========= **/

@@ -116,6 +116,7 @@ adminUiRouter.get("/", (_req, res) => {
 <body>
   <div class="wrap">
     <h1>NC Admin</h1>
+    <p class="muted"><a href="/admin/saved-data" style="color:#e8e8e8;">View all saved data</a></p>
 
     <div class="grid2">
       <div class="card card-stack">
@@ -281,9 +282,14 @@ adminUiRouter.get("/", (_req, res) => {
         </section>
 
         <section class="card-section">
-          <div class="card-section-header">
-            <h3>Recent sales</h3>
-            <p class="meta">Last 200 orders, newest first.</p>
+          <div class="card-section-toolbar">
+            <div class="card-section-header">
+              <h3>Recent sales</h3>
+              <p class="meta">Last 200 orders, newest first.</p>
+            </div>
+            <div class="btnline">
+              <button class="btn" id="btnDownloadSalesCsv" type="button">Download CSV</button>
+            </div>
           </div>
           <div id="salesWrap" class="card-surface">
             <div class="muted">Load sales with admin key.</div>
@@ -303,6 +309,7 @@ adminUiRouter.get("/", (_req, res) => {
   const statePre = document.getElementById("out");
   const predPre = document.getElementById("pred");
   const salesWrap = document.getElementById("salesWrap");
+  const downloadSalesCsvBtn = document.getElementById("btnDownloadSalesCsv");
   const dropCurrentWrap = document.getElementById("dropCurrentWrap");
   const dropHistoryWrap = document.getElementById("dropHistoryWrap");
   const dropCompareWrap = document.getElementById("dropCompareWrap");
@@ -354,6 +361,34 @@ adminUiRouter.get("/", (_req, res) => {
       throw new Error(msg);
     }
     return data;
+  }
+
+  async function downloadAdminFile(path, fallbackName) {
+    const key = requireKey();
+    const headers = new Headers({ "x-admin-key": key, Accept: "text/csv" });
+    const res = await fetch(path, { headers });
+    if (!res.ok) {
+      let message = res.statusText || "Download failed";
+      try {
+        const data = await res.json();
+        if (data && data.error) message = data.error;
+      } catch (_error) {
+        // ignore non-JSON response bodies
+      }
+      throw new Error(message);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const disposition = res.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    const filename = match && match[1] ? match[1] : fallbackName;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   function escapeHtml(str) {
@@ -1490,6 +1525,16 @@ adminUiRouter.get("/", (_req, res) => {
     }
   });
 
+  if (downloadSalesCsvBtn) {
+    downloadSalesCsvBtn.addEventListener("click", async () => {
+      try {
+        await downloadAdminFile("/api/admin/sales/export.csv", "orders-export.csv");
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    });
+  }
+
   document.getElementById("ad_save").addEventListener("click", async () => {
     try {
       const body = {
@@ -1558,4 +1603,240 @@ adminUiRouter.get("/", (_req, res) => {
 </html>`);
 });
 
+adminUiRouter.get("/saved-data", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NC Saved Data</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0b0b; color:#e8e8e8; font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:1180px; margin:28px auto; padding:0 16px 64px; }
+  .top { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; margin-bottom:18px; }
+  h1 { margin:0; font-size:28px; letter-spacing:-.02em; }
+  a { color:#f5f5f5; }
+  .muted { color:#909090; font-size:13px; }
+  .toolbar { display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin:18px 0; padding:14px; background:#121212; border:1px solid #242424; border-radius:12px; }
+  label { display:block; color:#a3a3a3; font-size:12px; margin-bottom:6px; }
+  input { min-width:280px; background:#0f0f0f; color:#f5f5f5; border:1px solid #2a2a2a; border-radius:10px; padding:9px 10px; }
+  button { background:#f5f5f5; color:#050505; border:1px solid #f5f5f5; border-radius:10px; padding:9px 12px; cursor:pointer; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+  .card { background:#121212; border:1px solid #242424; border-radius:12px; padding:14px; min-width:0; }
+  .card h2 { margin:0 0 10px; font-size:15px; }
+  .metric { font-size:28px; font-weight:700; margin:4px 0; }
+  .section { margin-top:16px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { padding:8px 6px; border-bottom:1px solid #242424; text-align:left; vertical-align:top; }
+  th { color:#bcbcbc; text-transform:uppercase; font-size:10px; letter-spacing:.08em; }
+  .scroll { overflow:auto; max-height:420px; }
+  .json { white-space:pre-wrap; overflow:auto; max-height:360px; font-size:12px; line-height:1.45; background:#0f0f0f; border:1px solid #242424; border-radius:10px; padding:10px; }
+  .thumb { width:44px; height:44px; object-fit:cover; border-radius:8px; background:#1f1f1f; }
+  .pill { display:inline-flex; padding:3px 8px; border:1px solid #333; border-radius:999px; color:#cfcfcf; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Saved Data</h1>
+      <div class="muted">Products, uploads, customers, purchases, saves, drops, analytics, and recommendations.</div>
+    </div>
+    <a href="/admin">Back to admin</a>
+  </div>
+
+  <div class="toolbar">
+    <div>
+      <label>Admin key</label>
+      <input id="adminKey" type="password" placeholder="x-admin-key" autocomplete="off" />
+    </div>
+    <button id="loadBtn" type="button">Load saved data</button>
+    <button id="downloadBtn" type="button">Download JSON</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <div id="summary" class="grid"></div>
+  <div id="content"></div>
+</div>
+
+<script>
+(() => {
+  const keyInput = document.getElementById("adminKey");
+  const loadBtn = document.getElementById("loadBtn");
+  const downloadBtn = document.getElementById("downloadBtn");
+  const statusEl = document.getElementById("status");
+  const summaryEl = document.getElementById("summary");
+  const contentEl = document.getElementById("content");
+  let latest = null;
+
+  const storedKey = window.localStorage.getItem("nc_admin_key");
+  if (storedKey) keyInput.value = storedKey;
+
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[ch]));
+  }
+
+  function money(cents) {
+    return "$" + ((Number(cents) || 0) / 100).toFixed(2);
+  }
+
+  function dateText(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : String(value);
+  }
+
+  function key() {
+    const value = keyInput.value.trim();
+    if (!value) throw new Error("Enter your admin key first.");
+    window.localStorage.setItem("nc_admin_key", value);
+    return value;
+  }
+
+  async function loadData() {
+    statusEl.textContent = "Loading...";
+    const res = await fetch("/api/admin/saved-data", {
+      headers: { "x-admin-key": key(), Accept: "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Unable to load saved data");
+    latest = data;
+    render(data);
+    statusEl.textContent = "Loaded " + dateText(data.generatedAt);
+  }
+
+  function renderSummary(data) {
+    const totals = data.sales?.totals || {};
+    const activeDrop = data.state?.drop;
+    const vaultCount = Object.values(data.vault || {}).reduce((sum, row) => sum + Number(row.saves || 0), 0);
+    const cards = [
+      ["Storage", data.storage?.database || "unknown", "Uploads: " + (data.storage?.uploads || "unknown")],
+      ["Products", (data.products || []).length, "Catalog records"],
+      ["Uploaded files", (data.uploads || []).length, "Image files on backend disk"],
+      ["Customers", (data.customers || []).length, "Registered accounts"],
+      ["Orders", (data.sales?.orders || []).length, money(totals.grossCents || 0) + " gross"],
+      ["Vault saves", vaultCount, "Active customer save requests"],
+      ["Current drop", activeDrop ? activeDrop.status : "none", activeDrop ? activeDrop.id : "No active/scheduled drop"],
+      ["Drop history", (data.drops?.history || []).length, "Saved analytics snapshots"],
+    ];
+    summaryEl.innerHTML = cards.map(([title, metric, note]) =>
+      '<div class="card"><h2>' + escapeHtml(title) + '</h2><div class="metric">' +
+      escapeHtml(metric) + '</div><div class="muted">' + escapeHtml(note) + '</div></div>'
+    ).join("");
+  }
+
+  function renderTable(title, headers, rows, emptyText) {
+    const head = headers.map((h) => "<th>" + escapeHtml(h) + "</th>").join("");
+    const body = rows.length
+      ? rows.map((row) => "<tr>" + row.map((cell) => "<td>" + cell + "</td>").join("") + "</tr>").join("")
+      : '<tr><td colspan="' + headers.length + '" class="muted">' + escapeHtml(emptyText || "No data") + "</td></tr>";
+    return '<section class="section card"><h2>' + escapeHtml(title) + '</h2><div class="scroll"><table><thead><tr>' +
+      head + '</tr></thead><tbody>' + body + '</tbody></table></div></section>';
+  }
+
+  function render(data) {
+    renderSummary(data);
+    const products = (data.products || []).map((p) => [
+      p.imageUrl ? '<img class="thumb" src="' + escapeHtml(p.imageUrl) + '" />' : "",
+      escapeHtml(p.id),
+      escapeHtml(p.title),
+      money(p.priceCents),
+      p.enabled === false ? '<span class="pill">disabled</span>' : '<span class="pill">enabled</span>',
+      escapeHtml((p.tags || []).join(", ")),
+      escapeHtml(p.imageUrl || ""),
+    ]);
+    const uploads = (data.uploads || []).map((f) => [
+      '<img class="thumb" src="' + escapeHtml(f.url) + '" />',
+      '<a href="' + escapeHtml(f.url) + '" target="_blank" rel="noreferrer">' + escapeHtml(f.filename) + "</a>",
+      escapeHtml(String(f.sizeBytes || 0)),
+      escapeHtml(dateText(f.updatedAt)),
+    ]);
+    const customers = (data.customers || []).map((u) => [
+      escapeHtml(u.email),
+      escapeHtml(u.name || ""),
+      escapeHtml(u.id),
+      escapeHtml(dateText(u.createdAt)),
+      escapeHtml(dateText(u.lastLoginAt)),
+      '<pre class="json">' + escapeHtml(JSON.stringify(u.defaultShipping || null, null, 2)) + "</pre>",
+    ]);
+    const orders = (data.sales?.orders || []).map((o) => [
+      escapeHtml(dateText(o.ts)),
+      escapeHtml(o.orderId),
+      escapeHtml(o.customerName || ""),
+      escapeHtml(o.customerEmail || ""),
+      escapeHtml(String(o.totalItems || 0)),
+      money(o.totalCents),
+      '<pre class="json">' + escapeHtml(JSON.stringify(o.shippingAddress || null, null, 2)) + "</pre>",
+    ]);
+    const vault = Object.entries(data.vault || {}).map(([productId, v]) => [
+      escapeHtml(productId),
+      escapeHtml(String(v.saves || 0)),
+      escapeHtml(String(v.threshold || 0)),
+      '<pre class="json">' + escapeHtml(JSON.stringify(v.pendingRelease || null, null, 2)) + "</pre>",
+      '<pre class="json">' + escapeHtml(JSON.stringify(v.activeRelease || v.lastRelease || null, null, 2)) + "</pre>",
+    ]);
+    const drops = [data.drops?.current, ...(data.drops?.history || [])].filter(Boolean).map((d) => [
+      escapeHtml(d.id),
+      escapeHtml(d.status),
+      escapeHtml(dateText(d.startedAt || d.scheduledStartsAt)),
+      escapeHtml(dateText(d.endedAt || d.scheduledEndsAt)),
+      escapeHtml(String(d.totals?.soldQty || 0)),
+      money(d.totals?.revenueCents || 0),
+      escapeHtml(String(d.totals?.views || 0)),
+    ]);
+
+    contentEl.innerHTML =
+      renderTable("Products saved in catalog", ["Image", "ID", "Title", "Price", "Status", "Tags", "Image URL"], products, "No products saved") +
+      renderTable("Uploaded image files", ["Preview", "Filename", "Bytes", "Updated"], uploads, "No uploads saved") +
+      renderTable("Customers", ["Email", "Name", "ID", "Created", "Last login", "Saved shipping"], customers, "No customers saved") +
+      renderTable("Orders and purchases", ["Time", "Order", "Name", "Email", "Items", "Total", "Shipping"], orders, "No orders saved") +
+      renderTable("Vault saves", ["Product", "Saves", "Threshold", "Pending release", "Release"], vault, "No vault saves saved") +
+      renderTable("Drops and analytics", ["Drop", "Status", "Start", "End", "Sold", "Revenue", "Views"], drops, "No drop analytics saved") +
+      '<section class="section card"><h2>Current state, predictions, and auto-drop</h2><pre class="json">' +
+      escapeHtml(JSON.stringify({
+        state: data.state,
+        predictions: data.predictions,
+        autoDrop: data.autoDrop,
+      }, null, 2)) + '</pre></section>';
+  }
+
+  loadBtn.addEventListener("click", () => {
+    loadData().catch((err) => {
+      statusEl.textContent = err.message || String(err);
+    });
+  });
+
+  downloadBtn.addEventListener("click", () => {
+    if (!latest) {
+      statusEl.textContent = "Load data before downloading.";
+      return;
+    }
+    const blob = new Blob([JSON.stringify(latest, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "nc-saved-data-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  if (storedKey) {
+    loadData().catch((err) => {
+      statusEl.textContent = err.message || String(err);
+    });
+  }
+})();
+</script>
+</body>
+</html>`);
+});
 
