@@ -41,6 +41,8 @@ export type VaultReleaseEmailPayload = {
   email: string;
   productId: string;
   productTitle: string;
+  productImageUrl?: string;
+  priceCents?: number;
   windowMinutes: number;
   releaseStartsAt: string; // ISO string
   releaseEndsAt: string;   // ISO string
@@ -444,31 +446,115 @@ export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
 
   const from = process.env.SMTP_FROM!;
   const windowLabel = formatWindowLabel(payload.windowMinutes);
-  // Avoid dashes for style. Use a vertical bar.
-  const subject = `${payload.productTitle} | limited restock live for ${windowLabel}`;
-  const startsAt = formatDateTime(payload.releaseStartsAt);
+  const subject = `${payload.productTitle} is back — your vault window is open`;
   const endsAt = formatDateTime(payload.releaseEndsAt);
-  const linkBase = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "";
-  const link = linkBase || "https://nc.example.com";
+  const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc.example.com";
+  const link = siteUrl;
+  const priceText = payload.priceCents != null
+    ? currencyFormatter.format(payload.priceCents / 100)
+    : null;
 
   const textBody = [
-    `Your saved item ${payload.productTitle} is live in the Vault.`,
+    `Your saved item is back: ${payload.productTitle}`,
     "",
-    `This limited restock window lasts for ${windowLabel} and closes at ${endsAt}.`,
+    priceText ? `Price: ${priceText}` : "",
     "",
-    `Link: ${link}`,
+    `Your exclusive vault window is open for ${windowLabel}.`,
+    `Window closes: ${endsAt}`,
     "",
-    `Drop ID: ${payload.dropId ?? "N/A"}`,
+    `Shop now: ${link}`,
     "",
-    `Vault opened: ${startsAt}`,
-    `Vault closes: ${endsAt}`,
-    "",
-    "Go now before it locks again.",
+    "This window is only available to customers who saved this item.",
+    "After it closes, access locks and the item returns to the Vault.",
     "",
     "The NC team",
-  ].filter(Boolean).join("\n");
+  ].filter((line) => line !== null).join("\n");
 
-  const htmlBody = `<div style=\"font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;\">\n    <p><strong>${escapeHtml(payload.productTitle)}</strong> is back in the Vault.</p>\n    <p>This mystery release is open for <strong>${escapeHtml(windowLabel)}</strong> and closes at <strong>${escapeHtml(endsAt)}</strong>.</p>\n    <p><a href=\"${escapeHtml(link)}\" style=\"color:#111;text-decoration:underline;\">Jump in now</a> before it locks again.</p>\n    <p style=\"font-size:12px;color:#6b7280;margin-top:18px;\">\n      Drop ID: ${escapeHtml(payload.dropId ?? "N/A")}<br/>\n      Vault opened: ${escapeHtml(startsAt)}<br/>\n      Vault closes: ${escapeHtml(endsAt)}\n    </p>\n    <p>The NC team</p>\n  </div>`;
+  // Use product image if it's a full URL (Cloudinary), otherwise fall back to placeholder
+  const imageSrc = payload.productImageUrl && /^https?:\/\//i.test(payload.productImageUrl)
+    ? escapeHtml(payload.productImageUrl)
+    : RECEIPT_FALLBACK_IMAGE;
+
+  const maybeLogo = getLogoAttachment();
+
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:48px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:540px;border-radius:32px;background:#ffffff;padding:40px 36px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+
+            <tr>
+              <td style="text-align:center;padding-bottom:28px;">
+                <img src="cid:nc-logo" alt="NC" style="max-width:120px;height:auto;display:inline-block;"/>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:6px;">
+                <div style="font-size:11px;letter-spacing:0.32em;text-transform:uppercase;color:#6b7280;">Vault Release</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="text-align:center;padding-bottom:32px;">
+                <div style="font-size:26px;font-weight:700;letter-spacing:-0.03em;line-height:1.2;color:#111;">Your saved item<br/>is available now.</div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-bottom:28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f9f9f7;border-radius:22px;overflow:hidden;">
+                  <tr>
+                    <td style="padding:24px;text-align:center;">
+                      <div style="width:160px;height:160px;border-radius:18px;overflow:hidden;background:#ebebea;margin:0 auto;">
+                        <img src="${imageSrc}" alt="${escapeHtml(payload.productTitle)}" style="display:block;width:160px;height:160px;object-fit:cover;"/>
+                      </div>
+                      <div style="margin-top:16px;font-weight:700;font-size:17px;letter-spacing:-0.01em;color:#111;">${escapeHtml(payload.productTitle)}</div>
+                      ${priceText ? `<div style="margin-top:6px;font-size:14px;color:#6b7280;">${escapeHtml(priceText)}</div>` : ""}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-bottom:28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f2f2ee;border-radius:16px;">
+                  <tr>
+                    <td style="padding:20px;text-align:center;">
+                      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Your window closes</div>
+                      <div style="margin-top:10px;font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#111;">${escapeHtml(endsAt)}</div>
+                      <div style="margin-top:6px;font-size:12px;color:#6b7280;">${escapeHtml(windowLabel)} exclusive access</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:28px;">
+                <a href="${escapeHtml(link)}" style="display:inline-block;padding:16px 48px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;font-size:12px;">Get It Now</a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-top:4px;font-size:12px;color:#9ca3af;text-align:center;line-height:1.7;">
+                This window is only available to customers who saved this item.<br/>
+                After it closes, access locks and the item returns to the Vault.
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-top:24px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">
+                ${escapeHtml(siteUrl)}
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>`;
 
   try {
     await transporter.sendMail({
@@ -477,6 +563,7 @@ export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
       subject,
       text: textBody,
       html: htmlBody,
+      attachments: maybeLogo ? [maybeLogo] : undefined,
     });
     return true;
   } catch (error) {

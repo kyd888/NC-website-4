@@ -298,12 +298,16 @@ async function notifySavers(record: VaultRecord, release: VaultRelease, productT
   const endIso =
     release.endsAt ?? dayjs(startIso).add(release.durationMinutes, "minute").toISOString();
 
+  const product = getProduct(record.productId);
+
   const notified: string[] = [];
   const promises = record.saves.map(async (saver) => {
     const ok = await sendVaultReleaseEmail({
       email: saver.email,
       productId: record.productId,
       productTitle,
+      productImageUrl: product?.imageUrl,
+      priceCents: product?.priceCents,
       windowMinutes: release.durationMinutes,
       releaseStartsAt: startIso,
       releaseEndsAt: endIso,
