@@ -153,28 +153,43 @@ adminRouter.get("/products", requireKey, (_req, res) => {
   res.json({ products: listCatalog() });
 });
 
-adminRouter.post("/products", requireKey, (req, res) => {
-  const { id, title, priceCents, imageUrl, tags } = req.body || {};
-  if (!id || !title || !Number.isFinite(priceCents)) {
-    return res.status(400).json({ error: "Missing fields" });
+adminRouter.post("/products", requireKey, async (req, res) => {
+  try {
+    const { id, title, priceCents, imageUrl, tags } = req.body || {};
+    if (!id || !title || !Number.isFinite(priceCents)) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+    await upsertProduct({ id, title, priceCents, imageUrl, tags: parseTags(tags) });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[admin] failed to save product", error);
+    res.status(500).json({ error: "Unable to save product" });
   }
-  upsertProduct({ id, title, priceCents, imageUrl, tags: parseTags(tags) });
-  res.json({ ok: true });
 });
 
-adminRouter.patch("/products/:id", requireKey, (req, res) => {
-  const body = { ...req.body };
-  if (body.tags !== undefined) {
-    body.tags = parseTags(body.tags);
+adminRouter.patch("/products/:id", requireKey, async (req, res) => {
+  try {
+    const body = { ...req.body };
+    if (body.tags !== undefined) {
+      body.tags = parseTags(body.tags);
+    }
+    const ok = await patchProduct(req.params.id, body || {});
+    if (!ok) return res.status(404).json({ error: "Not found" });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[admin] failed to update product", error);
+    res.status(500).json({ error: "Unable to update product" });
   }
-  const ok = patchProduct(req.params.id, body || {});
-  if (!ok) return res.status(404).json({ error: "Not found" });
-  res.json({ ok: true });
 });
 
-adminRouter.delete("/products/:id", requireKey, (req, res) => {
-  deleteProduct(req.params.id);
-  res.json({ ok: true });
+adminRouter.delete("/products/:id", requireKey, async (req, res) => {
+  try {
+    await deleteProduct(req.params.id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[admin] failed to delete product", error);
+    res.status(500).json({ error: "Unable to delete product" });
+  }
 });
 
 /** ========= Drops ========= **/

@@ -172,10 +172,10 @@ function serializeCatalogForDisk(item: CatalogItem) {
   return record;
 }
 
-function persistCatalogNow() {
+async function persistCatalogNow() {
   if (dbEnabled) {
     const rows = catalog.map((item) => serializeCatalogForDisk(item));
-    void Promise.all(
+    await Promise.all(
       rows.map((item) =>
         dbQuery(
           `INSERT INTO catalog (id, title, price_cents, image_url, enabled, tags, updated_at)
@@ -197,7 +197,7 @@ function persistCatalogNow() {
           ],
         ),
       ),
-    ).catch((error) => logDbError("failed to persist catalog", error));
+    );
     return;
   }
   try {
@@ -215,7 +215,7 @@ function scheduleCatalogPersist() {
   }
   catalogPersistTimer = setTimeout(() => {
     catalogPersistTimer = null;
-    persistCatalogNow();
+    void persistCatalogNow().catch((error) => logDbError("failed to persist catalog", error));
   }, 50);
 }
 
@@ -588,7 +588,7 @@ export function seedInventory() {
       catalog = [
         { id: "tee-black", title: "NC Tee - Black", priceCents: 4000, enabled: true, tags: ["T-Shirt"] },
       ];
-      persistCatalogNow();
+      void persistCatalogNow().catch((error) => logDbError("failed to persist default catalog", error));
     }
   }
   if (!runtimeStateLoaded) {
@@ -628,7 +628,7 @@ export async function loadInventoryFromDb() {
       catalog = [
         { id: "tee-black", title: "NC Tee - Black", priceCents: 4000, enabled: true, tags: ["T-Shirt"] },
       ];
-      persistCatalogNow();
+      await persistCatalogNow();
     }
     restoreRuntimeLifecycle();
   } catch (error) {
@@ -655,7 +655,7 @@ export function getAllRemaining(): RemainingMap {
   return { ...remaining };
 }
 
-export function upsertProduct(p: CatalogItem) {
+export async function upsertProduct(p: CatalogItem) {
   const next = normalizeProduct(p);
   const i = catalog.findIndex((x) => x.id === p.id);
   if (i >= 0) {
@@ -663,10 +663,14 @@ export function upsertProduct(p: CatalogItem) {
   } else {
     catalog.push(next);
   }
-  scheduleCatalogPersist();
+  if (dbEnabled) {
+    await persistCatalogNow();
+  } else {
+    scheduleCatalogPersist();
+  }
 }
 
-export function patchProduct(id: string, patch: Partial<CatalogItem>) {
+export async function patchProduct(id: string, patch: Partial<CatalogItem>) {
   const i = catalog.findIndex((x) => x.id === id);
   if (i < 0) return false;
   const merged: CatalogItem = { ...catalog[i], ...patch };
@@ -675,18 +679,20 @@ export function patchProduct(id: string, patch: Partial<CatalogItem>) {
     merged.tags = normalizeTags(patch.tags as any);
   }
   catalog[i] = normalizeProduct(merged);
-  scheduleCatalogPersist();
+  if (dbEnabled) {
+    await persistCatalogNow();
+  } else {
+    scheduleCatalogPersist();
+  }
   return true;
 }
 
-export function deleteProduct(id: string) {
+export async function deleteProduct(id: string) {
   catalog = catalog.filter((x) => x.id !== id);
   delete remaining[id];
   emitInventory(id);
   if (dbEnabled) {
-    void dbQuery("DELETE FROM catalog WHERE id = $1", [id]).catch((error) =>
-      logDbError("failed to delete catalog product", error),
-    );
+    await dbQuery("DELETE FROM catalog WHERE id = $1", [id]);
   } else {
     scheduleCatalogPersist();
   }

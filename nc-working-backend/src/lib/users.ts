@@ -163,12 +163,12 @@ export async function loadUsersFromDb() {
   }
 }
 
-function persistUser(user: UserRecord) {
+async function persistUser(user: UserRecord) {
   if (!dbEnabled) {
     saveToDisk();
     return;
   }
-  void dbQuery(
+  await dbQuery(
     `INSERT INTO users (id, email, password_hash, name, default_shipping, created_at, updated_at, last_login_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (id) DO UPDATE SET
@@ -189,7 +189,7 @@ function persistUser(user: UserRecord) {
       user.updatedAt,
       user.lastLoginAt ?? null,
     ],
-  ).catch((error) => logDbError("failed to persist user", error));
+  );
 }
 
 function normalizeEmail(email: string) {
@@ -225,12 +225,12 @@ export function getUserByEmail(email: string): User | null {
   return id ? getUserById(id) : null;
 }
 
-export function createUser(input: {
+export async function createUser(input: {
   email: string;
   password: string;
   name?: string;
   defaultShipping?: ShippingAddress;
-}): User {
+}): Promise<User> {
   const email = normalizeEmail(input.email);
   if (usersByEmail.has(email)) {
     throw new Error("Email already registered");
@@ -247,21 +247,21 @@ export function createUser(input: {
   };
   usersById.set(user.id, user);
   usersByEmail.set(email, user.id);
-  persistUser(user);
+  await persistUser(user);
   return user;
 }
 
-export function authenticateUser(email: string, password: string): User | null {
+export async function authenticateUser(email: string, password: string): Promise<User | null> {
   const user = getUserByEmail(email);
   if (!user) return null;
   if (!verifyPassword(password, user.passwordHash)) return null;
   user.lastLoginAt = new Date().toISOString();
   user.updatedAt = user.lastLoginAt;
-  persistUser(user);
+  await persistUser(user);
   return user;
 }
 
-export function updateUser(userId: string, changes: Partial<Omit<User, "id" | "passwordHash" | "email">>) {
+export async function updateUser(userId: string, changes: Partial<Omit<User, "id" | "passwordHash" | "email">>) {
   const user = usersById.get(userId);
   if (!user) {
     throw new Error("User not found");
@@ -276,16 +276,16 @@ export function updateUser(userId: string, changes: Partial<Omit<User, "id" | "p
     user.lastLoginAt = changes.lastLoginAt;
   }
   user.updatedAt = new Date().toISOString();
-  persistUser(user);
+  await persistUser(user);
   return user;
 }
 
-export function setUserPassword(userId: string, newPassword: string) {
+export async function setUserPassword(userId: string, newPassword: string) {
   const user = usersById.get(userId);
   if (!user) throw new Error("User not found");
   user.passwordHash = hashPassword(newPassword);
   user.updatedAt = new Date().toISOString();
-  persistUser(user);
+  await persistUser(user);
 }
 
 export function listUsers(): PublicUser[] {

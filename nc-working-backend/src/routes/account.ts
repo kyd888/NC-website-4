@@ -53,13 +53,13 @@ const profileSchema = z.object({
 
 export const accountRouter = Router();
 
-accountRouter.post("/register", (req, res) => {
+accountRouter.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid input" });
   }
   try {
-    const user = createUser({
+    const user = await createUser({
       email: parsed.data.email,
       password: parsed.data.password,
       name: parsed.data.name,
@@ -75,7 +75,7 @@ accountRouter.post("/register", (req, res) => {
   }
 });
 
-accountRouter.post("/login", (req, res) => {
+accountRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid input" });
@@ -85,12 +85,17 @@ accountRouter.post("/login", (req, res) => {
     revokeAuthToken(existingCtx.token);
     clearAuthCookie(res);
   }
-  const user = authenticateUser(parsed.data.email, parsed.data.password);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid credentials" });
+  try {
+    const user = await authenticateUser(parsed.data.email, parsed.data.password);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    createAuthSession(user.id, res);
+    res.json({ ok: true, user: toPublicUser(user) });
+  } catch (error) {
+    console.error("[account] login error", error);
+    res.status(500).json({ error: "Unable to sign in" });
   }
-  createAuthSession(user.id, res);
-  res.json({ ok: true, user: toPublicUser(user) });
 });
 
 accountRouter.post("/logout", (req, res) => {
@@ -110,7 +115,7 @@ accountRouter.get("/me", (req, res) => {
   res.json({ ok: true, user: ctx.user });
 });
 
-accountRouter.patch("/profile", (req, res) => {
+accountRouter.patch("/profile", async (req, res) => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   const parsed = profileSchema.safeParse(req.body);
@@ -118,7 +123,7 @@ accountRouter.patch("/profile", (req, res) => {
     return res.status(400).json({ error: "Invalid profile data" });
   }
   try {
-    const updated = updateUser(ctx.user.id, {
+    const updated = await updateUser(ctx.user.id, {
       name: parsed.data.name,
       defaultShipping: parsed.data.defaultShipping as ShippingAddress | undefined,
     });
@@ -137,7 +142,7 @@ accountRouter.get("/orders", (req, res) => {
   res.json({ ok: true, orders });
 });
 
-accountRouter.post("/shipping", (req, res) => {
+accountRouter.post("/shipping", async (req, res) => {
   const ctx = requireAuth(req, res);
   if (!ctx) return;
   const parsed = shippingSchema.safeParse(req.body);
@@ -145,7 +150,7 @@ accountRouter.post("/shipping", (req, res) => {
     return res.status(400).json({ error: "Invalid shipping address" });
   }
   try {
-    const updated = updateUser(ctx.user.id, {
+    const updated = await updateUser(ctx.user.id, {
       defaultShipping: parsed.data,
     });
     res.json({ ok: true, user: toPublicUser(updated) });

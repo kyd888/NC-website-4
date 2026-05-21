@@ -304,7 +304,7 @@ export async function upsertSaleToDb(sale: Sale) {
   );
 }
 
-export function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: string }) {
+export async function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: string }) {
   const row: Sale = {
     id: s.id ?? `sale_${Date.now()}_${Math.random().toString(36).slice(2)}`,
     ts: s.ts ?? new Date().toISOString(),
@@ -334,7 +334,7 @@ export function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: string
   sales.push(row);
   if (sales.length > MAX_SALES) sales = sales.slice(-MAX_SALES);
   if (dbEnabled) {
-    void upsertSaleToDb(row).catch((error) => logDbError("failed to persist sale", error));
+    await upsertSaleToDb(row);
     writeOrdersCsv();
   } else {
     saveToDisk();

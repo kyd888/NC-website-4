@@ -594,7 +594,7 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
   }));
 
   for (const item of orderItems) {
-    recordSale({
+    await recordSale({
       productId: item.productId,
       productTitle: item.title,
       qty: item.qty,
@@ -613,7 +613,7 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
 
   if (userId) {
     try {
-      updateUser(userId, {
+      await updateUser(userId, {
         name: customer.name ?? auth?.user?.name,
         defaultShipping: customer.address,
       });

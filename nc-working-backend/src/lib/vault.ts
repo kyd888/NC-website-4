@@ -228,12 +228,12 @@ export async function loadVaultFromDb() {
   }
 }
 
-function persistVaultRecord(record: VaultRecord) {
+async function persistVaultRecord(record: VaultRecord) {
   if (!dbEnabled) {
     saveToDisk();
     return;
   }
-  void dbQuery(
+  await dbQuery(
     `INSERT INTO vault_records (product_id, saves, releases, pending_release, updated_at)
      VALUES ($1, $2, $3, $4, now())
      ON CONFLICT (product_id) DO UPDATE SET
@@ -242,16 +242,16 @@ function persistVaultRecord(record: VaultRecord) {
        pending_release = EXCLUDED.pending_release,
        updated_at = now()`,
     [record.productId, record.saves, record.releases, record.pendingRelease ?? null],
-  ).catch((error) => logDbError("failed to persist vault record", error));
+  );
 }
 
-function persistVaultRecords() {
+async function persistVaultRecords() {
   if (!dbEnabled) {
     saveToDisk();
     return;
   }
   for (const record of vault.values()) {
-    persistVaultRecord(record);
+    await persistVaultRecord(record);
   }
 }
 
@@ -307,7 +307,7 @@ async function notifySavers(record: VaultRecord, release: VaultRelease, productT
   release.status = "live";
   record.saves = [];
   record.pendingRelease = null;
-  persistVaultRecord(record);
+  await persistVaultRecord(record);
 }
 
 async function finalizeRelease(
@@ -367,7 +367,7 @@ async function triggerRelease(record: VaultRecord, productTitle: string) {
       durationMinutes,
       triggeredAt: nowIso,
     };
-    persistVaultRecord(record);
+    await persistVaultRecord(record);
     return { triggered: true, pending: true };
   }
 
@@ -392,7 +392,7 @@ async function applyPendingRelease(record: VaultRecord, drop: Drop) {
   const release = record.releases.find((item) => item.id === pending.releaseId);
   if (!release) {
     record.pendingRelease = null;
-    persistVaultRecord(record);
+    await persistVaultRecord(record);
     return;
   }
   addInventoryToLive({ [record.productId]: pending.restockQty });
@@ -411,7 +411,7 @@ onDropEvent(async (event) => {
       await applyPendingRelease(record, event.drop);
       changed = true;
     }
-    if (changed) persistVaultRecords();
+    if (changed) await persistVaultRecords();
     return;
   }
   if (event.type === "ended") {
@@ -425,7 +425,7 @@ onDropEvent(async (event) => {
         changed = true;
       }
     }
-    if (changed) persistVaultRecords();
+    if (changed) await persistVaultRecords();
   }
 });
 
@@ -462,7 +462,7 @@ export async function addSaveToVault(input: AddSaveInput) {
     name: input.name?.trim() || undefined,
     savedAt: new Date().toISOString(),
   });
-  persistVaultRecord(record);
+  await persistVaultRecord(record);
 
   const result = await triggerRelease(record, product.title);
 
