@@ -79,6 +79,7 @@ const upload = multer({
 });
 
 import { getSalesCsvPath, groupSalesByOrder, listSales, summarizeSales } from "../lib/sales.js";
+import { sendPurchaseNotificationEmail, sendVaultReleaseEmail } from "../lib/mailer.js";
 
 export const adminRouter = Router();
 
@@ -357,5 +358,53 @@ adminRouter.get("/autodrop", requireKey, (_req, res) => {
 adminRouter.post("/autodrop", requireKey, (req, res) => {
   setAutoDropConfig(req.body || {});
   res.json({ ok: true, config: getAutoDropConfig() });
+});
+
+/** ========= Test email ========= **/
+adminRouter.post("/test-email", requireKey, async (req, res) => {
+  const to = typeof req.body?.to === "string" && req.body.to.trim()
+    ? req.body.to.trim()
+    : process.env.ORDER_NOTIFY_EMAIL;
+
+  const type = req.body?.type === "vault" ? "vault" : "purchase";
+
+  if (!to) {
+    return res.status(400).json({ error: "No recipient — set ORDER_NOTIFY_EMAIL or pass { to } in the request body" });
+  }
+
+  try {
+    let ok = false;
+    if (type === "vault") {
+      const products = listCatalog();
+      const product = products[0];
+      ok = await sendVaultReleaseEmail({
+        email: to,
+        productId: product?.id ?? "test-product",
+        productTitle: product?.title ?? "Test Product",
+        productImageUrl: product?.imageUrl,
+        priceCents: product?.priceCents,
+        windowMinutes: 120,
+        releaseStartsAt: new Date().toISOString(),
+        releaseEndsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      });
+    } else {
+      ok = await sendPurchaseNotificationEmail({
+        orderId: "test-order-001",
+        totalCents: 4000,
+        customerName: "Test Customer",
+        customerEmail: "customer@example.com",
+        items: [{ productId: "test", title: "Test Product", qty: 1, priceCents: 4000, lineTotalCents: 4000 }],
+        orderedAt: new Date().toISOString(),
+      });
+    }
+    if (ok) {
+      res.json({ ok: true, message: `${type} test email sent to ${to}` });
+    } else {
+      res.status(500).json({ ok: false, error: "Mailer returned false — check server logs for SMTP errors (SMTP_HOST, SMTP_USER, SMTP_PASS may be missing or wrong)" });
+    }
+  } catch (err: any) {
+    console.error("[admin] test-email error", err);
+    res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+  }
 });
 

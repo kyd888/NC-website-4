@@ -91,8 +91,11 @@ async function getTransporter(): Promise<nodemailer.Transporter | null> {
         if (!transporter) return null;
         try {
           await transporter.verify();
+          console.log("[mailer] SMTP connection verified OK");
         } catch (error: any) {
-          console.warn("[mailer] transporter verification failed:", error?.message || error);
+          console.error("[mailer] SMTP verification failed — emails will not send:", error?.message || error);
+          transportDisabled = true;
+          return null;
         }
         return transporter;
       } catch (error) {
