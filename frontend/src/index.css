@@ -231,8 +231,12 @@ input,select,textarea{font-size:16px}
 }
 
 @media (max-width: 640px) {
+  .page-content--landing::before,
+  .page-content--landing::after{
+    height: 0;
+  }
   .landing-screen{
-    padding:24px 16px calc(36px + var(--safe-area-bottom, 0px));
+    padding:24px 16px calc(24px + var(--safe-area-bottom, 0px));
   }
   .landing-screen__panel{
     border-radius:28px;
