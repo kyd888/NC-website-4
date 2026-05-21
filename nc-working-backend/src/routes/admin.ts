@@ -2,6 +2,10 @@ import { Router } from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ---- inventory (you have these in src/lib/inventory.ts) ----
 import {
@@ -29,7 +33,9 @@ import { listUsers } from "../lib/users.js";
 import { requireAdminApi } from "../lib/adminAuth.js";
 
 // ensure directory exists at startup
-const UPLOAD_DIR = path.resolve("public/uploads");
+// resolve relative to this file so it matches the static-serving path in index.ts
+// regardless of what directory the server process is started from
+const UPLOAD_DIR = path.resolve(__dirname, "../../public/uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // name files: <timestamp>-<random>-<original>
