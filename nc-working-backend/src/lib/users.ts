@@ -151,6 +151,10 @@ function replaceUsers(rows: UserRecord[]) {
   }
 }
 
+function jsonParam(value: unknown) {
+  return value === undefined ? null : JSON.stringify(value);
+}
+
 export async function loadUsersFromDb() {
   if (!dbEnabled) return;
   try {
@@ -184,7 +188,7 @@ async function persistUser(user: UserRecord) {
       user.email,
       user.passwordHash,
       user.name ?? null,
-      user.defaultShipping ?? null,
+      jsonParam(user.defaultShipping ?? null),
       user.createdAt,
       user.updatedAt,
       user.lastLoginAt ?? null,

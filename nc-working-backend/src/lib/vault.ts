@@ -207,6 +207,10 @@ function normalizeStoredRecord(entry: StoredVaultRecord): VaultRecord | null {
   };
 }
 
+function jsonParam(value: unknown) {
+  return value === undefined ? null : JSON.stringify(value);
+}
+
 export async function loadVaultFromDb() {
   if (!dbEnabled) return;
   try {
@@ -241,7 +245,12 @@ async function persistVaultRecord(record: VaultRecord) {
        releases = EXCLUDED.releases,
        pending_release = EXCLUDED.pending_release,
        updated_at = now()`,
-    [record.productId, record.saves, record.releases, record.pendingRelease ?? null],
+    [
+      record.productId,
+      jsonParam(record.saves),
+      jsonParam(record.releases),
+      jsonParam(record.pendingRelease ?? null),
+    ],
   );
 }
 

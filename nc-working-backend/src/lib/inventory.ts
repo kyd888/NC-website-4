@@ -172,6 +172,10 @@ function serializeCatalogForDisk(item: CatalogItem) {
   return record;
 }
 
+function jsonParam(value: unknown) {
+  return value === undefined ? null : JSON.stringify(value);
+}
+
 async function persistCatalogNow() {
   if (dbEnabled) {
     const rows = catalog.map((item) => serializeCatalogForDisk(item));
@@ -193,7 +197,7 @@ async function persistCatalogNow() {
             item.priceCents,
             item.imageUrl ?? null,
             item.enabled !== false,
-            item.tags ?? [],
+            jsonParam(item.tags ?? []),
           ],
         ),
       ),
@@ -476,7 +480,7 @@ async function persistRuntimeStateToDb() {
     `INSERT INTO inventory_state (id, state, updated_at)
      VALUES ('default', $1, now())
      ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-    [runtimeStatePayload()],
+    [jsonParam(runtimeStatePayload())],
   );
 }
 

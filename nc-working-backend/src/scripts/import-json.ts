@@ -26,6 +26,10 @@ function isoDate(value: unknown) {
   return new Date().toISOString();
 }
 
+function jsonParam(value: unknown) {
+  return value === undefined ? null : JSON.stringify(value);
+}
+
 async function importUsers(dir: string) {
   const rows = readJson<any[]>(dir, "users.json", []);
   for (const user of rows) {
@@ -46,7 +50,7 @@ async function importUsers(dir: string) {
         String(user.email).trim().toLowerCase(),
         String(user.passwordHash ?? user.password_hash ?? ""),
         typeof user.name === "string" ? user.name : null,
-        user.defaultShipping ?? user.default_shipping ?? null,
+        jsonParam(user.defaultShipping ?? user.default_shipping ?? null),
         isoDate(user.createdAt ?? user.created_at),
         isoDate(user.updatedAt ?? user.updated_at),
         user.lastLoginAt || user.last_login_at ? isoDate(user.lastLoginAt ?? user.last_login_at) : null,
@@ -96,7 +100,7 @@ async function importSales(dir: string) {
         sale.customerEmail ?? null,
         sale.productTitle ?? null,
         sale.dropId ?? null,
-        sale.shippingAddress ?? null,
+        jsonParam(sale.shippingAddress ?? null),
         sale.orderId ?? null,
         Math.max(0, Math.floor(Number(sale.lineTotalCents) || qty * priceCents)),
       ],
@@ -125,7 +129,7 @@ async function importCatalog(dir: string) {
         Math.max(0, Math.floor(Number(item.priceCents) || 0)),
         typeof item.imageUrl === "string" ? item.imageUrl : null,
         item.enabled !== false,
-        Array.isArray(item.tags) ? item.tags : [],
+        jsonParam(Array.isArray(item.tags) ? item.tags : []),
       ],
     );
   }
@@ -146,9 +150,9 @@ async function importVault(dir: string) {
          updated_at = now()`,
       [
         String(record.productId),
-        Array.isArray(record.saves) ? record.saves : [],
-        Array.isArray(record.releases) ? record.releases : [],
-        record.pendingRelease ?? null,
+        jsonParam(Array.isArray(record.saves) ? record.saves : []),
+        jsonParam(Array.isArray(record.releases) ? record.releases : []),
+        jsonParam(record.pendingRelease ?? null),
       ],
     );
   }
@@ -162,7 +166,7 @@ async function importInventoryState(dir: string) {
     `INSERT INTO inventory_state (id, state, updated_at)
      VALUES ('default', $1, now())
      ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-    [state],
+    [jsonParam(state)],
   );
   return 1;
 }

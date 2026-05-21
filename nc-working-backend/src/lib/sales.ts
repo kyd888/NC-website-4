@@ -243,6 +243,10 @@ function rowToSale(value: any): Sale | null {
   });
 }
 
+function jsonParam(value: unknown) {
+  return value === undefined ? null : JSON.stringify(value);
+}
+
 export async function loadSalesFromDb() {
   if (!dbEnabled) return;
   try {
@@ -297,7 +301,7 @@ export async function upsertSaleToDb(sale: Sale) {
       sale.customerEmail ?? null,
       sale.productTitle ?? null,
       sale.dropId ?? null,
-      sale.shippingAddress ?? null,
+      jsonParam(sale.shippingAddress ?? null),
       sale.orderId ?? null,
       sale.lineTotalCents ?? sale.qty * sale.priceCents,
     ],
