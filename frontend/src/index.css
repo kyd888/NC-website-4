@@ -95,17 +95,17 @@ input,select,textarea{font-size:16px}
 
 .page-content--landing{
   padding-top: 0;
-  min-height: calc(100vh - var(--header-offset, 0px));
+  min-height: calc(100vh - var(--header-offset, 0px) - var(--safe-area-top, 0px));
 }
 @supports (height: 100dvh) {
   .page-content--landing{
-    min-height: calc(100dvh - var(--header-offset, 0px));
+    min-height: calc(100dvh - var(--header-offset, 0px) - var(--safe-area-top, 0px));
   }
 }
 
 .landing-screen{
   position:relative;
-  min-height: calc(100vh - var(--header-offset, 0px));
+  min-height: calc(100vh - var(--header-offset, 0px) - var(--safe-area-top, 0px));
   display:flex;
   align-items:center;
   justify-content:center;
@@ -115,7 +115,7 @@ input,select,textarea{font-size:16px}
 }
 @supports (height: 100dvh) {
   .landing-screen{
-    min-height: calc(100dvh - var(--header-offset, 0px));
+    min-height: calc(100dvh - var(--header-offset, 0px) - var(--safe-area-top, 0px));
   }
 }
 .landing-screen__orb{
