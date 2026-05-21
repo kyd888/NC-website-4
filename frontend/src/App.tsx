@@ -1247,17 +1247,17 @@ function LandingScreen({
   onRefresh,
 }: LandingScreenProps) {
   const isScheduled = status === "scheduled";
-  const eyebrow = isScheduled ? "Live set countdown" : "Studio standby";
+  const eyebrow = isScheduled ? "Drop incoming" : "No drop active";
   const title = isScheduled
     ? countdownComplete
       ? "Going live now"
       : "The room opens soon"
-    : "The next set is being queued";
+    : "Something's in the works.";
   const copy = isScheduled
     ? countdownComplete
-      ? "Hold tight while the storefront flips from pre-show mode into the live set."
-      : "Countdown is locked to the scheduled start time from the admin panel. When the set starts, the storefront will open automatically."
-    : "Schedule the next drop start time in admin and this page will turn into a live countdown automatically.";
+      ? "Hold tight — the drop is loading."
+      : "Countdown locked to the scheduled drop time. The storefront opens automatically when we go live."
+    : "The next release is being put together. This page turns into a live countdown the moment we schedule a drop.";
 
   return (
     <section className="landing-screen">
@@ -1284,10 +1284,10 @@ function LandingScreen({
 
         <div className="landing-screen__footer">
           <div className="landing-screen__schedule">
-            {startsAtLabel ? `Starts ${startsAtLabel}` : "Start time to be announced"}
+            {startsAtLabel ? `Starts ${startsAtLabel}` : "Release window TBA"}
           </div>
           <button type="button" className="landing-screen__refresh" onClick={onRefresh}>
-            Refresh status
+            Refresh
           </button>
         </div>
       </motion.div>
