@@ -32,7 +32,7 @@ export type Order = {
 
 let orders: Order[] = [];
 const MAX_ORDERS = 1000;
-const DATA_DIR = path.resolve("data");
+const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const DATA_FILE = path.join(DATA_DIR, "orders.json");
 
 function ensureDataDir() {

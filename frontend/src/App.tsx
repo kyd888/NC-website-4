@@ -126,6 +126,51 @@ const formatHoldCountdown = (seconds: number) => {
   return `${minutes}:${secs.toString().padStart(2, "0")}`;
 };
 
+type CountdownPart = {
+  label: string;
+  value: string;
+};
+
+const EMPTY_COUNTDOWN: CountdownPart[] = [
+  { label: "Days", value: "--" },
+  { label: "Hours", value: "--" },
+  { label: "Minutes", value: "--" },
+  { label: "Seconds", value: "--" },
+];
+
+function buildCountdownParts(targetMs: number | null, nowMs: number): CountdownPart[] {
+  if (targetMs == null || !Number.isFinite(targetMs)) {
+    return EMPTY_COUNTDOWN;
+  }
+
+  const totalSeconds = Math.max(0, Math.floor((targetMs - nowMs) / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return [
+    { label: "Days", value: String(days).padStart(2, "0") },
+    { label: "Hours", value: String(hours).padStart(2, "0") },
+    { label: "Minutes", value: String(minutes).padStart(2, "0") },
+    { label: "Seconds", value: String(seconds).padStart(2, "0") },
+  ];
+}
+
+function formatSetStart(iso?: string | null) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}
+
 const MULTIPLY = "\u00D7";
 
 function App() {
@@ -133,6 +178,7 @@ function App() {
   const metaRef = useRef<HTMLDivElement | null>(null);
   const {
     state: dropState,
+    drop,
     remainingById,
     vaultById,
     refresh: refreshDropState,
@@ -427,9 +473,21 @@ function App() {
     return entries.reduce((acc, [, qty]) => acc + qty, 0);
   }, [remainingById]);
 
+  const scheduledStartMs = useMemo(() => {
+    if (!drop?.startsAt) return null;
+    const next = new Date(drop.startsAt).getTime();
+    return Number.isFinite(next) ? next : null;
+  }, [drop?.startsAt]);
+  const countdownParts = useMemo(
+    () => buildCountdownParts(scheduledStartMs, nowTick),
+    [scheduledStartMs, nowTick],
+  );
+  const formattedSetStart = formatSetStart(drop?.startsAt);
   const activeRemaining = active ? remainingById[active.id] ?? 0 : 0;
   const singleItemMode = visibleCatalog.length === 1;
   const isLive = dropState === "live";
+  const showLandingScreen = !isLive;
+  const countdownComplete = scheduledStartMs != null && scheduledStartMs <= nowTick;
   const canAdd = Boolean(active && isLive && activeRemaining > 0);
   const showSave = Boolean(active && (!isLive || activeRemaining <= 0));
   const isSaved = active ? Boolean(savedIds[active.id]) : false;
@@ -730,9 +788,46 @@ function App() {
   };
 
   const refetchCatalog = () => setRefreshKey((key) => key + 1);
+  const refreshExperience = () => {
+    void refreshDropState();
+    refetchCatalog();
+  };
+
+  useEffect(() => {
+    if (dropState !== "scheduled") return;
+    const interval = window.setInterval(() => {
+      void refreshDropState();
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [dropState, refreshDropState]);
+
+  useEffect(() => {
+    if (dropState !== "scheduled" || scheduledStartMs == null) return;
+    const delay = Math.max(0, scheduledStartMs - Date.now()) + 1000;
+    const timer = window.setTimeout(() => {
+      void refreshDropState();
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [dropState, scheduledStartMs, refreshDropState]);
+
+  useEffect(() => {
+    if (dropState !== "scheduled" || !countdownComplete) return;
+    const interval = window.setInterval(() => {
+      void refreshDropState();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [dropState, countdownComplete, refreshDropState]);
 
   useEffect(() => {
     const body = document.body;
+    if (showLandingScreen) {
+      body.classList.remove("single-item-mode");
+      body.classList.remove("multi-item-mode");
+      return () => {
+        body.classList.remove("single-item-mode");
+        body.classList.remove("multi-item-mode");
+      };
+    }
     if (singleItemMode) {
       body.classList.add("single-item-mode");
       body.classList.remove("multi-item-mode");
@@ -744,9 +839,11 @@ function App() {
       body.classList.remove("single-item-mode");
       body.classList.remove("multi-item-mode");
     };
-  }, [singleItemMode]);
+  }, [showLandingScreen, singleItemMode]);
 
-  const pageContentClass = singleItemMode
+  const pageContentClass = showLandingScreen
+    ? "page-content page-content--landing"
+    : singleItemMode
     ? "page-content page-content--single"
     : "page-content page-content--multi";
 
@@ -761,8 +858,8 @@ function App() {
           <div className="header-right">
             <div className="status">
               <span className={`dot ${isLive && totalRemaining > 0 ? "dot-live" : "dot-idle"}`} />
-              <span className="state">{isLive ? "LIVE" : dropState === "scheduled" ? "scheduled" : "idle"}</span>
-              {totalRemaining > 0 && (
+              <span className="state">{isLive ? "LIVE" : dropState === "scheduled" ? "SET SOON" : "OFFLINE"}</span>
+              {isLive && totalRemaining > 0 && (
                 <>
                   <span className="sep" />
                   <span className="pill">Remaining: {Math.max(0, activeRemaining)}</span>
@@ -788,6 +885,16 @@ function App() {
       </header>
 
       <main className={pageContentClass} role="main">
+        {showLandingScreen ? (
+          <LandingScreen
+            status={dropState}
+            countdown={countdownParts}
+            startsAtLabel={formattedSetStart}
+            countdownComplete={countdownComplete}
+            onRefresh={refreshExperience}
+          />
+        ) : (
+          <>
       {loadingCatalog && <div style={{ padding: 24 }}>Loading catalog...</div>}
       {!loadingCatalog && loadError && <div style={{ padding: 24 }}>{loadError}</div>}
       {!loadingCatalog && !loadError && visibleCatalog.length === 0 && (
@@ -1085,7 +1192,8 @@ function App() {
           </>
         )}
       </AnimatePresence>
-
+          </>
+        )}
       </main>
       <PaymentModal
         open={paymentModalOpen}
@@ -1120,6 +1228,70 @@ function App() {
         formatCurrency={formatCurrency}
       />
     </div>
+  );
+}
+
+type LandingScreenProps = {
+  status: "idle" | "scheduled" | "live";
+  countdown: CountdownPart[];
+  startsAtLabel: string | null;
+  countdownComplete: boolean;
+  onRefresh: () => void;
+};
+
+function LandingScreen({
+  status,
+  countdown,
+  startsAtLabel,
+  countdownComplete,
+  onRefresh,
+}: LandingScreenProps) {
+  const isScheduled = status === "scheduled";
+  const eyebrow = isScheduled ? "Live set countdown" : "Studio standby";
+  const title = isScheduled
+    ? countdownComplete
+      ? "Going live now"
+      : "The room opens soon"
+    : "The next set is being queued";
+  const copy = isScheduled
+    ? countdownComplete
+      ? "Hold tight while the storefront flips from pre-show mode into the live set."
+      : "Countdown is locked to the scheduled start time from the admin panel. When the set starts, the storefront will open automatically."
+    : "Schedule the next drop start time in admin and this page will turn into a live countdown automatically.";
+
+  return (
+    <section className="landing-screen">
+      <div className="landing-screen__orb landing-screen__orb--left" aria-hidden="true" />
+      <div className="landing-screen__orb landing-screen__orb--right" aria-hidden="true" />
+      <motion.div
+        className="landing-screen__panel"
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
+      >
+        <div className="landing-screen__eyebrow">{eyebrow}</div>
+        <h1 className="landing-screen__title">{title}</h1>
+        <p className="landing-screen__copy">{copy}</p>
+
+        <div className="landing-screen__countdown" aria-label="Countdown to live set">
+          {countdown.map((part) => (
+            <div key={part.label} className="landing-screen__tile">
+              <strong>{part.value}</strong>
+              <span>{part.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="landing-screen__footer">
+          <div className="landing-screen__schedule">
+            {startsAtLabel ? `Starts ${startsAtLabel}` : "Start time to be announced"}
+          </div>
+          <button type="button" className="landing-screen__refresh" onClick={onRefresh}>
+            Refresh status
+          </button>
+        </div>
+      </motion.div>
+    </section>
   );
 }
 

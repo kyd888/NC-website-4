@@ -272,7 +272,7 @@ export async function upsertSaleToDb(sale: Sale) {
       id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
       customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
     ON CONFLICT (id) DO UPDATE SET
       ts = EXCLUDED.ts,
       product_id = EXCLUDED.product_id,

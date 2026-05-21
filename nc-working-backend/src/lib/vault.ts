@@ -239,7 +239,7 @@ async function persistVaultRecord(record: VaultRecord) {
   }
   await dbQuery(
     `INSERT INTO vault_records (product_id, saves, releases, pending_release, updated_at)
-     VALUES ($1, $2, $3, $4, now())
+     VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, now())
      ON CONFLICT (product_id) DO UPDATE SET
        saves = EXCLUDED.saves,
        releases = EXCLUDED.releases,

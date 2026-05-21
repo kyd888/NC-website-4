@@ -183,7 +183,7 @@ async function persistCatalogNow() {
       rows.map((item) =>
         dbQuery(
           `INSERT INTO catalog (id, title, price_cents, image_url, enabled, tags, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, now())
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
            ON CONFLICT (id) DO UPDATE SET
              title = EXCLUDED.title,
              price_cents = EXCLUDED.price_cents,
@@ -478,7 +478,7 @@ function applyRuntimeStatePayload(parsed: Record<string, unknown>) {
 async function persistRuntimeStateToDb() {
   await dbQuery(
     `INSERT INTO inventory_state (id, state, updated_at)
-     VALUES ('default', $1, now())
+     VALUES ('default', $1::jsonb, now())
      ON CONFLICT (id) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
     [jsonParam(runtimeStatePayload())],
   );

@@ -174,7 +174,7 @@ async function persistUser(user: UserRecord) {
   }
   await dbQuery(
     `INSERT INTO users (id, email, password_hash, name, default_shipping, created_at, updated_at, last_login_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
      ON CONFLICT (id) DO UPDATE SET
        email = EXCLUDED.email,
        password_hash = EXCLUDED.password_hash,
