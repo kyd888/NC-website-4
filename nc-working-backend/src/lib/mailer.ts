@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import fs from "fs";
 import path from "path";
+import { Resend } from "resend";
 
 // -----------------------------
 // Types
@@ -50,39 +51,48 @@ export type VaultReleaseEmailPayload = {
 };
 
 // -----------------------------
-// Transport bootstrap with lazy init and verification
+// Transport — Resend (HTTP) preferred, nodemailer/SMTP as fallback
 // -----------------------------
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+// EMAIL_FROM is the canonical env var; SMTP_FROM kept for backwards compat
+const EMAIL_FROM =
+  process.env.EMAIL_FROM ||
+  process.env.SMTP_FROM ||
+  "NC Studio <onboarding@resend.dev>";
+
+if (resendClient) {
+  console.log("[mailer] Using Resend HTTP API for delivery");
+} else {
+  console.log("[mailer] RESEND_API_KEY not set — falling back to SMTP");
+}
+
+// --- SMTP fallback (nodemailer) ---
 let transporterPromise: Promise<nodemailer.Transporter | null> | null = null;
 let transportDisabled = false;
 
 function buildTransporter(): nodemailer.Transporter | null {
   const host = process.env.SMTP_HOST;
-  const from = process.env.SMTP_FROM;
-
-  if (!host || !from) {
+  if (!host) {
     if (!transportDisabled) {
       transportDisabled = true;
-      console.warn("[mailer] SMTP_HOST and SMTP_FROM are required to send emails. Delivery disabled.");
+      console.warn("[mailer] No RESEND_API_KEY and no SMTP_HOST — email delivery disabled.");
     }
     return null;
   }
-
   const port = Number.parseInt(process.env.SMTP_PORT || "", 10);
   const secure = process.env.SMTP_SECURE === "true" || port === 465;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-
-  const transporter = nodemailer.createTransport({
+  return nodemailer.createTransport({
     host,
     port: Number.isFinite(port) ? port : secure ? 465 : 587,
     secure,
     auth: user && pass ? { user, pass } : undefined,
   });
-
-  return transporter;
 }
 
-async function getTransporter(): Promise<nodemailer.Transporter | null> {
+async function getSmtpTransporter(): Promise<nodemailer.Transporter | null> {
   if (transportDisabled) return null;
   if (!transporterPromise) {
     transporterPromise = (async () => {
@@ -93,7 +103,7 @@ async function getTransporter(): Promise<nodemailer.Transporter | null> {
           await transporter.verify();
           console.log("[mailer] SMTP connection verified OK");
         } catch (error: any) {
-          console.error("[mailer] SMTP verification failed — emails will not send:", error?.message || error);
+          console.error("[mailer] SMTP verification failed:", error?.message || error);
           transportDisabled = true;
           return null;
         }
@@ -106,6 +116,54 @@ async function getTransporter(): Promise<nodemailer.Transporter | null> {
     })();
   }
   return transporterPromise;
+}
+
+// --- Unified send helper ---
+type SendParams = {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  logoAttachment?: { filename: string; path: string; cid: string } | null;
+};
+
+async function sendEmail(params: SendParams): Promise<boolean> {
+  if (resendClient) {
+    try {
+      const { error } = await resendClient.emails.send({
+        from: EMAIL_FROM,
+        to: [params.to],
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+      });
+      if (error) {
+        console.error("[mailer] Resend error:", error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error("[mailer] Resend send failed:", err);
+      return false;
+    }
+  }
+
+  const transporter = await getSmtpTransporter();
+  if (!transporter) return false;
+  try {
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: params.to,
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+      attachments: params.logoAttachment ? [params.logoAttachment] : undefined,
+    });
+    return true;
+  } catch (err) {
+    console.error("[mailer] SMTP send failed:", err);
+    return false;
+  }
 }
 
 // -----------------------------
@@ -256,10 +314,7 @@ function formatDateTime(iso: string) {
 // -----------------------------
 export async function sendReceiptEmail(payload: ReceiptEmailPayload) {
   if (!payload.customerEmail) return false;
-  const transporter = await getTransporter();
-  if (!transporter) return false;
 
-  const from = process.env.SMTP_FROM!; // expected to be like Name <noreply@example.com>
   const orderLabel = condenseOrderId(payload.orderId);
   const subject = `Your NC order ${orderLabel}`;
   const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
@@ -365,21 +420,13 @@ The NC team`;
     </table>
   </div>`;
 
-  try {
-    const maybeLogo = getLogoAttachment();
-    await transporter.sendMail({
-      from,
-      to: payload.customerEmail,
-      subject,
-      text: textBody,
-      html: htmlBody,
-      attachments: maybeLogo ? [maybeLogo] : undefined,
-    });
-    return true;
-  } catch (error) {
-    console.error("[mailer] Failed to send receipt email:", error);
-    return false;
-  }
+  return sendEmail({
+    to: payload.customerEmail,
+    subject,
+    text: textBody,
+    html: htmlBody,
+    logoAttachment: getLogoAttachment(),
+  });
 }
 
 export async function sendPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
@@ -388,11 +435,6 @@ export async function sendPurchaseNotificationEmail(payload: PurchaseNotificatio
     process.env.PURCHASE_NOTIFY_EMAIL ||
     process.env.ADMIN_NOTIFY_EMAIL;
   if (!notifyTo) return false;
-
-  const transporter = await getTransporter();
-  if (!transporter) return false;
-
-  const from = process.env.SMTP_FROM!;
   const orderLabel = condenseOrderId(payload.orderId);
   const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
   const addressText = formatAddress(payload.shippingAddress);
@@ -427,27 +469,11 @@ ${addressText}`;
     <p>${escapeHtml(addressText).replace(/\n/g, "<br/>")}</p>
   </div>`;
 
-  try {
-    await transporter.sendMail({
-      from,
-      to: notifyTo,
-      subject,
-      text: textBody,
-      html: htmlBody,
-    });
-    return true;
-  } catch (error) {
-    console.error("[mailer] Failed to send purchase notification email:", error);
-    return false;
-  }
+  return sendEmail({ to: notifyTo, subject, text: textBody, html: htmlBody });
 }
 
 export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
   if (!payload.email) return false;
-  const transporter = await getTransporter();
-  if (!transporter) return false;
-
-  const from = process.env.SMTP_FROM!;
   const windowLabel = formatWindowLabel(payload.windowMinutes);
   const subject = `${payload.productTitle} is back — your vault window is open`;
   const endsAt = formatDateTime(payload.releaseEndsAt);
@@ -477,8 +503,6 @@ export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
   const imageSrc = payload.productImageUrl && /^https?:\/\//i.test(payload.productImageUrl)
     ? escapeHtml(payload.productImageUrl)
     : RECEIPT_FALLBACK_IMAGE;
-
-  const maybeLogo = getLogoAttachment();
 
   const htmlBody = `
   <div style="margin:0;padding:0;background:#f2f2ee;">
@@ -559,24 +583,17 @@ export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
     </table>
   </div>`;
 
-  try {
-    await transporter.sendMail({
-      from,
-      to: payload.email,
-      subject,
-      text: textBody,
-      html: htmlBody,
-      attachments: maybeLogo ? [maybeLogo] : undefined,
-    });
-    return true;
-  } catch (error) {
-    console.error("[mailer] Failed to send vault release email:", error);
-    return false;
-  }
+  return sendEmail({
+    to: payload.email,
+    subject,
+    text: textBody,
+    html: htmlBody,
+    logoAttachment: getLogoAttachment(),
+  });
 }
 
 // Optional helper to quickly test env at startup. Call once if desired.
 export async function verifyMailerOnce() {
-  const t = await getTransporter();
-  return Boolean(t);
+  const t = await getSmtpTransporter();
+  return Boolean(resendClient) || Boolean(t);
 }
