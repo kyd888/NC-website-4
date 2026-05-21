@@ -95,29 +95,27 @@ input,select,textarea{font-size:16px}
 
 .page-content--landing{
   padding-top: 0;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-offset, 0px));
 }
 @supports (height: 100dvh) {
   .page-content--landing{
-    min-height: 100dvh;
+    min-height: calc(100dvh - var(--header-offset, 0px));
   }
 }
 
 .landing-screen{
   position:relative;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--header-offset, 0px));
   display:flex;
   align-items:center;
   justify-content:center;
-  /* top padding pushes content clear of the fixed header,
-     bottom padding matches so flex centering lands in the visible middle */
-  padding: calc(var(--header-offset, 0px) + 24px) 20px calc(24px + var(--safe-area-bottom, 0px));
+  padding: 24px 20px calc(24px + var(--safe-area-bottom, 0px));
   overflow:hidden;
   isolation:isolate;
 }
 @supports (height: 100dvh) {
   .landing-screen{
-    min-height: 100dvh;
+    min-height: calc(100dvh - var(--header-offset, 0px));
   }
 }
 .landing-screen__orb{
