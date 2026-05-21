@@ -26,6 +26,7 @@ import {
 } from "../lib/inventory.js";
 import { getVaultSnapshot } from "../lib/vault.js";
 import { listUsers } from "../lib/users.js";
+import { requireAdminApi } from "../lib/adminAuth.js";
 
 // ensure directory exists at startup
 const UPLOAD_DIR = path.resolve("public/uploads");
@@ -63,14 +64,7 @@ function parseTags(input: unknown): string[] {
   return [];
 }
 
-// Simple header key auth
-function requireKey(req: any, res: any, next: any) {
-  const need = process.env.ADMIN_KEY || "super-secret-key";
-  if ((req.headers["x-admin-key"] || "") !== need) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  next();
-}
+const requireKey = requireAdminApi;
 
 /** ========= State ========= **/
 adminRouter.get("/state", requireKey, (_req, res) => {

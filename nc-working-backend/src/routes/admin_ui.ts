@@ -1,8 +1,59 @@
 import { Router } from "express";
+import { clearAdminCookie, requireAdminPage, setAdminCookie, verifyAdminKey } from "../lib/adminAuth.js";
 
 export const adminUiRouter = Router();
 
-adminUiRouter.get("/", (_req, res) => {
+adminUiRouter.get("/login", (req, res) => {
+  const next = typeof req.query.next === "string" && req.query.next.startsWith("/admin") ? req.query.next : "/admin";
+  const error = req.query.error === "1";
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>NC Admin Login</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:#0b0b0b; color:#e8e8e8; font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:20px; }
+  .login { width:min(420px,100%); background:#121212; border:1px solid #242424; border-radius:14px; padding:24px; }
+  h1 { margin:0 0 8px; font-size:24px; letter-spacing:-.02em; }
+  p { margin:0 0 18px; color:#909090; font-size:13px; line-height:1.5; }
+  label { display:block; color:#a3a3a3; font-size:12px; margin-bottom:6px; }
+  input { width:100%; background:#0f0f0f; color:#f5f5f5; border:1px solid #2a2a2a; border-radius:10px; padding:10px 12px; font-size:14px; }
+  button { width:100%; margin-top:14px; background:#f5f5f5; color:#050505; border:1px solid #f5f5f5; border-radius:10px; padding:10px 12px; cursor:pointer; font-weight:600; }
+  .error { margin:0 0 12px; padding:10px 12px; border-radius:10px; background:#3a1111; color:#fecaca; font-size:13px; }
+</style>
+</head>
+<body>
+  <form class="login" method="post" action="/admin/login">
+    <h1>NC Admin</h1>
+    <p>Enter the admin key to manage products, drops, saved data, and orders.</p>
+    ${error ? '<div class="error">Invalid admin key.</div>' : ""}
+    <input type="hidden" name="next" value="${next.replace(/"/g, "&quot;")}" />
+    <label for="adminKey">Admin key</label>
+    <input id="adminKey" name="adminKey" type="password" autocomplete="current-password" autofocus required />
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>`);
+});
+
+adminUiRouter.post("/login", (req, res) => {
+  const key = typeof req.body?.adminKey === "string" ? req.body.adminKey.trim() : "";
+  const next = typeof req.body?.next === "string" && req.body.next.startsWith("/admin") ? req.body.next : "/admin";
+  if (!verifyAdminKey(key)) {
+    return res.redirect(`/admin/login?error=1&next=${encodeURIComponent(next)}`);
+  }
+  setAdminCookie(res, key);
+  res.redirect(next);
+});
+
+adminUiRouter.post("/logout", (_req, res) => {
+  clearAdminCookie(res);
+  res.redirect("/admin/login");
+});
+
+adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
 <head>
@@ -117,6 +168,7 @@ adminUiRouter.get("/", (_req, res) => {
   <div class="wrap">
     <h1>NC Admin</h1>
     <p class="muted"><a href="/admin/saved-data" style="color:#e8e8e8;">View all saved data</a></p>
+    <form method="post" action="/admin/logout" style="margin:0 0 18px;"><button class="btn small" type="submit">Sign out</button></form>
 
     <div class="grid2">
       <div class="card card-stack">
@@ -127,8 +179,9 @@ adminUiRouter.get("/", (_req, res) => {
           </div>
           <div class="row">
             <div>
-              <label>Admin key (x-admin-key)</label>
-              <input id="adminKey" type="password" placeholder="super-secret-key" autocomplete="off" />
+              <label>Admin session</label>
+              <input id="adminKey" type="password" placeholder="Signed in" autocomplete="off" />
+              <div class="form-note">Optional. This page now uses your secure admin login session.</div>
             </div>
             <div>
               <label>Start time (local)</label>
@@ -336,18 +389,14 @@ adminUiRouter.get("/", (_req, res) => {
 
   function requireKey() {
     const key = getKey();
-    if (!key) {
-      alert("Enter your admin key first.");
-      throw new Error("Missing admin key");
-    }
-    window.localStorage.setItem("nc_admin_key", key);
+    if (key) window.localStorage.setItem("nc_admin_key", key);
     return key;
   }
 
   async function apiJson(path, init = {}) {
     const key = requireKey();
     const headers = new Headers(init.headers || {});
-    headers.set("x-admin-key", key);
+    if (key) headers.set("x-admin-key", key);
     headers.set("Accept", "application/json");
     let body = init.body;
     if (body && !(body instanceof FormData) && typeof body !== "string") {
@@ -365,7 +414,8 @@ adminUiRouter.get("/", (_req, res) => {
 
   async function downloadAdminFile(path, fallbackName) {
     const key = requireKey();
-    const headers = new Headers({ "x-admin-key": key, Accept: "text/csv" });
+    const headers = new Headers({ Accept: "text/csv" });
+    if (key) headers.set("x-admin-key", key);
     const res = await fetch(path, { headers });
     if (!res.ok) {
       let message = res.statusText || "Download failed";
@@ -1577,25 +1627,20 @@ adminUiRouter.get("/", (_req, res) => {
     }
   });
 
-  if (storedKey) {
-    refreshProducts();
-    refreshState();
-    refreshSales();
-    loadAutoDrop();
-    refreshDrops();
-    refreshVaultReady();
-    refreshVaultSaves();
-  }
+  refreshProducts();
+  refreshState();
+  refreshSales();
+  loadAutoDrop();
+  refreshDrops();
+  refreshVaultReady();
+  refreshVaultSaves();
 
   refreshPred();
   setInterval(refreshPred, 15000);
   setInterval(() => {
-    const key = getKey();
-    if (key) {
-      refreshDrops();
-      refreshVaultReady();
-      refreshVaultSaves();
-    }
+    refreshDrops();
+    refreshVaultReady();
+    refreshVaultSaves();
   }, 20000);
 })();
 </script>
@@ -1603,7 +1648,7 @@ adminUiRouter.get("/", (_req, res) => {
 </html>`);
 });
 
-adminUiRouter.get("/saved-data", (_req, res) => {
+adminUiRouter.get("/saved-data", requireAdminPage, (_req, res) => {
   res.type("html").send(`<!doctype html>
 <html lang="en">
 <head>
@@ -1643,13 +1688,16 @@ adminUiRouter.get("/saved-data", (_req, res) => {
       <h1>Saved Data</h1>
       <div class="muted">Products, uploads, customers, purchases, saves, drops, analytics, and recommendations.</div>
     </div>
-    <a href="/admin">Back to admin</a>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <a href="/admin">Back to admin</a>
+      <form method="post" action="/admin/logout" style="margin:0;"><button type="submit">Sign out</button></form>
+    </div>
   </div>
 
   <div class="toolbar">
     <div>
-      <label>Admin key</label>
-      <input id="adminKey" type="password" placeholder="x-admin-key" autocomplete="off" />
+      <label>Admin key override</label>
+      <input id="adminKey" type="password" placeholder="Signed in" autocomplete="off" />
     </div>
     <button id="loadBtn" type="button">Load saved data</button>
     <button id="downloadBtn" type="button">Download JSON</button>
@@ -1695,16 +1743,16 @@ adminUiRouter.get("/saved-data", (_req, res) => {
 
   function key() {
     const value = keyInput.value.trim();
-    if (!value) throw new Error("Enter your admin key first.");
-    window.localStorage.setItem("nc_admin_key", value);
+    if (value) window.localStorage.setItem("nc_admin_key", value);
     return value;
   }
 
   async function loadData() {
     statusEl.textContent = "Loading...";
-    const res = await fetch("/api/admin/saved-data", {
-      headers: { "x-admin-key": key(), Accept: "application/json" },
-    });
+    const adminKey = key();
+    const headers = { Accept: "application/json" };
+    if (adminKey) headers["x-admin-key"] = adminKey;
+    const res = await fetch("/api/admin/saved-data", { headers });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Unable to load saved data");
     latest = data;
@@ -1829,14 +1877,11 @@ adminUiRouter.get("/saved-data", (_req, res) => {
     URL.revokeObjectURL(url);
   });
 
-  if (storedKey) {
-    loadData().catch((err) => {
-      statusEl.textContent = err.message || String(err);
-    });
-  }
+  loadData().catch((err) => {
+    statusEl.textContent = err.message || String(err);
+  });
 })();
 </script>
 </body>
 </html>`);
 });
-
