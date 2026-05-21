@@ -3,6 +3,8 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { Readable } from "stream";
+import { v2 as cloudinary } from "cloudinary";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -32,20 +34,45 @@ import { getVaultSnapshot } from "../lib/vault.js";
 import { listUsers } from "../lib/users.js";
 import { requireAdminApi } from "../lib/adminAuth.js";
 
-// ensure directory exists at startup
-// resolve relative to this file so it matches the static-serving path in index.ts
-// regardless of what directory the server process is started from
-const UPLOAD_DIR = path.resolve(__dirname, "../../public/uploads");
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// --- Cloudinary setup ---
+const CLOUDINARY_ENABLED = Boolean(process.env.CLOUDINARY_CLOUD_NAME);
+if (CLOUDINARY_ENABLED) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
 
-// name files: <timestamp>-<random>-<original>
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const safe = file.originalname.replace(/[^a-z0-9.\-_]/gi, "_");
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}-${safe}`);
-  },
-});
+function uploadToCloudinary(buffer: Buffer): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: "nc-uploads", resource_type: "image" },
+      (error, result) => {
+        if (error) return reject(error);
+        if (result?.secure_url) return resolve(result.secure_url);
+        reject(new Error("Cloudinary upload returned no URL"));
+      },
+    );
+    Readable.from(buffer).pipe(stream);
+  });
+}
+
+// --- Local disk fallback (used when Cloudinary env vars are not set) ---
+const UPLOAD_DIR = path.resolve(__dirname, "../../public/uploads");
+if (!CLOUDINARY_ENABLED) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const storage = CLOUDINARY_ENABLED
+  ? multer.memoryStorage()
+  : multer.diskStorage({
+      destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
+      filename: (_req, file, cb) => {
+        const safe = file.originalname.replace(/[^a-z0-9.\-_]/gi, "_");
+        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}-${safe}`);
+      },
+    });
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
@@ -222,11 +249,20 @@ adminRouter.post(
   "/upload-image",
   requireKey,
   upload.single("file"),
-  (req, res) => {
+  async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file" });
-    // return a URL the frontend can use directly
-    const url = `/uploads/${req.file.filename}`;
-    res.json({ url });
+    try {
+      let url: string;
+      if (CLOUDINARY_ENABLED && req.file.buffer) {
+        url = await uploadToCloudinary(req.file.buffer);
+      } else {
+        url = `/uploads/${req.file.filename}`;
+      }
+      res.json({ url });
+    } catch (err) {
+      console.error("[upload] failed to upload image", err);
+      res.status(500).json({ error: "Image upload failed" });
+    }
   }
 );
 

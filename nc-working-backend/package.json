@@ -10,6 +10,7 @@
     "db:import-json": "tsx src/scripts/import-json.ts"
   },
   "dependencies": {
+    "cloudinary": "^2.10.0",
     "cors": "^2.8.5",
     "dayjs": "^1.11.10",
     "dotenv": "^16.4.5",
