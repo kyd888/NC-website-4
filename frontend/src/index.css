@@ -298,16 +298,16 @@ input,select,textarea{font-size:16px}
     scroll-snap-align:center;
     scroll-snap-stop:always;
     min-height:calc(100svh - var(--header-offset, 0px) - var(--meta-offset, 0px));
-    padding-top:clamp(64px,12vh,112px);
-    padding-bottom:clamp(64px,12vh,112px);
+    padding-top:clamp(32px,6vh,64px);
+    padding-bottom:clamp(32px,6vh,64px);
   }
   .section:first-of-type,
   .section:last-of-type{
-    padding-top:clamp(64px,12vh,112px);
-    padding-bottom:clamp(64px,12vh,112px);
+    padding-top:clamp(32px,6vh,64px);
+    padding-bottom:clamp(32px,6vh,64px);
   }
   .media img{
-    transform:translateY(calc(-112px - (var(--meta-offset, 0px) / 2)));
+    transform:translateY(calc(-1 * var(--meta-offset, 0px) / 3));
   }
 
 
