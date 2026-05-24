@@ -306,13 +306,14 @@ input,select,textarea{font-size:16px}
     height:0;
   }
   .section{
+    position:relative;
     scroll-snap-align:start;
     scroll-snap-stop:always;
     justify-content:flex-start;
     height:calc(100svh - var(--header-offset, 0px) - var(--safe-area-top, 0px));
     min-height:0;
     overflow:hidden;
-    padding-top:clamp(12px,3vh,24px);
+    padding-top:0;
     padding-bottom:0;
   }
   .section:first-of-type,
@@ -609,12 +610,13 @@ input,select,textarea{font-size:16px}
 
 @media (max-width: 520px){
   .section {
+    position: relative;
     scroll-snap-align: start;
     justify-content: flex-start;
     height: calc(100svh - var(--header-offset, 0px) - var(--safe-area-top, 0px));
     min-height: 0;
     overflow: hidden;
-    padding-top: clamp(8px, 2vh, 16px);
+    padding-top: 0;
     padding-bottom: 0;
   }
   .media {
