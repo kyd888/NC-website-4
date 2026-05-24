@@ -257,15 +257,28 @@ input,select,textarea{font-size:16px}
   }
 }
 
-/* === Raise the product slightly === */
+/* === Product sections === */
 .section {
   display:flex;
   flex-direction:column;
   justify-content:center;
   align-items:center;
-  min-height: calc(100vh - 220px);
+  height: calc(100vh - var(--header-offset, 0px) - var(--safe-area-top, 0px) - var(--meta-offset, 0px));
+  min-height: 0;
+  overflow: hidden;
   padding-top: calc(8vh + env(safe-area-inset-top));
   padding-bottom: calc(8vh + env(safe-area-inset-bottom));
+}
+
+/* Desktop scroll snap — makes every product section settle at the same height */
+@media (min-width: 641px) {
+  body {
+    scroll-snap-type: y mandatory;
+  }
+  .section {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
 }
 
 .media{display:grid;place-items:center;padding:16px}
