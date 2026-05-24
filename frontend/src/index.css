@@ -275,7 +275,7 @@ input,select,textarea{font-size:16px}
   width: auto;
   height: auto;
   object-fit: contain;
-  transform: translateY(-16px);
+  transform: translateY(-64px);
 }
 
 
