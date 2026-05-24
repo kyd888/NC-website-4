@@ -43,42 +43,40 @@ app.use(
   }),
 );
 
-// ── CORS ─────────────────────────────────────────────────────────────────────
+// ── CORS (applied to /api only — admin panel is same-origin, needs no CORS) ───
 const allowList = [
   process.env.FRONTEND_ORIGIN,
   process.env.FRONTEND_ORIGIN_2,
   process.env.BACKEND_ORIGIN,
-  process.env.RENDER_EXTERNAL_URL, // Render injects this automatically — allows admin panel form submissions
 ]
   .filter(Boolean)
   .map((origin) => origin!.replace(/\/+$/g, ""));
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      try {
-        const normalized = origin.replace(/\/+$/g, "");
-        const { hostname } = new URL(origin);
-        const allowed =
-          allowList.includes(normalized) ||
-          allowList.includes(origin) ||
-          // Allow Netlify preview deployments only in non-prod or when no allow list configured
-          (!isProd && hostname.endsWith(".netlify.app")) ||
-          (allowList.length === 0 && hostname.endsWith(".netlify.app")) ||
-          hostname === "localhost" ||
-          hostname === "127.0.0.1";
-        return allowed
-          ? callback(null, true)
-          : callback(new Error("Origin not allowed by CORS"));
-      } catch {
-        return callback(new Error("Origin not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    exposedHeaders: ["X-Session-Id"],
-  }),
-);
+const corsMiddleware = cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    try {
+      const normalized = origin.replace(/\/+$/g, "");
+      const { hostname } = new URL(origin);
+      const allowed =
+        allowList.includes(normalized) ||
+        allowList.includes(origin) ||
+        (!isProd && hostname.endsWith(".netlify.app")) ||
+        (allowList.length === 0 && hostname.endsWith(".netlify.app")) ||
+        hostname === "localhost" ||
+        hostname === "127.0.0.1";
+      return allowed
+        ? callback(null, true)
+        : callback(new Error("Origin not allowed by CORS"));
+    } catch {
+      return callback(new Error("Origin not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  exposedHeaders: ["X-Session-Id"],
+});
+
+app.use("/api", corsMiddleware);
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 // General API limit: 300 req / 15 min per IP
