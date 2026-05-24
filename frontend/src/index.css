@@ -311,6 +311,7 @@ input,select,textarea{font-size:16px}
   .media{
     flex:1;
     width:100%;
+    align-items:start;
   }
   .media img{
     transform:none;
@@ -326,7 +327,7 @@ input,select,textarea{font-size:16px}
     padding:16px;
     padding-bottom:calc(20px + var(--safe-area-bottom, 0px));
     width:100%;
-    background:linear-gradient(to top, rgba(242,242,238,1) 70%, transparent);
+    flex-shrink:0;
   }
   .section-info__text{
     display:grid;
@@ -598,6 +599,7 @@ input,select,textarea{font-size:16px}
   .media {
     flex: 1;
     width: 100%;
+    align-items: start;
   }
   .media img {
     max-height: 58svh;
