@@ -50,6 +50,20 @@ export type VaultReleaseEmailPayload = {
   dropId?: string;
 };
 
+export type DropLiveProduct = {
+  id: string;
+  title: string;
+  priceCents?: number;
+  imageUrl?: string;
+  remaining?: number;
+};
+
+export type DropLiveEmailPayload = {
+  email: string;
+  products: DropLiveProduct[];
+  dropEndsAt: string; // ISO string
+};
+
 // -----------------------------
 // Transport — Resend (HTTP) preferred, nodemailer/SMTP as fallback
 // -----------------------------
@@ -573,6 +587,145 @@ export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
 
             <tr>
               <td style="padding-top:24px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">
+                ${escapeHtml(siteUrl)}
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>`;
+
+  return sendEmail({
+    to: payload.email,
+    subject,
+    text: textBody,
+    html: htmlBody,
+    logoAttachment: getLogoAttachment(),
+  });
+}
+
+export async function sendDropLiveEmail(payload: DropLiveEmailPayload) {
+  if (!payload.email) return false;
+
+  const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc.example.com";
+  const subject = "The drop is live — shop now";
+
+  const endsAt = formatDateTime(payload.dropEndsAt);
+
+  const textBody = [
+    "The drop is live.",
+    "",
+    payload.products.map((p) => {
+      const price = p.priceCents != null ? currencyFormatter.format(p.priceCents / 100) : "";
+      return `${p.title}${price ? ` — ${price}` : ""}${p.remaining != null ? ` (${p.remaining} remaining)` : ""}`;
+    }).join("\n"),
+    "",
+    `Drop closes: ${endsAt}`,
+    "",
+    `Shop now: ${siteUrl}`,
+    "",
+    "The NC team",
+  ].join("\n");
+
+  // Pair products into rows of 2
+  const productRowsHtml = payload.products.reduce<string[]>((rows, _, i) => {
+    if (i % 2 === 0) {
+      const pair = payload.products.slice(i, i + 2);
+      const cells = pair.map((p) => {
+        const imageSrc = p.imageUrl && /^https?:\/\//i.test(p.imageUrl)
+          ? escapeHtml(p.imageUrl)
+          : RECEIPT_FALLBACK_IMAGE;
+        const priceText = p.priceCents != null ? escapeHtml(currencyFormatter.format(p.priceCents / 100)) : "";
+        const remainingText = p.remaining != null ? `${p.remaining} remaining` : "";
+        return `
+          <td style="width:50%;padding:6px;vertical-align:top;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f9f9f7;border-radius:20px;overflow:hidden;">
+              <tr>
+                <td style="padding:20px;text-align:center;">
+                  <div style="width:110px;height:110px;border-radius:14px;overflow:hidden;background:#ebebea;margin:0 auto;">
+                    <img src="${imageSrc}" alt="${escapeHtml(p.title)}" style="display:block;width:110px;height:110px;object-fit:cover;"/>
+                  </div>
+                  <div style="margin-top:12px;font-weight:700;font-size:14px;letter-spacing:-0.01em;color:#111;line-height:1.3;">${escapeHtml(p.title)}</div>
+                  ${priceText ? `<div style="margin-top:4px;font-size:13px;color:#6b7280;">${priceText}</div>` : ""}
+                  ${remainingText ? `<div style="margin-top:4px;font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:#111;font-weight:600;">${escapeHtml(remainingText)}</div>` : ""}
+                </td>
+              </tr>
+            </table>
+          </td>`;
+      });
+      // Pad with empty cell if odd number of products
+      if (pair.length === 1) cells.push(`<td style="width:50%;padding:6px;"></td>`);
+      rows.push(`<tr>${cells.join("")}</tr>`);
+    }
+    return rows;
+  }, []).join("");
+
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:48px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-radius:32px;background:#ffffff;padding:40px 36px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+
+            <tr>
+              <td style="text-align:center;padding-bottom:24px;">
+                <img src="cid:nc-logo" alt="NC" style="max-width:120px;height:auto;display:inline-block;"/>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:6px;">
+                <div style="display:inline-block;padding:6px 14px;border-radius:999px;background:#111;color:#fff;font-size:10px;letter-spacing:0.28em;text-transform:uppercase;font-weight:700;">Drop Live</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="text-align:center;padding:14px 0 8px;">
+                <div style="font-size:34px;font-weight:800;letter-spacing:-0.04em;line-height:1.1;color:#111;">Now available.</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="text-align:center;padding-bottom:32px;">
+                <div style="font-size:14px;color:#6b7280;line-height:1.6;">Limited quantities. Once it's gone, it's gone.</div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-bottom:28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin:0 -6px;">
+                  ${productRowsHtml}
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-bottom:28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f2f2ee;border-radius:16px;">
+                  <tr>
+                    <td style="padding:18px;text-align:center;">
+                      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Drop closes</div>
+                      <div style="margin-top:8px;font-size:18px;font-weight:700;letter-spacing:-0.02em;color:#111;">${escapeHtml(endsAt)}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:28px;">
+                <a href="${escapeHtml(siteUrl)}" style="display:inline-block;padding:16px 52px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;font-size:12px;">Shop Now</a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.7;">
+                You're receiving this because you have an account with NC.<br/>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-top:20px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">
                 ${escapeHtml(siteUrl)}
               </td>
             </tr>

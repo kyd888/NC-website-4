@@ -10,8 +10,10 @@ import { adminRouter } from "./routes/admin.js";
 import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
-import { seedInventory } from "./lib/inventory.js";
+import { seedInventory, onDropEvent, listCatalog, getAllRemaining, getCurrentDrop } from "./lib/inventory.js";
 import { initializePersistentStores } from "./lib/persistence.js";
+import { listUsers } from "./lib/users.js";
+import { sendDropLiveEmail } from "./lib/mailer.js";
 
 dotenv.config();
 
@@ -142,6 +144,42 @@ app.use(
 // ── Startup ───────────────────────────────────────────────────────────────────
 await initializePersistentStores();
 seedInventory();
+
+// Send drop-live email to all registered users when a drop activates
+onDropEvent((event) => {
+  if (event.type !== "activated") return;
+  const drop = getCurrentDrop();
+  if (!drop) return;
+
+  const products = listCatalog()
+    .filter((p) => p.enabled !== false)
+    .map((p) => ({
+      id: p.id,
+      title: p.title,
+      priceCents: p.priceCents,
+      imageUrl: p.imageUrl,
+      remaining: getAllRemaining()[p.id] ?? 0,
+    }));
+
+  const users = listUsers();
+  if (!users.length) return;
+
+  // Fire-and-forget with 200ms gap between sends to stay under Resend rate limits
+  (async () => {
+    let sent = 0;
+    for (const user of users) {
+      if (!user.email) continue;
+      try {
+        await sendDropLiveEmail({ email: user.email, products, dropEndsAt: drop.endsAt });
+        sent++;
+      } catch (err) {
+        console.error("[drop-email] Failed to send to", user.email, err);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    console.log(`[drop-email] Sent drop-live emails to ${sent}/${users.length} users`);
+  })();
+});
 
 app.listen(PORT, () => {
   console.log(`NC backend ready on http://localhost:${PORT}`);
