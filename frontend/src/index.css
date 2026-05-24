@@ -237,8 +237,8 @@ input,select,textarea{font-size:16px}
   }
   .landing-screen{
     align-items: flex-start;
-    padding: 0px 16px calc(16px + var(--safe-area-bottom, 0px));
-    margin-top: -24px;
+    padding: clamp(20px, 6vh, 48px) 16px calc(16px + var(--safe-area-bottom, 0px));
+    margin-top: 0;
   }
   .landing-screen__panel{
     border-radius:28px;
