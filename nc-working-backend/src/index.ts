@@ -48,6 +48,7 @@ const allowList = [
   process.env.FRONTEND_ORIGIN,
   process.env.FRONTEND_ORIGIN_2,
   process.env.BACKEND_ORIGIN,
+  process.env.RENDER_EXTERNAL_URL, // Render injects this automatically — allows admin panel form submissions
 ]
   .filter(Boolean)
   .map((origin) => origin!.replace(/\/+$/g, ""));
