@@ -298,6 +298,7 @@ input,select,textarea{font-size:16px}
   .section{
     scroll-snap-align:center;
     scroll-snap-stop:always;
+    justify-content:flex-start;
     min-height:calc(100svh - var(--header-offset, 0px) - var(--meta-offset, 0px));
     padding-top:clamp(12px,3vh,24px);
     padding-bottom:clamp(12px,3vh,24px);
@@ -564,6 +565,7 @@ input,select,textarea{font-size:16px}
 
 @media (max-width: 520px){
   .section {
+    justify-content: flex-start;
     min-height: calc(100svh - var(--header-offset, 0px) - var(--meta-offset, 0px));
     padding-top: clamp(8px, 2vh, 16px);
     padding-bottom: clamp(8px, 2vh, 16px);

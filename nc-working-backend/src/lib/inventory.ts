@@ -389,6 +389,13 @@ function loadRuntimeStateFromDisk() {
               .map((id) => String(id).trim())
               .filter((id) => id.length > 0)
           : autoDrop.productIds,
+        phantomDecayEnabled: typeof cfg.phantomDecayEnabled === "boolean" ? cfg.phantomDecayEnabled : autoDrop.phantomDecayEnabled,
+        phantomDecayPercent: Number.isFinite(Number(cfg.phantomDecayPercent))
+          ? Math.min(1, Math.max(0, Number(cfg.phantomDecayPercent)))
+          : autoDrop.phantomDecayPercent,
+        phantomDecayFloor: Number.isFinite(Number(cfg.phantomDecayFloor))
+          ? Math.max(0, Math.floor(Number(cfg.phantomDecayFloor)))
+          : autoDrop.phantomDecayFloor,
       };
     }
   } catch (error) {
@@ -471,6 +478,13 @@ function applyRuntimeStatePayload(parsed: Record<string, unknown>) {
       productIds: Array.isArray(cfg.productIds)
         ? cfg.productIds.map((id) => String(id).trim()).filter((id) => id.length > 0)
         : autoDrop.productIds,
+      phantomDecayEnabled: typeof cfg.phantomDecayEnabled === "boolean" ? cfg.phantomDecayEnabled : autoDrop.phantomDecayEnabled,
+      phantomDecayPercent: Number.isFinite(Number(cfg.phantomDecayPercent))
+        ? Math.min(1, Math.max(0, Number(cfg.phantomDecayPercent)))
+        : autoDrop.phantomDecayPercent,
+      phantomDecayFloor: Number.isFinite(Number(cfg.phantomDecayFloor))
+        ? Math.max(0, Math.floor(Number(cfg.phantomDecayFloor)))
+        : autoDrop.phantomDecayFloor,
     };
   }
 }
@@ -657,6 +671,32 @@ export function getCurrentDrop(): Drop | null {
 
 export function getAllRemaining(): RemainingMap {
   return { ...remaining };
+}
+
+export function getDisplayedRemaining(): RemainingMap {
+  if (!autoDrop.phantomDecayEnabled || !currentDrop || currentDrop.status !== "live") {
+    return { ...remaining };
+  }
+  const now = Date.now();
+  const startTs = new Date(currentDropStartedAt ?? currentDrop.startsAt).getTime();
+  const endTs = new Date(currentDrop.endsAt).getTime();
+  const duration = endTs - startTs;
+  if (!Number.isFinite(duration) || duration <= 0 || now <= startTs) {
+    return { ...remaining };
+  }
+  const elapsed = Math.min(1, Math.max(0, (now - startTs) / duration));
+  // Exponential curve — moves fast early in drop, slows as it approaches end
+  const phantomFraction = 1 - Math.exp(-3 * elapsed);
+  const decayPct = Math.min(1, Math.max(0, autoDrop.phantomDecayPercent));
+  const floor = Math.max(0, Math.floor(autoDrop.phantomDecayFloor));
+  const out: RemainingMap = {};
+  for (const [productId, actualQty] of Object.entries(remaining)) {
+    const initial = Math.max(actualQty, plannedInitial[productId] ?? actualQty);
+    const phantomConsumed = Math.floor(phantomFraction * decayPct * initial);
+    const phantomQty = Math.max(floor, initial - phantomConsumed);
+    out[productId] = Math.min(actualQty, phantomQty);
+  }
+  return out;
 }
 
 export async function upsertProduct(p: CatalogItem) {
@@ -1111,6 +1151,9 @@ export type AutoDropConfig = {
   defaultDurationMinutes: number;
   initialQty: number;
   productIds: string[];
+  phantomDecayEnabled: boolean;
+  phantomDecayPercent: number; // 0.0–1.0, fraction of initial stock consumed by phantom by drop end
+  phantomDecayFloor: number;   // minimum units to display (prevents showing fully-gone before actual sellout)
 };
 
 let autoDrop: AutoDropConfig = {
@@ -1120,6 +1163,9 @@ let autoDrop: AutoDropConfig = {
   defaultDurationMinutes: DEFAULT_DURATION_MINUTES,
   initialQty: 50,
   productIds: [],
+  phantomDecayEnabled: true,
+  phantomDecayPercent: 0.6,
+  phantomDecayFloor: 3,
 };
 
 export function getAutoDropConfig() {

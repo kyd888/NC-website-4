@@ -7,6 +7,7 @@ import {
   listCatalog,
   getCurrentDrop,
   getAllRemaining,
+  getDisplayedRemaining,
   computePredictions,
   onInventoryUpdate,
   reserve,
@@ -181,7 +182,8 @@ function toAbsoluteUrl(input: string | undefined, baseUrl: string): string | und
 catalogRouter.get("/products", (_req, res) => {
   const drop = getCurrentDrop();
   const items = listCatalog();
-  const remaining = getAllRemaining();
+  const actualRemaining = getAllRemaining();
+  const displayRemaining = getDisplayedRemaining();
   const active = items.filter((p) => p.enabled !== false);
   const recentIds = new Set(getRecentlyLiveProductIds(SAVE_WINDOW_MS));
 
@@ -191,13 +193,13 @@ catalogRouter.get("/products", (_req, res) => {
     priceCents: p.priceCents,
     imageUrl: p.imageUrl,
     tags: p.tags ?? [],
-    remaining: remaining[p.id] ?? 0,
+    remaining: displayRemaining[p.id] ?? 0,
   }));
 
   let filtered: typeof payload;
   if (drop?.status === "live") {
     filtered = payload;
-    const liveViewIds = filtered.filter((p) => (remaining[p.id] ?? 0) > 0).map((p) => p.id);
+    const liveViewIds = filtered.filter((p) => (actualRemaining[p.id] ?? 0) > 0).map((p) => p.id);
     if (liveViewIds.length) recordProductViews(liveViewIds);
   } else if (!drop || drop.status === "ended") {
     filtered = payload.filter((p) => recentIds.has(p.id));
@@ -210,7 +212,7 @@ catalogRouter.get("/products", (_req, res) => {
 
 catalogRouter.get("/drop/state", (_req, res) => {
   const drop = getCurrentDrop();
-  const remaining = getAllRemaining();
+  const displayRemaining = getDisplayedRemaining();
   const items = listCatalog();
   const active = items.filter((p) => p.enabled !== false);
   const recentIds = new Set(getRecentlyLiveProductIds(SAVE_WINDOW_MS));
@@ -224,7 +226,7 @@ catalogRouter.get("/drop/state", (_req, res) => {
     title: p.title,
     priceCents: p.priceCents,
     imageUrl: p.imageUrl,
-    remaining: remaining[p.id] ?? 0,
+    remaining: displayRemaining[p.id] ?? 0,
     enabled: p.enabled !== false,
     tags: p.tags ?? [],
   }));
@@ -241,7 +243,7 @@ catalogRouter.get("/drop/state", (_req, res) => {
   res.json({
     state,
     drop,
-    remaining,
+    remaining: displayRemaining,
     products: filteredProducts,
     vault: getVaultSnapshot(),
   });
@@ -249,7 +251,7 @@ catalogRouter.get("/drop/state", (_req, res) => {
 
 catalogRouter.get("/drop", (_req, res) => {
   const drop = getCurrentDrop();
-  const remaining = getAllRemaining();
+  const displayRemaining = getDisplayedRemaining();
   const items = listCatalog();
   const active = items.filter((p) => p.enabled !== false);
   const recentIds = new Set(getRecentlyLiveProductIds(SAVE_WINDOW_MS));
@@ -263,7 +265,7 @@ catalogRouter.get("/drop", (_req, res) => {
     title: p.title,
     priceCents: p.priceCents,
     imageUrl: p.imageUrl,
-    remaining: remaining[p.id] ?? 0,
+    remaining: displayRemaining[p.id] ?? 0,
     enabled: p.enabled !== false,
     tags: p.tags ?? [],
   }));
@@ -357,11 +359,14 @@ catalogRouter.get("/inventory/stream", (req, res) => {
   res.write("retry: 5000\n\n");
 
   const send = (payload: { productId: string; remaining: number }) => {
+    // Apply phantom decay so SSE updates stay consistent with polled state
+    const displayed = getDisplayedRemaining();
+    const displayedQty = displayed[payload.productId] ?? payload.remaining;
     res.write(`event: inv\n`);
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    res.write(`data: ${JSON.stringify({ ...payload, remaining: displayedQty })}\n\n`);
   };
 
-  const snapshot = getAllRemaining();
+  const snapshot = getDisplayedRemaining();
   for (const [id, qty] of Object.entries(snapshot)) {
     send({ productId: id, remaining: qty });
   }
