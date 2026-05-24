@@ -279,6 +279,9 @@ input,select,textarea{font-size:16px}
     scroll-snap-align: start;
     scroll-snap-stop: always;
   }
+  .section:last-of-type .media img {
+    transform: translateY(-54px);
+  }
 }
 
 .media{display:grid;place-items:center;padding:16px}
