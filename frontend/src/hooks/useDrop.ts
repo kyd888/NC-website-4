@@ -112,6 +112,13 @@ export function useDrop(baseUrl: string) {
     }
   }, [baseUrl]);
 
+  // Re-poll every 15s during live drops so phantom inventory decay updates in real-time
+  useEffect(() => {
+    if (state !== "live") return;
+    const interval = setInterval(() => void loadState(), 15_000);
+    return () => clearInterval(interval);
+  }, [state, loadState]);
+
   useEffect(() => {
     cancelledRef.current = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;

@@ -1,10 +1,27 @@
+import { timingSafeEqual } from "crypto";
 import type { Request, Response, NextFunction } from "express";
 
 const ADMIN_COOKIE = "nc_admin_auth";
 const ADMIN_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 
 function expectedAdminKey() {
-  return process.env.ADMIN_KEY || "super-secret-key";
+  const key = process.env.ADMIN_KEY;
+  if (!key) {
+    console.warn("[admin] ADMIN_KEY not set — admin panel is unprotected. Set ADMIN_KEY in production.");
+    return "super-secret-key";
+  }
+  return key;
+}
+
+function safeCompare(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
 }
 
 function readCookies(header: string | undefined | null) {
@@ -23,12 +40,14 @@ function readCookies(header: string | undefined | null) {
 }
 
 export function isAdminAuthenticated(req: Request) {
+  const expected = expectedAdminKey();
   const headerKey = req.headers["x-admin-key"];
   const key = Array.isArray(headerKey) ? headerKey[0] : headerKey;
-  if (key && key === expectedAdminKey()) return true;
+  if (key && safeCompare(key, expected)) return true;
 
   const cookies = readCookies(req.headers.cookie);
-  return cookies[ADMIN_COOKIE] === expectedAdminKey();
+  const cookieKey = cookies[ADMIN_COOKIE];
+  return Boolean(cookieKey && safeCompare(cookieKey, expected));
 }
 
 export function requireAdminApi(req: Request, res: Response, next: NextFunction) {
@@ -64,5 +83,5 @@ export function clearAdminCookie(res: Response) {
 }
 
 export function verifyAdminKey(key: string) {
-  return key === expectedAdminKey();
+  return safeCompare(key, expectedAdminKey());
 }
