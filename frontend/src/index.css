@@ -334,6 +334,9 @@ input,select,textarea{font-size:16px}
   .media img{
     transform:none;
   }
+  .section:first-of-type .media img{
+    transform:translateY(-19px);
+  }
   .section:last-of-type .media img{
     transform:translateY(96px);
   }
