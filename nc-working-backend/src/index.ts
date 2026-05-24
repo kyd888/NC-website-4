@@ -29,6 +29,10 @@ if (isProd && (!process.env.ADMIN_KEY || process.env.ADMIN_KEY.length < 20)) {
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 
+// Render (and most cloud platforms) sit behind a reverse proxy — trust the
+// first hop so express-rate-limit reads the real client IP from X-Forwarded-For
+app.set("trust proxy", 1);
+
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(
   helmet({
