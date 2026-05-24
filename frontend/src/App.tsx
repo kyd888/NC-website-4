@@ -914,24 +914,74 @@ function App() {
         </div>
       )}
 
-      {visibleCatalog.map((product) => (
-        <section
-          key={product.id}
-          className="section"
-          style={{ background: product.bg }}
-          data-tag={product.tags[0] ?? ""}
-        >
-          <div
-            ref={(el) => {
-              sectionRefs.current[product.id] = el;
-            }}
-            data-pid={product.id}
-            className="media"
+      {visibleCatalog.map((product) => {
+        const rem = remainingById[product.id] ?? 0;
+        const pCanAdd = Boolean(isLive && rem > 0);
+        const pShowSave = Boolean(!isLive || rem <= 0);
+        const pIsSaved = Boolean(savedIds[product.id]);
+        const pBusy = saveBusy === product.id;
+        const pDisabled = pCanAdd ? false : pShowSave ? (pBusy || pIsSaved) : true;
+        const pLabel = pCanAdd ? "Add" : pShowSave ? (pBusy ? "Saving..." : pIsSaved ? "Saved" : "Save") : "Locked";
+        const pClass = pCanAdd ? "live" : pShowSave ? "save" : "";
+
+        return (
+          <section
+            key={product.id}
+            className="section"
+            style={{ background: product.bg }}
+            data-tag={product.tags[0] ?? ""}
           >
-            <img src={product.img} alt={product.title} loading="lazy" />
-          </div>
-        </section>
-      ))}
+            <div
+              ref={(el) => {
+                sectionRefs.current[product.id] = el;
+              }}
+              data-pid={product.id}
+              className="media"
+            >
+              <img src={product.img} alt={product.title} loading="lazy" />
+            </div>
+            <div className="section-info">
+              <div className="section-info__text">
+                <div className="title">{product.title}</div>
+                <div className="price">{formatCurrency(product.priceCents)}</div>
+                {product.tags.length > 0 && (
+                  <div className="tagline">{product.tags.join(" · ")}</div>
+                )}
+              </div>
+              <div className={`meta-actions${itemsTotal > 0 ? " has-bag" : ""}`}>
+                <div className="meta-primary">
+                  <button
+                    className={`cta ${pClass}`}
+                    onClick={() => {
+                      if (pDisabled) return;
+                      if (pCanAdd) { void addToCart(product.id); return; }
+                      if (pShowSave) {
+                        if (account.user?.email) {
+                          void saveProduct(product.id, { silent: false });
+                        } else {
+                          setSaveSheet({ productId: product.id, email: "", status: "idle" });
+                        }
+                      }
+                    }}
+                    disabled={pDisabled}
+                  >
+                    {pLabel}
+                  </button>
+                </div>
+                {itemsTotal > 0 && (
+                  <div className="meta-secondary">
+                    <button type="button" className="bag-cta" onClick={() => setCartOpen(true)}>
+                      <span className="bag-cta__count">{itemsTotal}</span>
+                      <span className="bag-cta__label">Bag</span>
+                      <span className="bag-cta__total">{formatCurrency(priceTotalCents)}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        );
+      })}
 
       {active && (
         <div ref={metaRef} className="meta">
