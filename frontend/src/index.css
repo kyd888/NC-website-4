@@ -299,13 +299,13 @@ input,select,textarea{font-size:16px}
     scroll-snap-align:center;
     scroll-snap-stop:always;
     min-height:calc(100svh - var(--header-offset, 0px) - var(--meta-offset, 0px));
-    padding-top:clamp(32px,6vh,64px);
-    padding-bottom:clamp(32px,6vh,64px);
+    padding-top:clamp(12px,3vh,24px);
+    padding-bottom:clamp(12px,3vh,24px);
   }
   .section:first-of-type,
   .section:last-of-type{
-    padding-top:clamp(32px,6vh,64px);
-    padding-bottom:clamp(32px,6vh,64px);
+    padding-top:clamp(12px,3vh,24px);
+    padding-bottom:clamp(12px,3vh,24px);
   }
   .media img{
     transform:translateY(calc(-1 * var(--meta-offset, 0px) / 3));
@@ -565,11 +565,11 @@ input,select,textarea{font-size:16px}
 @media (max-width: 520px){
   .section {
     min-height: calc(100svh - var(--header-offset, 0px) - var(--meta-offset, 0px));
-    padding-top: clamp(64px, 12vh, 112px);
-    padding-bottom: clamp(64px, 12vh, 112px);
+    padding-top: clamp(8px, 2vh, 16px);
+    padding-bottom: clamp(8px, 2vh, 16px);
   }
   .media img {
-    max-height: 58svh;
+    max-height: 50svh;
   }
   .meta-actions,
   .meta-actions.has-bag{
