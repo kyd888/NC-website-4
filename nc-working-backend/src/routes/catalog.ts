@@ -19,7 +19,7 @@ import {
   getVaultSaveWindowMs,
 } from "../lib/inventory.js";
 import { recordSale } from "../lib/sales.js";
-import { sendPurchaseNotificationEmail, sendReceiptEmail } from "../lib/mailer.js";
+import { sendPurchaseNotificationEmail, sendReceiptEmail, sendCartAbandonmentEmail } from "../lib/mailer.js";
 import type { CatalogItem } from "../lib/types.js";
 import { getAuthContext } from "../lib/auth.js";
 import { updateUser } from "../lib/users.js";
@@ -72,6 +72,34 @@ const SESSION_TTL_MS = 30 * 60 * 1000;
 const CART_HOLD_TTL_MS = 5 * 60 * 1000;
 
 const sessions = new Map<string, SessionData>();
+
+// Cart abandonment — keyed by session ID
+const ABANDONMENT_TTL_MS = 15 * 60 * 1000;
+type AbandonmentEntry = { email: string; timer: NodeJS.Timeout };
+const abandonmentTimers = new Map<string, AbandonmentEntry>();
+
+function scheduleAbandonmentCheck(sessionId: string, email: string, getCart: () => CartLine[]) {
+  const existing = abandonmentTimers.get(sessionId);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
+    abandonmentTimers.delete(sessionId);
+    const cartLines = getCart();
+    if (!cartLines.length) return; // checkout already completed
+    const remaining = getAllRemaining();
+    const stillAvailable = cartLines.some((l) => (remaining[l.product.id] ?? 0) > 0);
+    void sendCartAbandonmentEmail({
+      email,
+      stillAvailable,
+      items: cartLines.map((l) => ({
+        title: l.product.title,
+        priceCents: l.product.priceCents,
+        imageUrl: l.product.imageUrl,
+        qty: l.qty,
+      })),
+    }).catch((err) => console.error("[abandonment-email] send failed", err));
+  }, ABANDONMENT_TTL_MS);
+  abandonmentTimers.set(sessionId, { email, timer });
+}
 
 const SAVE_WINDOW_MS = getVaultSaveWindowMs();
 
@@ -424,6 +452,16 @@ catalogRouter.post("/cart/add", (req, res) => {
     reservedAt: Date.now(),
   };
 
+  // Schedule abandonment check if we have the user's email
+  const auth = getAuthContext(req);
+  const userEmail = auth?.user?.email;
+  if (userEmail) {
+    scheduleAbandonmentCheck(id, userEmail, () => {
+      const summary = summarizeCart(getActiveCartEntries(session));
+      return "error" in summary ? [] : summary.lines;
+    });
+  }
+
   res.json({
     ok: true,
     cart: serializeCart(session),
@@ -530,7 +568,7 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
 });
 
 catalogRouter.post("/checkout/confirm", async (req, res) => {
-  const { session } = ensureSession(req, res);
+  const { session, id } = ensureSession(req, res);
   const entries = getActiveCartEntries(session);
 
   if (!entries.length) {
@@ -651,6 +689,8 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
 
   session.cart = {};
   session.updatedAt = Date.now();
+  const abandoned = abandonmentTimers.get(id);
+  if (abandoned) { clearTimeout(abandoned.timer); abandonmentTimers.delete(id); }
 
   res.json({
     ok: true,

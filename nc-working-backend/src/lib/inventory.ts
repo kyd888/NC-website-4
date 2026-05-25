@@ -44,6 +44,7 @@ export type DropAnalytics = {
 
 type DropEvent =
   | { type: "scheduled"; drop: Drop }
+  | { type: "teaser"; drop: Drop }
   | { type: "activated"; drop: Drop }
   | { type: "ended"; drop: Drop };
 
@@ -64,6 +65,7 @@ let remaining: RemainingMap = {};
 let currentDrop: Drop | null = null;
 let startTimer: NodeJS.Timeout | null = null;
 let endTimer: NodeJS.Timeout | null = null;
+let teaserTimer: NodeJS.Timeout | null = null;
 let plannedInitial: RemainingMap = {};
 let currentViews: Record<string, number> = {};
 let currentDropStartedAt: string | null = null;
@@ -786,14 +788,9 @@ function toRemainingMap(input: RemainingMap | number): RemainingMap {
 }
 
 function clearTimers() {
-  if (startTimer) {
-    clearTimeout(startTimer);
-    startTimer = null;
-  }
-  if (endTimer) {
-    clearTimeout(endTimer);
-    endTimer = null;
-  }
+  if (startTimer) { clearTimeout(startTimer); startTimer = null; }
+  if (endTimer) { clearTimeout(endTimer); endTimer = null; }
+  if (teaserTimer) { clearTimeout(teaserTimer); teaserTimer = null; }
 }
 
 function emitInventory(productId: string) {
@@ -851,6 +848,14 @@ function scheduleLifecycle() {
     activateDrop();
   } else {
     startTimer = setTimeout(() => activateDrop(), Math.max(0, startAt.diff(now)));
+    // Fire a teaser event 24h before the drop if there's enough lead time
+    const teaserAt = startAt.subtract(24, "hour");
+    if (teaserAt.isAfter(now)) {
+      teaserTimer = setTimeout(
+        () => events.emit("drop:event", { type: "teaser", drop: { ...currentDrop! } } as DropEvent),
+        Math.max(0, teaserAt.diff(now)),
+      );
+    }
     emitSnapshot(remaining);
   }
 }

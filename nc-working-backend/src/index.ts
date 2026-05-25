@@ -10,9 +10,11 @@ import { adminRouter } from "./routes/admin.js";
 import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
-import { seedInventory, registerVaultSavesGetter } from "./lib/inventory.js";
+import { seedInventory, registerVaultSavesGetter, onDropEvent } from "./lib/inventory.js";
 import { initializePersistentStores } from "./lib/persistence.js";
 import { getVaultSnapshot } from "./lib/vault.js";
+import { listUsers } from "./lib/users.js";
+import { sendDropTeaserEmail } from "./lib/mailer.js";
 
 dotenv.config();
 
@@ -92,12 +94,22 @@ app.use(
   }),
 );
 
-// Strict limit on checkout / cart to discourage bots: 20 req / min per IP
+// Strict limit on checkout / cart — keyed on IP + session so shared IPs
+// (mobile carriers, offices) don't have one bad actor throttle everyone.
+function sessionAwareKey(req: express.Request): string {
+  const ip = (req.ip ?? req.socket?.remoteAddress ?? "unknown");
+  const cookieHeader = req.headers.cookie ?? "";
+  const sessionMatch = cookieHeader.match(/(?:^|;\s*)nc_session=([^;]+)/);
+  const session = sessionMatch ? decodeURIComponent(sessionMatch[1]) : "";
+  return session ? `${ip}:${session}` : ip;
+}
+
 const strictLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: sessionAwareKey,
   message: { error: "Too many requests, slow down" },
 });
 app.use("/api/checkout", strictLimit);
@@ -144,6 +156,27 @@ app.use(
 await initializePersistentStores();
 seedInventory();
 registerVaultSavesGetter((productId) => getVaultSnapshot()[productId]?.saves ?? 0);
+
+// 24h teaser email — sent to all account holders when a scheduled drop is 24h out
+onDropEvent((event) => {
+  if (event.type !== "teaser") return;
+  const users = listUsers();
+  if (!users.length) return;
+  (async () => {
+    let sent = 0;
+    for (const user of users) {
+      if (!user.email) continue;
+      try {
+        await sendDropTeaserEmail({ email: user.email, dropStartsAt: event.drop.startsAt });
+        sent++;
+      } catch (err) {
+        console.error("[teaser-email] Failed to send to", user.email, err);
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    console.log(`[teaser-email] Sent to ${sent}/${users.length} users`);
+  })();
+});
 
 
 app.listen(PORT, () => {

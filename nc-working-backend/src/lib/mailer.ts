@@ -50,6 +50,24 @@ export type VaultReleaseEmailPayload = {
   dropId?: string;
 };
 
+export type CartAbandonmentItem = {
+  title: string;
+  priceCents: number;
+  imageUrl?: string;
+  qty: number;
+};
+
+export type CartAbandonmentEmailPayload = {
+  email: string;
+  items: CartAbandonmentItem[];
+  stillAvailable: boolean; // true = items still in stock, false = sold out
+};
+
+export type DropTeaserEmailPayload = {
+  email: string;
+  dropStartsAt: string; // ISO
+};
+
 export type DropLiveProduct = {
   id: string;
   title: string;
@@ -604,6 +622,200 @@ export async function sendVaultReleaseEmail(payload: VaultReleaseEmailPayload) {
     html: htmlBody,
     logoAttachment: getLogoAttachment(),
   });
+}
+
+export async function sendCartAbandonmentEmail(payload: CartAbandonmentEmailPayload) {
+  if (!payload.email || !payload.items.length) return false;
+  const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc.example.com";
+
+  const subject = payload.stillAvailable
+    ? "Your cart is waiting."
+    : "You almost had it.";
+
+  const itemRowsHtml = payload.items.map((item) => {
+    const imageSrc = item.imageUrl && /^https?:\/\//i.test(item.imageUrl)
+      ? escapeHtml(item.imageUrl) : RECEIPT_FALLBACK_IMAGE;
+    const priceText = escapeHtml(currencyFormatter.format(item.priceCents / 100));
+    return `
+      <tr>
+        <td style="padding:14px 0;border-bottom:1px solid rgba(17,17,17,.06);">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+            <tr>
+              <td style="width:72px;padding-right:14px;vertical-align:top;">
+                <div style="width:72px;height:72px;border-radius:14px;overflow:hidden;background:#ebebea;">
+                  <img src="${imageSrc}" alt="${escapeHtml(item.title)}" style="display:block;width:72px;height:72px;object-fit:cover;"/>
+                </div>
+              </td>
+              <td style="vertical-align:middle;">
+                <div style="font-weight:700;font-size:14px;color:#111;">${escapeHtml(item.title)}</div>
+                <div style="margin-top:4px;font-size:13px;color:#6b7280;">${priceText} &times; ${item.qty}</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+  }).join("");
+
+  const ctaLabel = payload.stillAvailable ? "Complete Your Order" : "Save for Next Drop";
+  const headline = payload.stillAvailable
+    ? "Still yours<br/>if you want it."
+    : "You almost<br/>had it.";
+  const subtext = payload.stillAvailable
+    ? "Your items are still available — but stock is limited. Don't let someone else grab them."
+    : "These sold out while they were in your cart. Save them and we'll let you know when they're back.";
+
+  const textBody = [
+    subject,
+    "",
+    payload.items.map((i) => `${i.title} x${i.qty} — ${currencyFormatter.format(i.priceCents / 100)}`).join("\n"),
+    "",
+    subtext,
+    "",
+    siteUrl,
+    "The NC team",
+  ].join("\n");
+
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:48px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;border-radius:32px;background:#ffffff;padding:40px 36px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+
+            <tr>
+              <td style="text-align:center;padding-bottom:24px;">
+                <img src="cid:nc-logo" alt="NC" style="max-width:100px;height:auto;display:inline-block;"/>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:20px;">
+                <div style="font-size:34px;font-weight:800;letter-spacing:-0.04em;line-height:1.15;color:#111;">${headline}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="text-align:center;padding-bottom:28px;">
+                <div style="font-size:14px;color:#6b7280;line-height:1.7;">${escapeHtml(subtext)}</div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-bottom:28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                  ${itemRowsHtml}
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:28px;">
+                <a href="${escapeHtml(siteUrl)}" style="display:inline-block;padding:16px 48px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;font-size:12px;">${escapeHtml(ctaLabel)}</a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">
+                ${escapeHtml(siteUrl)}
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>`;
+
+  return sendEmail({ to: payload.email, subject, text: textBody, html: htmlBody, logoAttachment: getLogoAttachment() });
+}
+
+export async function sendDropTeaserEmail(payload: DropTeaserEmailPayload) {
+  if (!payload.email) return false;
+  const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc.example.com";
+  const subject = "Something drops tomorrow.";
+
+  let dropTimeLabel = "";
+  try {
+    const d = new Date(payload.dropStartsAt);
+    if (!isNaN(d.getTime())) {
+      dropTimeLabel = d.toLocaleString("en-US", { weekday: "long", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+    }
+  } catch { /* ignore */ }
+
+  const textBody = [
+    "Something drops tomorrow.",
+    "",
+    dropTimeLabel ? `Drop time: ${dropTimeLabel}` : "",
+    "",
+    "No details. Just mark your calendar.",
+    "",
+    siteUrl,
+    "",
+    "The NC team",
+  ].filter(Boolean).join("\n");
+
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>
+        <td align="center" style="padding:48px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:480px;border-radius:32px;background:#ffffff;padding:48px 40px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+
+            <tr>
+              <td style="text-align:center;padding-bottom:36px;">
+                <img src="cid:nc-logo" alt="NC" style="max-width:100px;height:auto;display:inline-block;"/>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:12px;">
+                <div style="font-size:11px;letter-spacing:0.32em;text-transform:uppercase;color:#9ca3af;">Heads up</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="text-align:center;padding-bottom:20px;">
+                <div style="font-size:38px;font-weight:800;letter-spacing:-0.04em;line-height:1.1;color:#111;">Something drops<br/>tomorrow.</div>
+              </td>
+            </tr>
+
+            ${dropTimeLabel ? `
+            <tr>
+              <td style="padding-bottom:36px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f2f2ee;border-radius:16px;">
+                  <tr>
+                    <td style="padding:20px;text-align:center;">
+                      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Drop time</div>
+                      <div style="margin-top:10px;font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#111;">${escapeHtml(dropTimeLabel)}</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>` : ""}
+
+            <tr>
+              <td style="text-align:center;padding-bottom:32px;">
+                <div style="font-size:14px;color:#6b7280;line-height:1.7;">No details. Just mark your calendar.</div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="text-align:center;padding-bottom:28px;">
+                <a href="${escapeHtml(siteUrl)}" style="display:inline-block;padding:16px 52px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;font-size:12px;">Be Ready</a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding-top:4px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">
+                ${escapeHtml(siteUrl)}
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>`;
+
+  return sendEmail({ to: payload.email, subject, text: textBody, html: htmlBody, logoAttachment: getLogoAttachment() });
 }
 
 export async function sendDropLiveEmail(payload: DropLiveEmailPayload) {
