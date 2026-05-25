@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { loadStripe } from "@stripe/stripe-js";
-import { Elements, useStripe, useElements, CardElement } from "@stripe/react-stripe-js";
+import { Elements, useStripe, useElements, CardElement, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
 import { useDrop } from "./hooks/useDrop";
 import {
   useAccount,
@@ -1973,6 +1973,78 @@ function StripePaymentForm({
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  // Apple Pay / Google Pay
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const paymentRequestRef = useRef<any>(null);
+  const [prAvailable, setPrAvailable] = useState(false);
+  const [prError, setPrError] = useState<string | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; });
+
+  useEffect(() => {
+    if (!stripe || !amount) return;
+    const pr = stripe.paymentRequest({
+      country: "US",
+      currency: "usd",
+      total: { label: "NC Order", amount },
+      requestPayerName: true,
+      requestPayerEmail: true,
+      requestShipping: true,
+      shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }],
+    });
+    pr.canMakePayment().then((result) => {
+      if (result) {
+        paymentRequestRef.current = pr;
+        setPrAvailable(true);
+      }
+    });
+  }, [stripe, amount]);
+
+  useEffect(() => {
+    const pr = paymentRequestRef.current;
+    if (!pr || !stripe || !prAvailable) return;
+
+    const handleShippingChange = (event: any) => {
+      event.updateWith({ status: "success", shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }] });
+    };
+
+    const handlePaymentMethod = async (event: any) => {
+      const { error, paymentIntent } = await stripe.confirmCardPayment(
+        clientSecret,
+        { payment_method: event.paymentMethod.id },
+        { handleActions: false },
+      );
+      if (error) { event.complete("fail"); setPrError(error.message ?? "Payment failed"); return; }
+      if (paymentIntent?.status === "requires_action") {
+        const { error: actionError } = await stripe.confirmCardPayment(clientSecret);
+        if (actionError) { event.complete("fail"); setPrError(actionError.message ?? "Payment failed"); return; }
+      }
+      event.complete("success");
+      const shipping = event.shippingAddress;
+      const customer: CheckoutCustomer = {
+        name: event.payerName ?? "",
+        email: event.payerEmail ?? "",
+        address: shipping ? {
+          line1: shipping.addressLine?.[0] ?? "",
+          line2: shipping.addressLine?.[1],
+          city: shipping.city ?? "",
+          state: shipping.region ?? "",
+          postalCode: shipping.postalCode ?? "",
+          country: shipping.country ?? "US",
+        } : undefined,
+      };
+      const ok = await onCompleteRef.current(paymentIntentId, customer);
+      if (!ok) setPrError("Unable to finalize order. Please try again.");
+    };
+
+    pr.on("shippingaddresschange", handleShippingChange);
+    pr.on("paymentmethod", handlePaymentMethod);
+    return () => {
+      pr.off("shippingaddresschange", handleShippingChange);
+      pr.off("paymentmethod", handlePaymentMethod);
+    };
+  }, [prAvailable, stripe, clientSecret, paymentIntentId]);
+
   useEffect(() => {
     if (!accountUser) return;
     setName((prev) => (prev ? prev : accountUser.name ?? ""));
@@ -2091,6 +2163,15 @@ function StripePaymentForm({
 
   return (
     <form className="payment-form" onSubmit={handleSubmit}>
+      {prAvailable && paymentRequestRef.current && (
+        <div className="payment-request-section">
+          {prError && <div className="payment-error">{prError}</div>}
+          <PaymentRequestButtonElement
+            options={{ paymentRequest: paymentRequestRef.current, style: { paymentRequestButton: { height: "48px" } } }}
+          />
+          <div className="payment-divider"><span>or pay with card</span></div>
+        </div>
+      )}
       {(localError || errorMessage) && (
         <div className="payment-error">{localError || errorMessage}</div>
       )}
