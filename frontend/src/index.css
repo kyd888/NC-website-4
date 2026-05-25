@@ -280,7 +280,7 @@ input,select,textarea{font-size:16px}
     scroll-snap-stop: always;
   }
   .section:last-of-type .media img {
-    transform: translateY(-54px);
+    transform: translateY(-6px);
   }
 }
 
