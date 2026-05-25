@@ -10,8 +10,9 @@ import { adminRouter } from "./routes/admin.js";
 import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
-import { seedInventory } from "./lib/inventory.js";
+import { seedInventory, registerVaultSavesGetter } from "./lib/inventory.js";
 import { initializePersistentStores } from "./lib/persistence.js";
+import { getVaultSnapshot } from "./lib/vault.js";
 
 dotenv.config();
 
@@ -142,6 +143,7 @@ app.use(
 // ── Startup ───────────────────────────────────────────────────────────────────
 await initializePersistentStores();
 seedInventory();
+registerVaultSavesGetter((productId) => getVaultSnapshot()[productId]?.saves ?? 0);
 
 
 app.listen(PORT, () => {

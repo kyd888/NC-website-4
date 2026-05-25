@@ -69,6 +69,12 @@ let currentViews: Record<string, number> = {};
 let currentDropStartedAt: string | null = null;
 let dropHistory: DropAnalytics[] = [];
 let lastLiveSeen: Record<string, string> = {};
+
+// Injected at startup by index.ts to avoid a circular import with vault.ts
+let _getVaultSaves: ((productId: string) => number) | null = null;
+export function registerVaultSavesGetter(fn: (productId: string) => number) {
+  _getVaultSaves = fn;
+}
 let catalogPersistTimer: NodeJS.Timeout | null = null;
 let runtimePersistTimer: NodeJS.Timeout | null = null;
 let runtimeStateLoaded = false;
@@ -685,13 +691,35 @@ export function getDisplayedRemaining(): RemainingMap {
     return { ...remaining };
   }
   const elapsed = Math.min(1, Math.max(0, (now - startTs) / duration));
-  // Exponential curve — moves fast early in drop, slows as it approaches end
-  const phantomFraction = 1 - Math.exp(-3 * elapsed);
   const decayPct = Math.min(1, Math.max(0, autoDrop.phantomDecayPercent));
   const floor = Math.max(0, Math.floor(autoDrop.phantomDecayFloor));
+
+  // Compute per-product engagement scores to drive individual decay rates.
+  // Higher saves + views → faster phantom decay → more visible scarcity on in-demand items.
+  const productIds = Object.keys(remaining);
+  const savesMap: Record<string, number> = {};
+  const viewsMap: Record<string, number> = {};
+  for (const id of productIds) {
+    savesMap[id] = _getVaultSaves ? (_getVaultSaves(id) ?? 0) : 0;
+    viewsMap[id] = currentViews[id] ?? 0;
+  }
+  const maxSaves = Math.max(1, ...Object.values(savesMap));
+  const maxViews = Math.max(1, ...Object.values(viewsMap));
+
   const out: RemainingMap = {};
   for (const [productId, actualQty] of Object.entries(remaining)) {
     const initial = Math.max(actualQty, plannedInitial[productId] ?? actualQty);
+
+    // Engagement: weighted blend of normalised saves (60%) and views (40%)
+    const normSaves = savesMap[productId] / maxSaves;
+    const normViews = viewsMap[productId] / maxViews;
+    const engagement = 0.6 * normSaves + 0.4 * normViews; // 0..1
+
+    // Decay rate: 2.0 (cold/unsaved) → 5.0 (hot/highly saved+viewed)
+    // Flat baseline was 3.0; this spreads products around that midpoint.
+    const decayRate = 2.0 + engagement * 3.0;
+    const phantomFraction = 1 - Math.exp(-decayRate * elapsed);
+
     const phantomConsumed = Math.floor(phantomFraction * decayPct * initial);
     const phantomQty = Math.max(floor, initial - phantomConsumed);
     out[productId] = Math.min(actualQty, phantomQty);
