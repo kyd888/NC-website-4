@@ -726,7 +726,22 @@ export function getDisplayedRemaining(): RemainingMap {
     const phantomQty = Math.max(floor, initial - phantomConsumed);
     out[productId] = Math.min(actualQty, phantomQty);
   }
-  return out;
+
+  // Guarantee no two products display the same count simultaneously.
+  // Sort high-to-low (tie-break by productId for determinism), then push
+  // each duplicate down by 1 until the value is unique or hits the floor.
+  const sorted = Object.entries(out).sort(([aId, aVal], [bId, bVal]) =>
+    bVal !== aVal ? bVal - aVal : aId.localeCompare(bId),
+  );
+  const used = new Set<number>();
+  const deduped: RemainingMap = {};
+  for (const [productId, value] of sorted) {
+    let v = value;
+    while (used.has(v) && v > Math.max(floor, 0)) v--;
+    used.add(v);
+    deduped[productId] = v;
+  }
+  return deduped;
 }
 
 export async function upsertProduct(p: CatalogItem) {
