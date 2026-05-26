@@ -69,7 +69,8 @@ type CheckoutCustomer = z.infer<typeof checkoutCustomerSchema>;
 
 const SESSION_COOKIE = "nc_session";
 const SESSION_TTL_MS = 30 * 60 * 1000;
-const CART_HOLD_TTL_MS = 5 * 60 * 1000;
+const CART_HOLD_TTL_MS = 3 * 60 * 1000;
+const MAX_QTY_PER_ITEM = 3;
 
 const sessions = new Map<string, SessionData>();
 
@@ -442,13 +443,18 @@ catalogRouter.post("/cart/add", (req, res) => {
   const existing = session.cart[productId];
   const currentQty = existing ? Math.max(0, Math.floor(existing.qty)) : 0;
 
-  const success = reserve(productId, qty);
+  if (currentQty >= MAX_QTY_PER_ITEM) {
+    return res.status(409).json({ error: `Limit of ${MAX_QTY_PER_ITEM} per item` });
+  }
+
+  const addQty = Math.min(qty, MAX_QTY_PER_ITEM - currentQty);
+  const success = reserve(productId, addQty);
   if (!success) {
     return res.status(409).json({ error: "Sold out" });
   }
 
   session.cart[productId] = {
-    qty: currentQty + qty,
+    qty: currentQty + addQty,
     reservedAt: Date.now(),
   };
 
