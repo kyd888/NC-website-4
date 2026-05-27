@@ -736,6 +736,7 @@ input,select,textarea{font-size:16px}
 .payment-cancel{background:#f2f2f2;color:#474747;}
 .payment-submit{background:#111;color:#fff;}
 .payment-submit:not(:disabled):hover{transform:translateY(-1px);}
+.cart-pr-button{margin-bottom:10px;}
 .payment-request-section{display:grid;gap:12px;}
 .payment-divider{display:flex;align-items:center;gap:12px;color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:.16em;}
 .payment-divider::before,.payment-divider::after{content:'';flex:1;height:1px;background:rgba(0,0,0,.1);}

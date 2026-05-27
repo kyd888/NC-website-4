@@ -848,6 +848,7 @@ function App() {
     : "page-content page-content--multi";
 
   return (
+    <Elements stripe={stripePromise}>
     <div className="grain" style={{ background: "#f2f2ee" }}>
       <header ref={headerRef} className="header">
         <div className="container header-row">
@@ -1229,6 +1230,16 @@ function App() {
                   <span>Total</span>
                   <strong>{formatCurrency(priceTotalCents)}</strong>
                 </div>
+                <CartPaymentRequestButton
+                  amountCents={priceTotalCents}
+                  onOrderComplete={(confirmation) => {
+                    setCart([]);
+                    setCartOpen(false);
+                    setOrderConfirmation(confirmation);
+                    showToast("Order confirmed", 2000);
+                  }}
+                  onError={(msg) => showToast(msg, 3000)}
+                />
                 <button
                   type="button"
                   className="cart-sheet__checkout"
@@ -1278,6 +1289,7 @@ function App() {
         formatCurrency={formatCurrency}
       />
     </div>
+    </Elements>
   );
 }
 
@@ -1861,6 +1873,145 @@ function formatAddress(address?: CheckoutCustomer["address"]) {
 }
 
 
+function CartPaymentRequestButton({
+  amountCents,
+  onOrderComplete,
+  onError,
+}: {
+  amountCents: number;
+  onOrderComplete: (confirmation: OrderConfirmation) => void;
+  onError: (msg: string) => void;
+}) {
+  const stripe = useStripe();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const paymentRequestRef = useRef<any>(null);
+  const [prAvailable, setPrAvailable] = useState(false);
+  const onOrderCompleteRef = useRef(onOrderComplete);
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
+  useEffect(() => { onErrorRef.current = onError; });
+
+  // Create or update the payment request whenever the cart total changes
+  useEffect(() => {
+    if (!stripe || amountCents <= 0) {
+      setPrAvailable(false);
+      paymentRequestRef.current = null;
+      return;
+    }
+    if (paymentRequestRef.current) {
+      paymentRequestRef.current.update({ total: { label: "NC Order", amount: amountCents } });
+      return;
+    }
+    const pr = stripe.paymentRequest({
+      country: "US",
+      currency: "usd",
+      total: { label: "NC Order", amount: amountCents },
+      requestPayerName: true,
+      requestPayerEmail: true,
+      requestShipping: true,
+      shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }],
+    });
+    paymentRequestRef.current = pr;
+    pr.canMakePayment().then((result) => {
+      if (result) setPrAvailable(true);
+    });
+  }, [stripe, amountCents]);
+
+  // Attach payment handlers once the request is ready
+  useEffect(() => {
+    const pr = paymentRequestRef.current;
+    if (!pr || !stripe || !prAvailable) return;
+
+    const handleShippingChange = (event: any) => {
+      event.updateWith({ status: "success", shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }] });
+    };
+
+    const handlePaymentMethod = async (event: any) => {
+      // Create the payment intent on demand
+      let clientSecret: string;
+      let paymentIntentId: string;
+      try {
+        const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, { method: "POST" });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.clientSecret) {
+          event.complete("fail");
+          onErrorRef.current(json.error ?? "Unable to start checkout");
+          return;
+        }
+        clientSecret = json.clientSecret;
+        paymentIntentId = json.paymentIntentId;
+      } catch {
+        event.complete("fail");
+        onErrorRef.current("Checkout error");
+        return;
+      }
+
+      // Confirm with the wallet payment method
+      const { error, paymentIntent } = await stripe.confirmCardPayment(
+        clientSecret,
+        { payment_method: event.paymentMethod.id },
+        { handleActions: false },
+      );
+      if (error) { event.complete("fail"); onErrorRef.current(error.message ?? "Payment failed"); return; }
+      if (paymentIntent?.status === "requires_action") {
+        const { error: actionError } = await stripe.confirmCardPayment(clientSecret);
+        if (actionError) { event.complete("fail"); onErrorRef.current(actionError.message ?? "Payment failed"); return; }
+      }
+      event.complete("success");
+
+      // Confirm order with backend
+      const shipping = event.shippingAddress;
+      const customer: CheckoutCustomer = {
+        name: event.payerName ?? "",
+        email: event.payerEmail ?? "",
+        address: shipping ? {
+          line1: shipping.addressLine?.[0] ?? "",
+          line2: shipping.addressLine?.[1],
+          city: shipping.city ?? "",
+          state: shipping.region ?? "",
+          postalCode: shipping.postalCode ?? "",
+          country: shipping.country ?? "US",
+        } : undefined,
+      };
+      try {
+        const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentIntentId, customer }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.ok) { onErrorRef.current(json.error ?? "Checkout failed"); return; }
+        onOrderCompleteRef.current({
+          orderId: String(json.orderId ?? paymentIntentId),
+          totalCents: Number(json?.totals?.grossCents ?? 0),
+          totalItems: Number(json?.totals?.items ?? 0),
+          customer,
+          paymentRef: paymentIntentId,
+        });
+      } catch {
+        onErrorRef.current("Order confirmation failed");
+      }
+    };
+
+    pr.on("shippingaddresschange", handleShippingChange);
+    pr.on("paymentmethod", handlePaymentMethod);
+    return () => {
+      pr.off("shippingaddresschange", handleShippingChange);
+      pr.off("paymentmethod", handlePaymentMethod);
+    };
+  }, [prAvailable, stripe]);
+
+  if (!prAvailable || !paymentRequestRef.current) return null;
+
+  return (
+    <div className="cart-pr-button">
+      <PaymentRequestButtonElement
+        options={{ paymentRequest: paymentRequestRef.current, style: { paymentRequestButton: { height: "52px" } } }}
+      />
+    </div>
+  );
+}
+
 type PaymentModalProps = {
   open: boolean;
   intent: PaymentIntentState | null;
@@ -1972,78 +2123,6 @@ function StripePaymentForm({
   const [country, setCountry] = useState("US");
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-
-  // Apple Pay / Google Pay
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const paymentRequestRef = useRef<any>(null);
-  const [prAvailable, setPrAvailable] = useState(false);
-  const [prError, setPrError] = useState<string | null>(null);
-  const onCompleteRef = useRef(onComplete);
-  useEffect(() => { onCompleteRef.current = onComplete; });
-
-  useEffect(() => {
-    if (!stripe || !amount) return;
-    const pr = stripe.paymentRequest({
-      country: "US",
-      currency: "usd",
-      total: { label: "NC Order", amount },
-      requestPayerName: true,
-      requestPayerEmail: true,
-      requestShipping: true,
-      shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }],
-    });
-    pr.canMakePayment().then((result) => {
-      if (result) {
-        paymentRequestRef.current = pr;
-        setPrAvailable(true);
-      }
-    });
-  }, [stripe, amount]);
-
-  useEffect(() => {
-    const pr = paymentRequestRef.current;
-    if (!pr || !stripe || !prAvailable) return;
-
-    const handleShippingChange = (event: any) => {
-      event.updateWith({ status: "success", shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }] });
-    };
-
-    const handlePaymentMethod = async (event: any) => {
-      const { error, paymentIntent } = await stripe.confirmCardPayment(
-        clientSecret,
-        { payment_method: event.paymentMethod.id },
-        { handleActions: false },
-      );
-      if (error) { event.complete("fail"); setPrError(error.message ?? "Payment failed"); return; }
-      if (paymentIntent?.status === "requires_action") {
-        const { error: actionError } = await stripe.confirmCardPayment(clientSecret);
-        if (actionError) { event.complete("fail"); setPrError(actionError.message ?? "Payment failed"); return; }
-      }
-      event.complete("success");
-      const shipping = event.shippingAddress;
-      const customer: CheckoutCustomer = {
-        name: event.payerName ?? "",
-        email: event.payerEmail ?? "",
-        address: shipping ? {
-          line1: shipping.addressLine?.[0] ?? "",
-          line2: shipping.addressLine?.[1],
-          city: shipping.city ?? "",
-          state: shipping.region ?? "",
-          postalCode: shipping.postalCode ?? "",
-          country: shipping.country ?? "US",
-        } : undefined,
-      };
-      const ok = await onCompleteRef.current(paymentIntentId, customer);
-      if (!ok) setPrError("Unable to finalize order. Please try again.");
-    };
-
-    pr.on("shippingaddresschange", handleShippingChange);
-    pr.on("paymentmethod", handlePaymentMethod);
-    return () => {
-      pr.off("shippingaddresschange", handleShippingChange);
-      pr.off("paymentmethod", handlePaymentMethod);
-    };
-  }, [prAvailable, stripe, clientSecret, paymentIntentId]);
 
   useEffect(() => {
     if (!accountUser) return;
@@ -2163,15 +2242,6 @@ function StripePaymentForm({
 
   return (
     <form className="payment-form" onSubmit={handleSubmit}>
-      {prAvailable && paymentRequestRef.current && (
-        <div className="payment-request-section">
-          {prError && <div className="payment-error">{prError}</div>}
-          <PaymentRequestButtonElement
-            options={{ paymentRequest: paymentRequestRef.current, style: { paymentRequestButton: { height: "48px" } } }}
-          />
-          <div className="payment-divider"><span>or pay with card</span></div>
-        </div>
-      )}
       {(localError || errorMessage) && (
         <div className="payment-error">{localError || errorMessage}</div>
       )}
