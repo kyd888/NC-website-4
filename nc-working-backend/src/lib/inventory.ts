@@ -723,7 +723,7 @@ export function getDisplayedRemaining(): RemainingMap {
     const phantomFraction = 1 - Math.exp(-decayRate * elapsed);
 
     const phantomConsumed = Math.floor(phantomFraction * decayPct * initial);
-    const phantomQty = Math.max(floor, initial - phantomConsumed);
+    const phantomQty = Math.max(floor, actualQty - phantomConsumed);
     out[productId] = Math.min(actualQty, phantomQty);
   }
 
