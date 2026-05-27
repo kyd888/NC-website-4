@@ -2008,6 +2008,7 @@ function CartPaymentRequestButton({
       <PaymentRequestButtonElement
         options={{ paymentRequest: paymentRequestRef.current, style: { paymentRequestButton: { height: "52px" } } }}
       />
+      <div className="payment-divider"><span>or</span></div>
     </div>
   );
 }
