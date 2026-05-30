@@ -694,10 +694,8 @@ export function getDisplayedRemaining(): RemainingMap {
   }
   const elapsed = Math.min(1, Math.max(0, (now - startTs) / duration));
   const decayPct = Math.min(1, Math.max(0, autoDrop.phantomDecayPercent));
-  const floor = Math.max(0, Math.floor(autoDrop.phantomDecayFloor));
 
-  // Compute per-product engagement scores to drive individual decay rates.
-  // Higher saves + views → faster phantom decay → more visible scarcity on in-demand items.
+  // Per-product engagement scores drive individual decay rates.
   const productIds = Object.keys(remaining);
   const savesMap: Record<string, number> = {};
   const viewsMap: Record<string, number> = {};
@@ -712,24 +710,20 @@ export function getDisplayedRemaining(): RemainingMap {
   for (const [productId, actualQty] of Object.entries(remaining)) {
     const initial = Math.max(actualQty, plannedInitial[productId] ?? actualQty);
 
-    // Engagement: weighted blend of normalised saves (60%) and views (40%)
     const normSaves = savesMap[productId] / maxSaves;
     const normViews = viewsMap[productId] / maxViews;
-    const engagement = 0.6 * normSaves + 0.4 * normViews; // 0..1
-
-    // Decay rate: 2.0 (cold/unsaved) → 5.0 (hot/highly saved+viewed)
-    // Flat baseline was 3.0; this spreads products around that midpoint.
+    const engagement = 0.6 * normSaves + 0.4 * normViews;
     const decayRate = 2.0 + engagement * 3.0;
     const phantomFraction = 1 - Math.exp(-decayRate * elapsed);
-
     const phantomConsumed = Math.floor(phantomFraction * decayPct * initial);
-    const phantomQty = Math.max(floor, actualQty - phantomConsumed);
-    out[productId] = Math.min(actualQty, phantomQty);
+
+    // Display = actual − phantom consumed.
+    // Floor at 1 (not 0) so the add-to-cart button stays visible while stock exists.
+    // This ensures every cart add reduces the displayed count by exactly 1.
+    out[productId] = actualQty <= 0 ? 0 : Math.max(1, actualQty - phantomConsumed);
   }
 
-  // Guarantee no two products display the same count simultaneously.
-  // Sort high-to-low (tie-break by productId for determinism), then push
-  // each duplicate down by 1 until the value is unique or hits the floor.
+  // Guarantee no two products show the same count simultaneously.
   const sorted = Object.entries(out).sort(([aId, aVal], [bId, bVal]) =>
     bVal !== aVal ? bVal - aVal : aId.localeCompare(bId),
   );
@@ -737,7 +731,8 @@ export function getDisplayedRemaining(): RemainingMap {
   const deduped: RemainingMap = {};
   for (const [productId, value] of sorted) {
     let v = value;
-    while (used.has(v) && v > Math.max(floor, 0)) v--;
+    const minAllowed = (remaining[productId] ?? 0) > 0 ? 1 : 0;
+    while (used.has(v) && v > minAllowed) v--;
     used.add(v);
     deduped[productId] = v;
   }
