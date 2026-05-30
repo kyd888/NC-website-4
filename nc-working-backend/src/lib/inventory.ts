@@ -713,7 +713,11 @@ export function getDisplayedRemaining(): RemainingMap {
     const normSaves = savesMap[productId] / maxSaves;
     const normViews = viewsMap[productId] / maxViews;
     const engagement = 0.6 * normSaves + 0.4 * normViews;
-    const decayRate = 2.0 + engagement * 3.0;
+    // Small deterministic jitter per product ID so counts diverge even at zero engagement.
+    let idHash = 0;
+    for (let i = 0; i < productId.length; i++) idHash = (idHash * 31 + productId.charCodeAt(i)) >>> 0;
+    const idJitter = (idHash % 50) / 100; // 0.00 – 0.49, stable across calls
+    const decayRate = 2.0 + engagement * 3.0 + idJitter;
     const phantomFraction = 1 - Math.exp(-decayRate * elapsed);
     const phantomConsumed = Math.floor(phantomFraction * decayPct * initial);
 
