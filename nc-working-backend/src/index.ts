@@ -3,7 +3,7 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { fileURLToPath } from "url";
 
 import { adminRouter } from "./routes/admin.js";
@@ -97,7 +97,7 @@ app.use(
 // Strict limit on checkout / cart — keyed on IP + session so shared IPs
 // (mobile carriers, offices) don't have one bad actor throttle everyone.
 function sessionAwareKey(req: express.Request): string {
-  const ip = (req.ip ?? req.socket?.remoteAddress ?? "unknown");
+  const ip = ipKeyGenerator(req.ip ?? req.socket?.remoteAddress ?? "unknown");
   const cookieHeader = req.headers.cookie ?? "";
   const sessionMatch = cookieHeader.match(/(?:^|;\s*)nc_session=([^;]+)/);
   const session = sessionMatch ? decodeURIComponent(sessionMatch[1]) : "";

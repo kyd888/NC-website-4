@@ -7,7 +7,14 @@ import { schemaSql } from "./schema.js";
 
 export async function initializePersistentStores() {
   if (!dbEnabled) return;
-  await dbQuery(schemaSql);
+  try {
+    await dbQuery(schemaSql);
+  } catch (error) {
+    console.error(
+      "[database] DATABASE_URL is set, but Postgres is unreachable. On Render, use the Internal Database URL from the Postgres instance available to this backend service. If this is local development, use the External Database URL instead.",
+    );
+    throw error;
+  }
   await loadUsersFromDb();
   await loadSalesFromDb();
   await loadInventoryFromDb();
