@@ -67,6 +67,19 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .wrap { max-width: 1080px; margin: 28px auto; padding: 0 16px 64px; }
   h1 { margin: 0 0 18px; font-weight: 700; letter-spacing: -0.02em; }
   .grid2 { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,0.8fr); gap: 16px; align-items: start; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+  .topbar h1 { margin:0; }
+  .topbar .btnline { display:flex; align-items:center; gap:10px; }
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid #1f1f1f; margin-bottom:18px; }
+  .tab { appearance:none; background:transparent; border:0; border-bottom:2px solid transparent; color:#8a8a8a; font:inherit; font-size:13px; font-weight:500; padding:9px 14px; cursor:pointer; border-radius:8px 8px 0 0; }
+  .tab:hover { color:#d4d4d4; background:#101010; }
+  .tab[aria-selected="true"] { color:#f5f5f5; border-bottom-color:#f5f5f5; }
+  .tabpanel[hidden] { display:none; }
+  details.raw { border:1px solid #1f1f1f; border-radius:10px; background:#0f0f0f; }
+  details.raw > summary { cursor:pointer; padding:9px 12px; color:#969696; font-size:11px; text-transform:uppercase; letter-spacing:.14em; list-style:none; }
+  details.raw > summary::-webkit-details-marker { display:none; }
+  details.raw > summary:hover { color:#d4d4d4; }
+  details.raw pre { margin:0 12px 12px; }
   .card { background: #121212; border: 1px solid #242424; border-radius: 14px; padding: 16px; }
   .card h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
   .card.card-stack { padding: 24px; display:flex; flex-direction:column; gap:32px; }
@@ -166,11 +179,22 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 </head>
 <body>
   <div class="wrap">
-    <h1>NC Admin</h1>
-    <p class="muted"><a href="/admin/saved-data" style="color:#e8e8e8;">View all saved data</a></p>
-    <form method="post" action="/admin/logout" style="margin:0 0 18px;"><button class="btn small" type="submit">Sign out</button></form>
+    <div class="topbar">
+      <h1>NC Admin</h1>
+      <div class="btnline">
+        <a class="btn small" href="/admin/saved-data">Saved data</a>
+        <form method="post" action="/admin/logout" style="margin:0;"><button class="btn small" type="submit">Sign out</button></form>
+      </div>
+    </div>
 
-    <div class="grid2">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" type="button" data-tab="drop" aria-controls="panel-drop" aria-selected="true">Drop</button>
+      <button class="tab" role="tab" type="button" data-tab="catalog" aria-controls="panel-catalog" aria-selected="false">Catalog</button>
+      <button class="tab" role="tab" type="button" data-tab="analytics" aria-controls="panel-analytics" aria-selected="false">Analytics</button>
+      <button class="tab" role="tab" type="button" data-tab="settings" aria-controls="panel-settings" aria-selected="false">Settings</button>
+    </div>
+
+    <div class="tabpanel" id="panel-drop" role="tabpanel">
       <div class="card card-stack">
         <section class="card-section">
           <div class="card-section-header">
@@ -178,10 +202,9 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
             <p class="meta">Launch, schedule, or end a release.</p>
           </div>
           <div class="row">
-            <div>
+            <div hidden>
               <label>Admin session</label>
               <input id="adminKey" type="password" placeholder="Signed in" autocomplete="off" />
-              <div class="form-note">Optional. This page now uses your secure admin login session.</div>
             </div>
             <div>
               <label>Start time (local)</label>
@@ -214,17 +237,15 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
             <button class="btn danger" id="btnEnd" type="button">End current drop</button>
           </div>
         </section>
-
         <section class="card-section">
           <div class="card-section-header">
             <h3>Live drop overview</h3>
             <p class="meta">Edit inventory, monitor sell-through, and track views in real time.</p>
           </div>
           <div id="dropCurrentWrap" class="card-surface">
-            <div class="muted">Load drop data with admin key.</div>
+            <div class="muted">Loading&hellip;</div>
           </div>
         </section>
-
         <section class="card-section">
           <div class="card-section-header">
             <h3>Vault-ready products</h3>
@@ -232,11 +253,10 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           </div>
           <div class="card-surface">
             <div class="list" id="vaultReadyList">
-              <div class="muted">Load drop data with admin key.</div>
+              <div class="muted">Loading&hellip;</div>
             </div>
           </div>
         </section>
-
         <section class="card-section">
           <div class="card-section-header">
             <h3>Save activity</h3>
@@ -244,32 +264,14 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           </div>
           <div class="card-surface">
             <div class="list" id="vaultSavesList">
-              <div class="muted">Load save data with admin key.</div>
+              <div class="muted">Loading&hellip;</div>
             </div>
           </div>
         </section>
-
-        <section class="card-section">
-          <div class="card-section-header">
-            <h3>Drop history</h3>
-            <p class="meta">Recent drops and their top-performing products.</p>
-          </div>
-          <div id="dropHistoryWrap" class="drop-history-grid card-surface">
-            <div class="muted">Load drop data with admin key.</div>
-          </div>
-        </section>
-
-        <section class="card-section">
-          <div class="card-section-header">
-            <h3>Compare drops</h3>
-            <p class="meta">Stacked revenue and sell-through for the latest releases.</p>
-          </div>
-          <div id="dropCompareWrap" class="drop-compare-grid card-surface">
-            <div class="muted">Load drop data with admin key.</div>
-          </div>
-        </section>
       </div>
+    </div>
 
+    <div class="tabpanel" id="panel-catalog" role="tabpanel" hidden>
       <div class="card card-stack">
         <section class="card-section">
           <div class="card-section-header">
@@ -294,24 +296,48 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
             </div>
           </div>
         </section>
+      </div>
+    </div>
 
+    <div class="tabpanel" id="panel-analytics" role="tabpanel" hidden>
+      <div class="card card-stack">
         <section class="card-section">
           <div class="card-section-header">
-            <h3>System state</h3>
-            <p class="meta">Realtime diagnostics and demand forecasting.</p>
+            <h3>Drop history</h3>
+            <p class="meta">Recent drops and their top-performing products.</p>
           </div>
-          <div class="card-surface stack">
-            <div>
-              <div class="subheading">State</div>
-              <pre id="out">Click "Refresh state"</pre>
-            </div>
-            <div>
-              <div class="subheading">Predictions</div>
-              <pre id="pred">Loading...</pre>
-            </div>
+          <div id="dropHistoryWrap" class="drop-history-grid card-surface">
+            <div class="muted">Loading&hellip;</div>
           </div>
         </section>
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>Compare drops</h3>
+            <p class="meta">Stacked revenue and sell-through for the latest releases.</p>
+          </div>
+          <div id="dropCompareWrap" class="drop-compare-grid card-surface">
+            <div class="muted">Loading&hellip;</div>
+          </div>
+        </section>
+        <section class="card-section">
+          <div class="card-section-toolbar">
+            <div class="card-section-header">
+              <h3>Recent sales</h3>
+              <p class="meta">Last 200 orders, newest first.</p>
+            </div>
+            <div class="btnline">
+              <button class="btn" id="btnDownloadSalesCsv" type="button">Download CSV</button>
+            </div>
+          </div>
+          <div id="salesWrap" class="card-surface">
+            <div class="muted">Loading&hellip;</div>
+          </div>
+        </section>
+      </div>
+    </div>
 
+    <div class="tabpanel" id="panel-settings" role="tabpanel" hidden>
+      <div class="card card-stack">
         <section class="card-section">
           <div class="card-section-header">
             <h3>Auto-drop</h3>
@@ -333,27 +359,52 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
             </div>
           </div>
         </section>
-
         <section class="card-section">
-          <div class="card-section-toolbar">
-            <div class="card-section-header">
-              <h3>Recent sales</h3>
-              <p class="meta">Last 200 orders, newest first.</p>
-            </div>
-            <div class="btnline">
-              <button class="btn" id="btnDownloadSalesCsv" type="button">Download CSV</button>
-            </div>
+          <div class="card-section-header">
+            <h3>System state</h3>
+            <p class="meta">Realtime diagnostics and demand forecasting.</p>
           </div>
-          <div id="salesWrap" class="card-surface">
-            <div class="muted">Load sales with admin key.</div>
+          <div class="card-surface stack">
+            <details class="raw">
+              <summary>State</summary>
+              <pre id="out">Click "Refresh state"</pre>
+            </details>
+            <details class="raw">
+              <summary>Predictions</summary>
+              <pre id="pred">Loading...</pre>
+            </details>
           </div>
         </section>
       </div>
     </div>
+
   </div>
 
 <script>
 (() => {
+  // ── Tabs ───────────────────────────────────────────────────────────────────
+  (() => {
+    const tabs = [...document.querySelectorAll(".tab")];
+    if (!tabs.length) return;
+    const show = (name) => {
+      let matched = false;
+      for (const tab of tabs) {
+        const on = tab.dataset.tab === name;
+        if (on) matched = true;
+        tab.setAttribute("aria-selected", on ? "true" : "false");
+        const panel = document.getElementById("panel-" + tab.dataset.tab);
+        if (panel) panel.hidden = !on;
+      }
+      if (!matched) return false;
+      try { localStorage.setItem("nc_admin_tab", name); } catch {}
+      return true;
+    };
+    for (const tab of tabs) tab.addEventListener("click", () => show(tab.dataset.tab));
+    let saved = null;
+    try { saved = localStorage.getItem("nc_admin_tab"); } catch {}
+    if (!saved || !show(saved)) show(tabs[0].dataset.tab);
+  })();
+
   const PLACEHOLDER_IMG =
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'%3E%3Crect width='96' height='96' rx='12' ry='12' fill='%23141414'/%3E%3Cpath d='M26 62l12-16 10 12 8-10 14 18H26z' fill='%23333333'/%3E%3Ccircle cx='36' cy='34' r='6' fill='%23333333'/%3E%3C/svg%3E";
 
@@ -668,11 +719,6 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   async function refreshVaultReady() {
     if (!vaultReadyList) return;
     const key = getKey();
-    if (!key) {
-      vaultReadyList.innerHTML = '<div class="muted">Enter admin key to load vault-ready items.</div>';
-      if (vaultReadyInfo) vaultReadyInfo.textContent = "";
-      return;
-    }
     vaultReadyList.innerHTML = '<div class="muted">Loading...</div>';
     try {
       const resp = await apiJson("/api/admin/vault-ready");
@@ -769,10 +815,6 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   async function refreshVaultSaves() {
     if (!vaultSavesList) return;
     const key = getKey();
-    if (!key) {
-      vaultSavesList.innerHTML = '<div class="muted">Enter admin key to load save activity.</div>';
-      return;
-    }
     vaultSavesList.innerHTML = '<div class="muted">Loading...</div>';
     try {
       const resp = await apiJson("/api/admin/vault-saves");
