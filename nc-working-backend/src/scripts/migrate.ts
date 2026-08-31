@@ -6,7 +6,11 @@ dotenv.config();
 
 async function main() {
   if (!dbEnabled) {
-    throw new Error("DATABASE_URL is required to run migrations");
+    // No Postgres configured — the app falls back to the JSON file stores in
+    // DATA_DIR, so this is a supported setup. Skip instead of failing, or the
+    // deploy's start command aborts before the server ever binds a port.
+    console.log("DATABASE_URL is not set; skipping Postgres migrations.");
+    return;
   }
   await dbQuery(schemaSql);
   console.log("Postgres schema is ready");

@@ -153,7 +153,15 @@ app.use(
 );
 
 // ── Startup ───────────────────────────────────────────────────────────────────
-await initializePersistentStores();
+try {
+  await initializePersistentStores();
+} catch (error) {
+  // initializePersistentStores() has already retried and explained the failure.
+  // Exit deliberately so the log ends with a readable cause instead of an
+  // unhandled top-level rejection and a raw driver stack trace.
+  console.error("FATAL: could not initialize persistent stores; aborting startup.", error);
+  process.exit(1);
+}
 seedInventory();
 registerVaultSavesGetter((productId) => getVaultSnapshot()[productId]?.saves ?? 0);
 

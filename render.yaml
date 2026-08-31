@@ -1,7 +1,7 @@
 services:
   - type: web
     name: nc-working-backend
-    env: node
+    runtime: node
     rootDir: nc-working-backend
     plan: starter
     autoDeploy: true
@@ -14,7 +14,7 @@ services:
 
     envVars:
       - key: NODE_VERSION
-        value: 20
+        value: "20"
       # Required at runtime — set real values in Render dashboard or via blueprint sync
       - key: STRIPE_SECRET_KEY
         sync: false
