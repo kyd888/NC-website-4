@@ -60,8 +60,16 @@ function uploadToCloudinary(buffer: Buffer): Promise<string> {
 
 // --- Local disk fallback (used when Cloudinary env vars are not set) ---
 const UPLOAD_DIR = path.resolve(__dirname, "../../public/uploads");
-if (!CLOUDINARY_ENABLED) {
+if (CLOUDINARY_ENABLED) {
+  console.log("[uploads] Cloudinary configured - product images persist across deploys.");
+} else {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  console.warn(
+    "[uploads] Local disk (" +
+      UPLOAD_DIR +
+      ") - CLOUDINARY_CLOUD_NAME is not set. Unless a persistent disk is mounted at this path, " +
+      "uploaded product images are LOST on the next deploy.",
+  );
 }
 
 const storage = CLOUDINARY_ENABLED
