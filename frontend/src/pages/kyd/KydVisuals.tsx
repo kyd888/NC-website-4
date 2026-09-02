@@ -6,28 +6,28 @@ import { visuals } from "../../data/site";
 export default function KydVisuals() {
   return (
     <SiteShell section="kyd">
-      <section className="nc-section">
-        <div className="nc-label">
-          <span>VISUALS</span>
-          <span className="nc-muted">{visuals.length}</span>
+      <section className="block">
+        <div className="label-row">
+          <h1 className="page-title">Visuals</h1>
+          <span className="label">{visuals.length}</span>
         </div>
-        <div className="nc-grid">
+        <div className="grid">
           {visuals.map((v) => {
             const inner = (
               <>
                 <Tile image={v.image} alt={v.title} ratio="4 / 5" seed={v.id} />
-                <div className="nc-card__meta">
-                  <span>{v.title}</span>
-                  <span className="nc-muted">{v.year}</span>
+                <div className="card__meta">
+                  <span className="card__title">{v.title}</span>
+                  <span className="card__sub">{v.year}</span>
                 </div>
               </>
             );
             return v.url ? (
-              <a key={v.id} className="nc-card" href={v.url} target="_blank" rel="noreferrer">
+              <a key={v.id} className="card" href={v.url} target="_blank" rel="noreferrer">
                 {inner}
               </a>
             ) : (
-              <div key={v.id} className="nc-card">
+              <div key={v.id} className="card">
                 {inner}
               </div>
             );

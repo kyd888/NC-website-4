@@ -77,16 +77,16 @@ export const visuals: Visual[] = [
 ];
 
 export const booking = {
-  services: ["LIVE PERFORMANCE", "FESTIVALS", "SUPPORT", "PRIVATE EVENTS", "CREATIVE COLLABORATION"],
+  services: ["Live performance", "Festivals", "Support", "Private events", "Creative collaboration"],
   contacts: [
-    { label: "BOOKING", email: "booking@kyd.world" },
-    { label: "PRESS", email: "press@kyd.world" },
-    { label: "MANAGEMENT", email: "management@kyd.world" },
+    { label: "Booking", email: "booking@kyd.world" },
+    { label: "Press", email: "press@kyd.world" },
+    { label: "Management", email: "management@kyd.world" },
   ],
   links: [
     { label: "EPK", href: "#" },
-    { label: "PRESS PHOTOS", href: "#" },
-    { label: "MUSIC", href: "/kyd" },
+    { label: "Press photos", href: "#" },
+    { label: "Music", href: "/kyd" },
   ],
   photo: undefined as string | undefined,
 };

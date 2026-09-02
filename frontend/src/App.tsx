@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Link, NavLink } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
+import SiteHeader from "./components/SiteHeader";
 import { Elements, useStripe, useElements, CardElement, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
 import { useDrop } from "./hooks/useDrop";
 import {
@@ -861,21 +861,13 @@ function App() {
   return (
     <Elements stripe={stripePromise}>
     <div className="grain" style={{ background: "#f2f2ee" }}>
-      <header ref={headerRef} className="header">
-        <div className="container header-row">
-          <div className="brand">
-            <Link className="brand-text" to="/">NO CONNECTION</Link>
-            <div className="collection">PRE-SEASON 001</div>
-          </div>
-          <nav className="shop-nav" aria-label="Section">
-            <NavLink to="/shop" className={({ isActive }) => (isActive ? "is-active" : "")}>SHOP</NavLink>
-            <NavLink to="/events">EVENTS</NavLink>
-            <NavLink to="/kyd">KYD</NavLink>
-          </nav>
-          <div className="header-right">
-            <button type="button" className="shop-cart" onClick={() => setCartOpen(true)}>
-              CART ({itemsTotal})
-            </button>
+      <SiteHeader
+        ref={headerRef}
+        subtitle="Pre-Season 001"
+        cartCount={itemsTotal}
+        onCartClick={() => setCartOpen(true)}
+        extra={
+          <>
             <div className="status">
               <span className={`dot ${isLive && totalRemaining > 0 ? "dot-live" : "dot-idle"}`} />
               <span className="state">{isLive ? "LIVE" : dropState === "scheduled" ? "SET SOON" : "OFFLINE"}</span>
@@ -900,9 +892,9 @@ function App() {
                 </span>
               </span>
             </button>
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className={pageContentClass} role="main">
         {showLandingScreen ? (

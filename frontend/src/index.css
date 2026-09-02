@@ -60,26 +60,7 @@ input,select,textarea{font-size:16px}
   padding-top:env(safe-area-inset-top);
 }
 .container{max-width:1100px;margin:0 auto;padding:0 16px}
-.header-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px}
-.brand{display:flex;align-items:center;gap:.9rem}
-.brand-text,.shop-nav,.shop-cart{
-  font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono","Courier New",monospace;
-  font-size:12px;letter-spacing:.08em;text-transform:uppercase;
-}
-.brand-text{white-space:nowrap}
-.brand-mark{height:28px;width:28px;object-fit:contain;filter:grayscale(1);border-radius:4px}
-.collection{font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.5}
-.shop-nav{display:flex;gap:clamp(20px,4vw,56px)}
-.shop-nav a{position:relative;padding-bottom:3px}
-.shop-nav a:hover{opacity:.6}
-.shop-nav a.is-active::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:1px;background:#111}
-.shop-cart{white-space:nowrap}
-.shop-cart:hover{opacity:.6}
-@media (max-width:640px){
-  .collection{display:none}
-  .header-row{flex-wrap:wrap;padding:12px 16px}
-  .shop-nav{order:3;width:100%;gap:20px;padding-top:10px}
-}
+/* .header-row / .brand / nav styles live in site.css (shared with every page) */
 .status{display:flex;align-items:center;gap:.5rem;font-size:13px}
 .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
 .dot-live{background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.15)}

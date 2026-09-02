@@ -7,33 +7,34 @@ import { booking } from "../../data/site";
 export default function KydInfo() {
   return (
     <SiteShell section="kyd">
-      <div className="nc-booking">
-        <div className="nc-booking__col">
-          <div className="nc-booking__block">
-            <span>BOOKING</span>
+      <div className="booking">
+        <div className="booking__col">
+          <h1 className="page-title">Booking</h1>
+
+          <div className="booking__block">
+            <span className="label">Available for</span>
+            <ul>
+              {booking.services.map((s) => (
+                <li key={s}>{s}</li>
+              ))}
+            </ul>
           </div>
 
-          <ul className="nc-booking__block">
-            {booking.services.map((s) => (
-              <li key={s}>{s}</li>
-            ))}
-          </ul>
-
           {booking.contacts.map((c) => (
-            <div className="nc-booking__block" key={c.label}>
-              <span className="nc-muted">{c.label}</span>
+            <div className="booking__block" key={c.label}>
+              <span className="label">{c.label}</span>
               <a href={`mailto:${c.email}`}>{c.email}</a>
             </div>
           ))}
 
-          <div className="nc-booking__links">
+          <div className="booking__links">
             {booking.links.map((l) =>
               l.href.startsWith("/") ? (
-                <Link key={l.label} className="nc-link" to={l.href}>
+                <Link key={l.label} className="pill-btn" to={l.href}>
                   {l.label}
                 </Link>
               ) : (
-                <a key={l.label} className="nc-link" href={l.href}>
+                <a key={l.label} className="pill-btn" href={l.href}>
                   {l.label}
                 </a>
               ),
@@ -41,7 +42,7 @@ export default function KydInfo() {
           </div>
         </div>
 
-        <Tile image={booking.photo} alt="KYD" ratio="4 / 5" seed="kyd-booking" className="nc-booking__photo" />
+        <Tile image={booking.photo} alt="KYD" ratio="4 / 5" seed="kyd-booking" className="booking__photo" />
       </div>
     </SiteShell>
   );

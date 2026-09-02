@@ -1,34 +1,43 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
+import "../site.css";
 
 export type NavItem = { label: string; to: string; end?: boolean };
 
-type Props = {
-  /** Text shown top-left. Links to `brandTo`. */
-  brand: string;
-  brandTo?: string;
-  /** Optional trailing crumb, e.g. "EMBER" → "KYD / EMBER". */
-  crumb?: string;
-  nav: NavItem[];
-  /** Right side. Defaults to a CART (n) link into the shop. */
-  right?: ReactNode;
-  cartCount?: number;
-  onCartClick?: () => void;
-};
-
-// Items shown in the mobile menu — the three doors of the site.
-const MENU: NavItem[] = [
-  { label: "NO CONNECTION", to: "/shop" },
+// Primary nav — identical on every page so you always know where you are.
+export const PRIMARY_NAV: NavItem[] = [
+  { label: "Shop", to: "/shop" },
+  { label: "Events", to: "/events" },
   { label: "KYD", to: "/kyd" },
-  { label: "EVENTS", to: "/events" },
-  { label: "BOOKING", to: "/kyd/info" },
 ];
 
-export default function SiteHeader({ brand, brandTo = "/", crumb, nav, right, cartCount = 0, onCartClick }: Props) {
+// KYD's section strip, shown under the header while inside /kyd.
+export const KYD_NAV: NavItem[] = [
+  { label: "Music", to: "/kyd", end: true },
+  { label: "Live", to: "/kyd/live" },
+  { label: "Visuals", to: "/kyd/visuals" },
+  { label: "Info", to: "/kyd/info" },
+];
+
+type Props = {
+  /** Small muted text next to the brand (the shop shows the collection name). */
+  subtitle?: string;
+  cartCount?: number;
+  /** Shop passes this to open its bag sheet; other pages link into the shop. */
+  onCartClick?: () => void;
+  /** Extra controls after the cart (shop: live status + account). */
+  extra?: ReactNode;
+  /** Optional second row: a section strip with an optional crumb, e.g. KYD / Ember. */
+  subnav?: { label: string; labelTo: string; crumb?: string; items: NavItem[] };
+};
+
+const SiteHeader = forwardRef<HTMLElement, Props>(function SiteHeader(
+  { subtitle, cartCount = 0, onCartClick, extra, subnav },
+  ref,
+) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
 
-  // Close the menu on navigation.
   useEffect(() => {
     setOpen(false);
   }, [location.pathname]);
@@ -42,87 +51,87 @@ export default function SiteHeader({ brand, brandTo = "/", crumb, nav, right, ca
     };
   }, [open]);
 
+  const cartLabel = `Cart (${cartCount})`;
   const cart = onCartClick ? (
-    <button type="button" className="nc-header__cart" onClick={onCartClick}>
-      CART ({cartCount})
+    <button type="button" className="nav-cart" onClick={onCartClick}>
+      {cartLabel}
     </button>
   ) : (
-    <Link className="nc-header__cart" to="/shop?cart=open">
-      CART ({cartCount})
+    <Link className="nav-cart" to="/shop?cart=open">
+      {cartLabel}
     </Link>
   );
 
+  const link = (item: NavItem) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={item.end}
+      className={({ isActive }) => `nav-link${isActive ? " is-active" : ""}`}
+    >
+      {item.label}
+    </NavLink>
+  );
+
   return (
-    <header className="nc-header">
-      <div className="nc-header__row">
-        <div className="nc-header__brand">
-          <Link to={brandTo}>{brand}</Link>
-          {crumb && (
-            <>
-              <span className="nc-header__slash">/</span>
-              <span>{crumb}</span>
-            </>
-          )}
+    <header ref={ref} className="header">
+      <div className="container header-row">
+        <div className="brand">
+          <Link className="brand-text" to="/">
+            NO CONNECTION
+          </Link>
+          {subtitle && <span className="collection">{subtitle}</span>}
         </div>
 
-        <nav className="nc-header__nav" aria-label="Section">
-          {nav.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) => `nc-header__link${isActive ? " is-active" : ""}`}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <nav className="nav-primary" aria-label="Primary">
+          {PRIMARY_NAV.map(link)}
         </nav>
 
-        <div className="nc-header__right">
-          {right ?? cart}
+        <div className="header-right">
+          {cart}
+          {extra}
           <button
             type="button"
-            className="nc-header__burger"
+            className="nav-burger"
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
           >
             <span />
             <span />
-            <span />
           </button>
         </div>
       </div>
 
-      {/* Mobile: section nav sits on its own line under the brand row. */}
-      <nav className="nc-header__subnav" aria-label="Section (mobile)">
-        {nav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className={({ isActive }) => `nc-header__link${isActive ? " is-active" : ""}`}
-          >
-            {item.label}
-          </NavLink>
-        ))}
-        <span className="nc-header__subnav-cart">{right ?? cart}</span>
-      </nav>
+      {subnav && (
+        <div className="container subnav">
+          <div className="subnav__label">
+            <Link to={subnav.labelTo}>{subnav.label}</Link>
+            {subnav.crumb && (
+              <>
+                <span className="subnav__slash">/</span>
+                <span>{subnav.crumb}</span>
+              </>
+            )}
+          </div>
+          <nav className="subnav__items" aria-label={`${subnav.label} sections`}>
+            {subnav.items.map(link)}
+          </nav>
+        </div>
+      )}
 
       {open && (
-        <div className="nc-menu" role="dialog" aria-label="Site menu">
-          <ul>
-            {MENU.map((item) => (
-              <li key={item.to}>
-                <Link to={item.to}>{item.label}</Link>
-              </li>
-            ))}
-          </ul>
-          <span className="nc-menu__arrow" aria-hidden="true">
-            ↓
-          </span>
+        <div className="nav-menu" role="dialog" aria-label="Menu">
+          <nav>
+            {PRIMARY_NAV.map(link)}
+            <NavLink to="/kyd/info" className="nav-link">
+              Booking
+            </NavLink>
+          </nav>
         </div>
       )}
     </header>
   );
-}
+});
+
+export default SiteHeader;

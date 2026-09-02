@@ -3,9 +3,9 @@ import type { CSSProperties } from "react";
 type Props = {
   image?: string;
   alt: string;
-  /** Aspect ratio as CSS value, e.g. "1 / 1" or "3 / 4". */
+  /** Aspect ratio as CSS value, e.g. "1 / 1" or "4 / 5". */
   ratio?: string;
-  /** Used to vary the placeholder tone when there is no image yet. */
+  /** Varies the placeholder tone per item when there's no image yet. */
   seed?: string | number;
   className?: string;
 };
@@ -22,7 +22,7 @@ function hash(seed: string | number): number {
 }
 
 /**
- * Image tile used by every grid on the site (music, shows, visuals, events).
+ * Image tile used by every grid (music, shows, visuals, events).
  * Falls back to a dark, slightly varied placeholder so pages look finished
  * before artwork exists.
  */
@@ -36,8 +36,8 @@ export default function Tile({ image, alt, ratio = "1 / 1", seed = alt, classNam
   } as CSSProperties;
 
   return (
-    <div className={`nc-tile${image ? "" : " nc-tile--empty"} ${className}`.trim()} style={style}>
-      {image ? <img src={image} alt={alt} loading="lazy" /> : <span className="nc-tile__grain" aria-hidden="true" />}
+    <div className={`tile${image ? "" : " tile--empty"} ${className}`.trim()} style={style}>
+      {image ? <img src={image} alt={alt} loading="lazy" /> : <span className="tile__grain" aria-hidden="true" />}
     </div>
   );
 }

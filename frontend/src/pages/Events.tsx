@@ -4,7 +4,7 @@ import { events, formatShowDate, isPast } from "../data/site";
 
 /**
  * NO CONNECTION events. One upcoming event featured with its poster,
- * everything past collapses to a sparse list of codes.
+ * everything past collapses to a sparse list.
  */
 export default function Events() {
   const upcoming = events.filter((e) => !isPast(e.date)).sort((a, b) => a.date.localeCompare(b.date));
@@ -12,30 +12,28 @@ export default function Events() {
 
   return (
     <SiteShell section="nc">
-      <section className="nc-section">
-        <div className="nc-label">
-          <span>EVENTS</span>
-        </div>
-        <div className="nc-label">
-          <span className="nc-muted">UPCOMING</span>
+      <section className="block">
+        <div className="label-row">
+          <h1 className="page-title">Events</h1>
+          <span className="label">Upcoming</span>
         </div>
 
-        {upcoming.length === 0 && <p className="nc-muted">NOTHING SCHEDULED.</p>}
+        {upcoming.length === 0 && <p className="muted">Nothing scheduled.</p>}
 
         {upcoming.map((ev) => (
-          <div className="nc-feature" key={ev.id}>
+          <div className="feature" key={ev.id}>
             <Tile image={ev.poster} alt={`${ev.title} poster`} ratio="4 / 5" seed={ev.id} />
-            <div className="nc-feature__meta">
-              <span>{ev.title}</span>
+            <div className="feature__meta">
+              <h2 className="page-title">{ev.title}</h2>
               <span>{formatShowDate(ev.date)}</span>
-              <span>{ev.city}</span>
-              {ev.venue && <span className="nc-muted">{ev.venue}</span>}
-              <div className="nc-card__actions">
-                <a className="nc-link" href={ev.info ?? "#"}>
-                  INFO
+              <span className="muted">{ev.city}</span>
+              {ev.venue && <span className="muted">{ev.venue}</span>}
+              <div className="card__actions">
+                <a className="pill-btn is-dark" href={ev.tickets ?? "#"}>
+                  Tickets
                 </a>
-                <a className="nc-link" href={ev.tickets ?? "#"}>
-                  TICKETS
+                <a className="pill-btn" href={ev.info ?? "#"}>
+                  Info
                 </a>
               </div>
             </div>
@@ -43,22 +41,23 @@ export default function Events() {
         ))}
       </section>
 
-      <section className="nc-section">
-        <div className="nc-label">
-          <span className="nc-muted">PAST</span>
-        </div>
-        <ul className="nc-list">
-          {past.map((ev) => (
-            <li className="nc-list__row" key={ev.id}>
-              <span>{ev.title}</span>
-              <span>{formatShowDate(ev.date)}</span>
-              <a className="nc-link" href={ev.archive ?? "#"} aria-label={`${ev.title} archive`}>
-                {""}
+      {past.length > 0 && (
+        <section className="block">
+          <div className="label-row">
+            <span className="label">Past</span>
+            <span className="label">{past.length}</span>
+          </div>
+          <div className="list">
+            {past.map((ev) => (
+              <a className="list__row" key={ev.id} href={ev.archive ?? "#"}>
+                <strong>{ev.title}</strong>
+                <span>{formatShowDate(ev.date)}</span>
+                <span aria-hidden="true">→</span>
               </a>
-            </li>
-          ))}
-        </ul>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
     </SiteShell>
   );
 }

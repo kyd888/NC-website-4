@@ -4,34 +4,34 @@ import { formatShowDate, isPast, shows } from "../../data/site";
 
 /**
  * Shows as products. Poster, title, date, city.
- * Upcoming → TICKETS / INFO. Past → ARCHIVE. History builds itself.
+ * Upcoming → Tickets / Info. Past → Archive. History builds itself.
  */
 export default function KydLive() {
   const upcoming = shows.filter((s) => !isPast(s.date)).sort((a, b) => a.date.localeCompare(b.date));
   const past = shows.filter((s) => isPast(s.date)).sort((a, b) => b.date.localeCompare(a.date));
 
   const renderCard = (s: (typeof shows)[number], done: boolean) => (
-    <div className="nc-card" key={s.id}>
+    <div className="card" key={s.id}>
       <Tile image={s.poster} alt={`${s.title} poster`} ratio="4 / 5" seed={s.id} />
-      <div className="nc-card__meta">
-        <span>{s.title}</span>
-        <span>{formatShowDate(s.date)}</span>
-        <span>{s.city}</span>
-        {s.venue && <span className="nc-muted">{s.venue}</span>}
+      <div className="card__meta">
+        <span className="card__title">{s.title}</span>
+        <span className="card__sub">{formatShowDate(s.date)}</span>
+        <span className="card__sub">{s.city}</span>
+        {s.venue && <span className="card__sub">{s.venue}</span>}
       </div>
-      <div className="nc-card__actions">
+      <div className="card__actions">
         {done ? (
-          <a className="nc-link" href={s.archive ?? "#"}>
-            ARCHIVE
+          <a className="pill-btn" href={s.archive ?? "#"}>
+            Archive
           </a>
         ) : (
           <>
-            <a className="nc-link" href={s.tickets ?? "#"} target={s.tickets ? "_blank" : undefined} rel="noreferrer">
-              TICKETS
+            <a className="pill-btn is-dark" href={s.tickets ?? "#"} target={s.tickets ? "_blank" : undefined} rel="noreferrer">
+              Tickets
             </a>
             {s.info && (
-              <a className="nc-link" href={s.info}>
-                INFO
+              <a className="pill-btn" href={s.info}>
+                Info
               </a>
             )}
           </>
@@ -42,24 +42,25 @@ export default function KydLive() {
 
   return (
     <SiteShell section="kyd">
-      <section className="nc-section">
-        <div className="nc-label">
-          <span>UPCOMING</span>
+      <section className="block">
+        <div className="label-row">
+          <h1 className="page-title">Live</h1>
+          <span className="label">Upcoming</span>
         </div>
         {upcoming.length === 0 ? (
-          <p className="nc-muted">NO DATES.</p>
+          <p className="muted">No dates announced.</p>
         ) : (
-          <div className="nc-grid nc-grid--wide">{upcoming.map((s) => renderCard(s, false))}</div>
+          <div className="grid grid--wide">{upcoming.map((s) => renderCard(s, false))}</div>
         )}
       </section>
 
       {past.length > 0 && (
-        <section className="nc-section">
-          <div className="nc-label nc-label--rule">
-            <span>PAST SHOWS</span>
-            <span className="nc-muted">{past.length}</span>
+        <section className="block">
+          <div className="label-row label-row--rule">
+            <span className="label">Past shows</span>
+            <span className="label">{past.length}</span>
           </div>
-          <div className="nc-grid nc-grid--wide">{past.map((s) => renderCard(s, true))}</div>
+          <div className="grid grid--wide">{past.map((s) => renderCard(s, true))}</div>
         </section>
       )}
     </SiteShell>

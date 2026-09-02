@@ -7,18 +7,18 @@ import { projects } from "../../data/site";
 export default function KydMusic() {
   return (
     <SiteShell section="kyd">
-      <section className="nc-section">
-        <div className="nc-label">
-          <span>ALL PROJECTS</span>
-          <span className="nc-muted">{projects.length}</span>
+      <section className="block">
+        <div className="label-row">
+          <span className="label">All projects</span>
+          <span className="label">{projects.length}</span>
         </div>
-        <div className="nc-grid">
+        <div className="grid">
           {projects.map((p) => (
-            <Link key={p.slug} to={`/kyd/${p.slug}`} className="nc-card">
+            <Link key={p.slug} to={`/kyd/${p.slug}`} className="card">
               <Tile image={p.image} alt={p.title} seed={p.slug} />
-              <div className="nc-card__meta">
-                <span>{p.title}</span>
-                <span className="nc-muted">{p.year}</span>
+              <div className="card__meta">
+                <span className="card__title">{p.title}</span>
+                <span className="card__sub">{p.year}</span>
               </div>
             </Link>
           ))}

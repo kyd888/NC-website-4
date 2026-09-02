@@ -1,6 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
+// Base styles first, shared site chrome second — site.css must win ties (e.g. .container padding).
+import "./index.css";
+import "./site.css";
 import App from "./App";
 import AdminApp from "./admin/AdminApp";
 import Gateway from "./pages/Gateway";
@@ -10,7 +13,6 @@ import KydProject from "./pages/kyd/KydProject";
 import KydLive from "./pages/kyd/KydLive";
 import KydVisuals from "./pages/kyd/KydVisuals";
 import KydInfo from "./pages/kyd/KydInfo";
-import "./index.css";
 
 const router = createBrowserRouter([
   { path: "/", element: <Gateway /> },

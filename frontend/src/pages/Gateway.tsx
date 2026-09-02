@@ -7,28 +7,32 @@ import "../site.css";
  */
 export default function Gateway() {
   return (
-    <div className="nc-site">
-      <div className="nc-gateway">
-        <div className="nc-gateway__top">
-          <span>NO CONNECTION</span>
-          <Link to="/shop">ENTER SITE</Link>
-        </div>
+    <div className="gateway">
+      <div className="gateway__top">
+        <span className="brand-text">NO CONNECTION</span>
+        <Link to="/shop" className="pill-btn">
+          Enter site
+        </Link>
+      </div>
 
-        <div className="nc-gateway__doors">
-          <Link to="/shop" className="nc-gateway__door">
-            <h2>NO CONNECTION</h2>
-            <span>SHOP / OBJECTS</span>
-          </Link>
-          <Link to="/kyd" className="nc-gateway__door">
-            <h2>KYD</h2>
-            <span>MUSIC / ARTIST</span>
-          </Link>
-        </div>
+      <div className="gateway__doors">
+        <Link to="/shop" className="gateway__door">
+          <h2>No Connection</h2>
+          <span className="label">Shop / Objects</span>
+        </Link>
+        <Link to="/kyd" className="gateway__door">
+          <h2>KYD</h2>
+          <span className="label">Music / Artist</span>
+        </Link>
+      </div>
 
-        <div className="nc-gateway__bottom">
-          <Link to="/events">EVENTS</Link>
-          <Link to="/kyd/info">BOOKING</Link>
-        </div>
+      <div className="gateway__bottom">
+        <Link to="/events" className="pill-btn is-ghost">
+          Events
+        </Link>
+        <Link to="/kyd/info" className="pill-btn is-ghost">
+          Booking
+        </Link>
       </div>
     </div>
   );
