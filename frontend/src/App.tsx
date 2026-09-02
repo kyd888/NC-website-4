@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Link, NavLink } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, useStripe, useElements, CardElement, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
 import { useDrop } from "./hooks/useDrop";
@@ -301,6 +302,16 @@ function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Arriving from another section via CART (n) → open the bag immediately.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("cart") === "open") {
+      setCartOpen(true);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -853,10 +864,18 @@ function App() {
       <header ref={headerRef} className="header">
         <div className="container header-row">
           <div className="brand">
-            <img className="brand-mark" src="/logo.png" alt="NC" />
+            <Link className="brand-text" to="/">NO CONNECTION</Link>
             <div className="collection">PRE-SEASON 001</div>
           </div>
+          <nav className="shop-nav" aria-label="Section">
+            <NavLink to="/shop" className={({ isActive }) => (isActive ? "is-active" : "")}>SHOP</NavLink>
+            <NavLink to="/events">EVENTS</NavLink>
+            <NavLink to="/kyd">KYD</NavLink>
+          </nav>
           <div className="header-right">
+            <button type="button" className="shop-cart" onClick={() => setCartOpen(true)}>
+              CART ({itemsTotal})
+            </button>
             <div className="status">
               <span className={`dot ${isLive && totalRemaining > 0 ? "dot-live" : "dot-idle"}`} />
               <span className="state">{isLive ? "LIVE" : dropState === "scheduled" ? "SET SOON" : "OFFLINE"}</span>
