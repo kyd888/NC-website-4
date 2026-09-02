@@ -304,12 +304,13 @@ function App() {
     };
   }, []);
 
-  // Arriving from another section via CART (n) → open the bag immediately.
+  // Arriving from another section via CART (n) / Account → open that sheet immediately.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("cart") === "open") {
-      setCartOpen(true);
+    if (params.get("cart") === "open") setCartOpen(true);
+    if (params.get("account") === "open") setAccountOpen(true);
+    if (params.has("cart") || params.has("account")) {
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
@@ -866,6 +867,7 @@ function App() {
         subtitle="Pre-Season 001"
         cartCount={itemsTotal}
         onCartClick={() => setCartOpen(true)}
+        account={{ label: account.user ? "Account" : "Sign in", onSelect: () => setAccountOpen(true) }}
         extra={
           <>
             <div className="status">
@@ -878,20 +880,6 @@ function App() {
                 </>
               )}
             </div>
-            <button
-              type="button"
-              className={`account-button ${account.user ? "is-auth" : "is-guest"}`}
-              onClick={() => setAccountOpen(true)}
-              aria-label={account.user ? "View account" : "Sign in"}
-            >
-              <span className="account-avatar" aria-hidden="true">
-                <span className="dot-stack">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </span>
-            </button>
           </>
         }
       />
