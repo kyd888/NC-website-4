@@ -78,7 +78,7 @@ const SiteHeader = forwardRef<HTMLElement, Props>(function SiteHeader(
       <div className="container header-row">
         <div className="brand">
           <Link className="brand-logo" to="/" aria-label="No Connection — home">
-            <img src="/nc-logo.png" alt="No Connection" />
+            <img src="/nc-star.png" alt="No Connection" />
           </Link>
           {subtitle && <span className="collection">{subtitle}</span>}
         </div>
