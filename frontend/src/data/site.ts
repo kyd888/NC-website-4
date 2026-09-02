@@ -76,12 +76,31 @@ export const visuals: Visual[] = [
   { id: "no-sleep-poster", title: "NO SLEEP — POSTER", year: "2026" },
 ];
 
+// The no-connection.com inboxes, in one place so an address is never typed twice.
+// Anything not referenced yet is here so it can be dropped in without guessing.
+export const emails = {
+  /** Main artist inbox. */
+  kyd: "kyd@no-connection.com",
+  /** Shows, festivals, support slots, private events. */
+  booking: "booking@no-connection.com",
+  /** Interviews, media, press requests. */
+  press: "press@no-connection.com",
+  /** NO CONNECTION events — venue and artist inquiries. */
+  events: "events@no-connection.com",
+  /** Store and customer order issues. Store only. */
+  orders: "orders@no-connection.com",
+  /** General catch-all. */
+  hello: "hello@no-connection.com",
+  /** Management and business communication. */
+  management: "management@no-connection.com",
+} as const;
+
 export const booking = {
   services: ["Live performance", "Festivals", "Support", "Private events", "Creative collaboration"],
   contacts: [
-    { label: "Booking", email: "booking@kyd.world" },
-    { label: "Press", email: "press@kyd.world" },
-    { label: "Management", email: "management@kyd.world" },
+    { label: "Booking", email: emails.booking },
+    { label: "Press", email: emails.press },
+    { label: "Management", email: emails.management },
   ],
   links: [
     { label: "EPK", href: "#" },
