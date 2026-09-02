@@ -22,6 +22,7 @@ export default function SiteShell({ section, crumb, children }: Props) {
     <div className="site">
       <SiteHeader
         cartCount={cartCount}
+        account={{ label: "Account", to: "/shop?account=open" }}
         subnav={section === "kyd" ? { label: "KYD", labelTo: "/kyd", crumb, items: KYD_NAV } : undefined}
       />
       <main className="site-main container">{children}</main>
