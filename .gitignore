@@ -7,4 +7,5 @@ node_modules/
 frontend/node_modules/
 nc-working-backend/node_modules/
 **/node_modules/
-data/
+/data/
+nc-working-backend/data/
