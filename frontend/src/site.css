@@ -24,7 +24,11 @@
   gap:16px;
   padding:14px 16px; /* keep .container's side padding — same element */
 }
-.brand{display:flex;align-items:baseline;gap:12px;min-width:0}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-logo{display:inline-flex;align-items:center;height:22px;flex:none}
+.brand-logo img{display:block;height:100%;width:auto}
+a.brand-logo{transition:opacity .15s ease}
+a.brand-logo:hover{opacity:.6}
 .brand-text{
   font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;
 }

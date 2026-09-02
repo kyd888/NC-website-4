@@ -80,7 +80,7 @@ export default function Gateway() {
   return (
     <div className={`gateway${leaving ? " is-leaving" : ""}`} aria-busy={leaving ? true : undefined}>
       <div className="gateway__top">
-        <span className="brand-text">NO CONNECTION</span>
+        <img className="brand-logo" src="/nc-logo.png" alt="No Connection" />
       </div>
 
       <div className="gateway__doors">
