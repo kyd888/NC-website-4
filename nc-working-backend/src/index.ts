@@ -76,7 +76,7 @@ const corsMiddleware = cors({
     }
   },
   credentials: true,
-  exposedHeaders: ["X-Session-Id"],
+  exposedHeaders: ["X-Session-Id", "X-Auth-Token"],
 });
 
 app.use("/api", corsMiddleware);
