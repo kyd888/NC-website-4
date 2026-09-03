@@ -106,9 +106,30 @@ function normalizeTags(input?: string[] | string): string[] {
   return [];
 }
 
+/** Dedupes, drops blanks, caps the gallery at a sane length. */
+function normalizeImages(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const url = raw.trim();
+    if (!url || out.includes(url)) continue;
+    out.push(url);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function normalizeProduct(input: CatalogItem): CatalogItem {
+  // imageUrl and images[0] are two views of one thing — keep them in step so
+  // older code paths reading imageUrl always get the primary shot.
+  const images = normalizeImages(input.images);
+  const primary = input.imageUrl?.trim() || images[0];
+  if (primary && !images.includes(primary)) images.unshift(primary);
   return {
     ...input,
+    imageUrl: primary || undefined,
+    images,
     enabled: input.enabled !== false,
     tags: normalizeTags(input.tags),
   };
@@ -143,6 +164,7 @@ function sanitizeCatalogEntry(entry: unknown): CatalogItem | null {
     title,
     priceCents: Math.round(priceCents),
     imageUrl,
+    images: normalizeImages(source.images),
     enabled,
     tags,
   });
@@ -174,6 +196,8 @@ function serializeCatalogForDisk(item: CatalogItem) {
     priceCents: Math.round(Number(item.priceCents) || 0),
   };
   if (item.imageUrl) record.imageUrl = item.imageUrl;
+  const images = normalizeImages(item.images);
+  if (images.length) record.images = images;
   if (item.enabled === false) record.enabled = false;
   const tags = normalizeTags(item.tags);
   if (tags.length) record.tags = tags;
@@ -190,12 +214,13 @@ async function persistCatalogNow() {
     await Promise.all(
       rows.map((item) =>
         dbQuery(
-          `INSERT INTO catalog (id, title, price_cents, image_url, enabled, tags, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+          `INSERT INTO catalog (id, title, price_cents, image_url, images, enabled, tags, updated_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, now())
            ON CONFLICT (id) DO UPDATE SET
              title = EXCLUDED.title,
              price_cents = EXCLUDED.price_cents,
              image_url = EXCLUDED.image_url,
+             images = EXCLUDED.images,
              enabled = EXCLUDED.enabled,
              tags = EXCLUDED.tags,
              updated_at = now()`,
@@ -204,6 +229,7 @@ async function persistCatalogNow() {
             item.title,
             item.priceCents,
             item.imageUrl ?? null,
+            jsonParam(normalizeImages((item as CatalogItem).images)),
             item.enabled !== false,
             jsonParam(item.tags ?? []),
           ],
@@ -628,7 +654,7 @@ export async function loadInventoryFromDb() {
   if (!dbEnabled) return;
   try {
     const catalogRows = await dbQuery(
-      "SELECT id, title, price_cents, image_url, enabled, tags FROM catalog ORDER BY updated_at ASC, id ASC",
+      "SELECT id, title, price_cents, image_url, images, enabled, tags FROM catalog ORDER BY updated_at ASC, id ASC",
     );
     catalog = catalogRows.rows
       .map((row) =>
@@ -637,6 +663,7 @@ export async function loadInventoryFromDb() {
           title: row.title,
           priceCents: row.price_cents,
           imageUrl: row.image_url,
+          images: row.images,
           enabled: row.enabled,
           tags: row.tags,
         }),
@@ -752,6 +779,11 @@ export async function patchProduct(id: string, patch: Partial<CatalogItem>) {
   merged.enabled = patch.enabled === undefined ? catalog[i].enabled : patch.enabled !== false;
   if (patch.tags !== undefined) {
     merged.tags = normalizeTags(patch.tags as any);
+  }
+  if (patch.images !== undefined) {
+    merged.images = normalizeImages(patch.images);
+    // A replaced gallery re-elects its own primary shot.
+    merged.imageUrl = merged.images[0];
   }
   catalog[i] = normalizeProduct(merged);
   if (dbEnabled) {

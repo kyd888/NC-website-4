@@ -2,7 +2,10 @@ export type CatalogItem = {
   id: string;
   title: string;
   priceCents: number;
+  /** Primary shot. Kept as its own field so existing products keep working. */
   imageUrl?: string;
+  /** Every shot, primary first — front, back, detail. imageUrl mirrors images[0]. */
+  images?: string[];
   enabled?: boolean;
   tags?: string[];
 };

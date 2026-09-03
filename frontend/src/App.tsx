@@ -18,6 +18,8 @@ type BackendProduct = {
   title: string;
   priceCents: number;
   imageUrl?: string;
+  /** Primary first — front, back, detail. Falls back to imageUrl alone. */
+  images?: string[];
   tags?: string[] | string;
   remaining?: number;
 };
@@ -26,7 +28,10 @@ type ProductCard = {
   id: string;
   title: string;
   priceCents: number;
+  /** Primary shot; always images[0]. */
   img: string;
+  /** Every shot for this product, primary first. Never empty. */
+  images: string[];
   bg: string;
   tags: string[];
   order: number;
@@ -360,12 +365,18 @@ function App() {
 
         const cards: ProductCard[] = list.map((product, index) => {
           const ov = IMAGE_OVERRIDES[product.id] ?? {};
-          const img = ov.img || normalizeImage(product.imageUrl) || "/placeholder.png";
+          const gallery = (Array.isArray(product.images) ? product.images : [])
+            .map((url) => normalizeImage(url))
+            .filter((url): url is string => Boolean(url));
+          const img = ov.img || gallery[0] || normalizeImage(product.imageUrl) || "/placeholder.png";
+          // An override replaces the primary shot but keeps the rest of the gallery.
+          const images = [img, ...gallery.filter((url) => url !== img)];
           return {
             id: product.id,
             title: product.title,
             priceCents: product.priceCents,
             img,
+            images,
             bg: ov.bg || "#f2f2ee",
             tags: Array.isArray(product.tags)
               ? product.tags
@@ -938,7 +949,7 @@ function App() {
               data-pid={product.id}
               className="media"
             >
-              <img src={product.img} alt={product.title} loading="lazy" />
+              <ProductGallery images={product.images} title={product.title} />
             </div>
             <div className="section-info">
               <div className="section-info__text">
@@ -1423,6 +1434,77 @@ function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderCon
         </>
       ) : null}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Product shots. One image behaves exactly as before; with more, tapping the
+ * image (or the dots) steps through front / back / detail. Swipe works on
+ * touch. Deliberately no arrows or chrome at rest — the dots only appear when
+ * there is more than one shot.
+ */
+function ProductGallery({ images, title }: { images: string[]; title: string }) {
+  const [index, setIndex] = useState(0);
+  const touchX = useRef<number | null>(null);
+
+  // A product can be swapped out from under us when the catalog reloads.
+  useEffect(() => {
+    setIndex(0);
+  }, [images.join("|")]);
+
+  if (images.length <= 1) {
+    return <img src={images[0] ?? "/placeholder.png"} alt={title} loading="lazy" />;
+  }
+
+  const step = (delta: number) =>
+    setIndex((i) => (i + delta + images.length) % images.length);
+
+  return (
+    <div
+      className="shots"
+      onTouchStart={(e) => {
+        touchX.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const start = touchX.current;
+        touchX.current = null;
+        if (start == null) return;
+        const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+        if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1);
+      }}
+    >
+      {images.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt={i === 0 ? title : `${title} — view ${i + 1}`}
+          loading={i === 0 ? "eager" : "lazy"}
+          className={i === index ? "is-current" : undefined}
+          aria-hidden={i === index ? undefined : true}
+        />
+      ))}
+
+      <button
+        type="button"
+        className="shots__hit"
+        aria-label={`${title} — next view`}
+        onClick={() => step(1)}
+      />
+
+      <div className="shots__dots" role="tablist" aria-label={`${title} views`}>
+        {images.map((src, i) => (
+          <button
+            key={src}
+            type="button"
+            role="tab"
+            aria-selected={i === index}
+            aria-label={`View ${i + 1} of ${images.length}`}
+            className={i === index ? "is-on" : undefined}
+            onClick={() => setIndex(i)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS catalog (
   title text NOT NULL,
   price_cents integer NOT NULL,
   image_url text,
+  images jsonb NOT NULL DEFAULT '[]'::jsonb,
   enabled boolean NOT NULL DEFAULT true,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -57,4 +58,7 @@ CREATE TABLE IF NOT EXISTS inventory_state (
   state jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Added after the catalog table shipped, so CREATE TABLE IF NOT EXISTS won't apply it.
+ALTER TABLE catalog ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]'::jsonb;
 `;
