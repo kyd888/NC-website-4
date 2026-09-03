@@ -368,6 +368,24 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           <div class="section-title">Visuals</div>
           <div id="kydVisuals" class="kyd-rows"></div>
           <div class="btnline"><button class="btn small" data-kyd-add="visuals" type="button">Add a visual</button></div>
+
+          <div class="section-title">Booking</div>
+          <div class="kyd-field" style="max-width:420px;margin-bottom:14px">
+            <label>Photo URL</label>
+            <input id="kydPhoto" type="text" placeholder="https://res.cloudinary.com/..." />
+          </div>
+
+          <div class="subheading">Available for</div>
+          <div id="kydServices" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kydb-add="services" type="button">Add a service</button></div>
+
+          <div class="subheading">Contacts</div>
+          <div id="kydContacts" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kydb-add="contacts" type="button">Add a contact</button></div>
+
+          <div class="subheading">Links</div>
+          <div id="kydLinks" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kydb-add="links" type="button">Add a link</button></div>
         </section>
       </div>
     </div>
@@ -597,6 +615,15 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  var SITE_ORIGIN = ${JSON.stringify(
+    (process.env.FRONTEND_ORIGIN || process.env.FRONTEND_ORIGIN_2 || "").trim().replace(/\/+$/, ""),
+  )};
+
+  /** The link a fan should get: the public site when we know it, else this host. */
+  function productShareUrl(id) {
+    return (SITE_ORIGIN || window.location.origin) + "/p/" + encodeURIComponent(id);
+  }
+
   function escapeHtml(str) {
     return String(str ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch));
   }
@@ -804,6 +831,26 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       btnEdit.textContent = "Edit";
       btnEdit.addEventListener("click", () => handleEdit(p));
 
+      // The shareable link exists as soon as the product does — you should not
+      // have to wait for a drop to go live to get hold of it.
+      const btnLink = document.createElement("button");
+      btnLink.className = "btn small";
+      btnLink.type = "button";
+      btnLink.textContent = "Copy link";
+      btnLink.addEventListener("click", async () => {
+        const url = productShareUrl(p.id);
+        try {
+          await navigator.clipboard.writeText(url);
+          btnLink.textContent = "Copied";
+        } catch {
+          // Clipboard blocked (usually a non-secure origin) — show it instead.
+          window.prompt("Product link:", url);
+          btnLink.textContent = "Copy link";
+          return;
+        }
+        setTimeout(() => { btnLink.textContent = "Copy link"; }, 1600);
+      });
+
       const btnDelete = document.createElement("button");
       btnDelete.className = "btn small danger";
       btnDelete.type = "button";
@@ -812,6 +859,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 
       actions.appendChild(uploadInput);
       actions.appendChild(btnUpload);
+      actions.appendChild(btnLink);
       actions.appendChild(btnToggle);
       actions.appendChild(btnEdit);
       actions.appendChild(btnDelete);
@@ -1202,10 +1250,80 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     }).join("");
   }
 
+  var KYD_BOOKING_FIELDS = {
+    contacts: [
+      { key: "label", label: "Label" },
+      { key: "email", label: "Email", type: "email", w: 2 }
+    ],
+    links: [
+      { key: "label", label: "Label" },
+      { key: "href", label: "URL", w: 2 }
+    ]
+  };
+  var KYDB_TARGET = { services: "kydServices", contacts: "kydContacts", links: "kydLinks" };
+
+  function bookingDraft() {
+    if (!kydDraft) return null;
+    if (!kydDraft.booking || typeof kydDraft.booking !== "object") kydDraft.booking = {};
+    var b = kydDraft.booking;
+    if (!Array.isArray(b.services)) b.services = [];
+    if (!Array.isArray(b.contacts)) b.contacts = [];
+    if (!Array.isArray(b.links)) b.links = [];
+    return b;
+  }
+
+  function renderBookingList(list) {
+    var wrap = document.getElementById(KYDB_TARGET[list]);
+    var b = bookingDraft();
+    if (!wrap || !b) return;
+    var rows = b[list];
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="muted">Nothing here yet.</div>';
+      return;
+    }
+    wrap.innerHTML = rows.map(function (row, i) {
+      var fields;
+      if (list === "services") {
+        // Services are plain strings, so the input holds the value itself.
+        fields = '<div class="kyd-field" style="grid-column:span 2">' +
+          "<label>Service</label>" +
+          '<input type="text" data-kydb-list="services" data-kydb-index="' + i + '"' +
+          ' value="' + escapeHtml(row == null ? "" : String(row)) + '" /></div>';
+      } else {
+        fields = KYD_BOOKING_FIELDS[list].map(function (f) {
+          var value = row && row[f.key] != null ? String(row[f.key]) : "";
+          return '<div class="kyd-field"' + (f.w === 2 ? ' style="grid-column:span 2"' : "") + ">" +
+            "<label>" + escapeHtml(f.label) + "</label>" +
+            '<input type="' + (f.type || "text") + '"' +
+              ' data-kydb-list="' + list + '" data-kydb-index="' + i + '" data-kydb-key="' + f.key + '"' +
+              ' value="' + escapeHtml(value) + '" /></div>';
+        }).join("");
+      }
+      return '<div class="kyd-row">' +
+        '<div class="kyd-grid">' + fields + "</div>" +
+        '<div class="kyd-row__foot"><span class="kyd-row__slug"></span><span>' +
+          '<button class="btn" data-kydb-move="' + list + ":" + i + ':-1" type="button">Up</button> ' +
+          '<button class="btn" data-kydb-move="' + list + ":" + i + ':1" type="button">Down</button> ' +
+          '<button class="btn" data-kydb-del="' + list + ":" + i + '" type="button">Remove</button>' +
+        "</span></div></div>";
+    }).join("");
+  }
+
+  function renderBooking() {
+    var b = bookingDraft();
+    if (!b) return;
+    var photo = document.getElementById("kydPhoto");
+    if (photo && document.activeElement !== photo) photo.value = b.photo || "";
+    renderBookingList("services");
+    renderBookingList("contacts");
+    renderBookingList("links");
+  }
+
   function renderKyd() {
     renderKydSection("shows");
     renderKydSection("projects");
     renderKydSection("visuals");
+    renderBooking();
   }
 
   async function refreshKyd() {
@@ -1221,7 +1339,27 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   // Typing only touches the draft; nothing is sent until Save.
   document.addEventListener("input", function (e) {
     var el = e.target;
-    if (!el || !el.getAttribute || !el.getAttribute("data-kyd-section")) return;
+    if (!el || !el.getAttribute) return;
+
+    if (el.id === "kydPhoto") {
+      var bp = bookingDraft();
+      if (bp) { bp.photo = el.value; kydSetStatus("Unsaved changes."); }
+      return;
+    }
+
+    var blist = el.getAttribute("data-kydb-list");
+    if (blist) {
+      var bd = bookingDraft();
+      if (!bd) return;
+      var bi = Number(el.getAttribute("data-kydb-index"));
+      var bkey = el.getAttribute("data-kydb-key");
+      if (blist === "services") bd.services[bi] = el.value;
+      else if (bd[blist] && bd[blist][bi]) bd[blist][bi][bkey] = el.value;
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    if (!el.getAttribute("data-kyd-section")) return;
     if (!kydDraft) return;
     var section = el.getAttribute("data-kyd-section");
     var index = Number(el.getAttribute("data-kyd-index"));
@@ -1256,6 +1394,41 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (row && row.title && !confirm("Remove " + row.title + "?")) return;
       kydDraft[sec].splice(idx, 1);
       renderKydSection(sec);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var badd = e.target.closest("[data-kydb-add]");
+    if (badd) {
+      var bl = badd.getAttribute("data-kydb-add");
+      var bdA = bookingDraft();
+      if (!bdA) return;
+      bdA[bl].push(bl === "services" ? "" : bl === "contacts" ? { label: "", email: "" } : { label: "", href: "" });
+      renderBookingList(bl);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var bdel = e.target.closest("[data-kydb-del]");
+    if (bdel) {
+      var dp = bdel.getAttribute("data-kydb-del").split(":");
+      var bdD = bookingDraft();
+      if (!bdD) return;
+      bdD[dp[0]].splice(Number(dp[1]), 1);
+      renderBookingList(dp[0]);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var bmove = e.target.closest("[data-kydb-move]");
+    if (bmove) {
+      var bmp = bmove.getAttribute("data-kydb-move").split(":");
+      var bdM = bookingDraft();
+      if (!bdM) return;
+      var blist2 = bdM[bmp[0]], bfrom = Number(bmp[1]), bto = bfrom + Number(bmp[2]);
+      if (bto < 0 || bto >= blist2.length) return;
+      var swap = blist2[bfrom]; blist2[bfrom] = blist2[bto]; blist2[bto] = swap;
+      renderBookingList(bmp[0]);
       kydSetStatus("Unsaved changes.");
       return;
     }
