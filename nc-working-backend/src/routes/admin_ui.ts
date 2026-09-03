@@ -958,7 +958,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (typeof options.onUploaded === "function") {
         options.onUploaded(data.url, patched);
       }
-      return { url: data.url, patched };
+      return { url: data.url, urls: urls, patched: patched };
     } catch (err) {
       alert(err.message || String(err));
       return null;
@@ -1000,13 +1000,25 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (!result) {
         return;
       }
+      var uploaded = result.urls && result.urls.length ? result.urls : [result.url];
       if (newProductImageInput) {
-        newProductImageInput.value = result.url;
+        // Append rather than replace, so a second upload adds the back shot
+        // instead of throwing away the front one.
+        var existing = newProductImageInput.value
+          .split(/[\\r\\n,]/)
+          .map(function (line) { return line.trim(); })
+          .filter(Boolean);
+        uploaded.forEach(function (url) {
+          if (existing.indexOf(url) === -1) existing.push(url);
+        });
+        newProductImageInput.value = existing.join("\\n");
       }
       if (newProductStatus) {
+        var count = uploaded.length;
+        var noun = count === 1 ? "Image" : count + " images";
         newProductStatus.textContent = result.patched
-          ? "Image uploaded and product updated."
-          : "Image uploaded. Complete the product details and click Add product to create it.";
+          ? noun + " uploaded and product updated."
+          : noun + " uploaded. Complete the product details and click Add product to create it.";
       }
       if (result.patched) {
         await refreshProducts();
