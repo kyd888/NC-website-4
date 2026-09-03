@@ -221,6 +221,7 @@ catalogRouter.get("/products", (_req, res) => {
     title: p.title,
     priceCents: p.priceCents,
     imageUrl: p.imageUrl,
+    images: p.images?.length ? p.images : p.imageUrl ? [p.imageUrl] : [],
     tags: p.tags ?? [],
     remaining: displayRemaining[p.id] ?? 0,
   }));

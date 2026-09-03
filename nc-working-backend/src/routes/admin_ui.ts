@@ -96,7 +96,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .form-note { font-size:12px; color:#808080; margin-top:6px; }
   .section-title { margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; color: #8d8d8d; }
   label { font-size: 12px; color: #9aa0a6; display:block; margin-bottom:6px; }
-  input, select { width: 100%; background: #0f0f0f; color: #f2f2f2; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+  input, select, textarea { width: 100%; background: #0f0f0f; color: #f2f2f2; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
+  textarea { resize: vertical; line-height: 1.5; }
   input[type="datetime-local"] { padding: 7px 8px; }
   .row { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
   .btn { padding: 8px 12px; border-radius: 10px; border: 1px solid #2a2a2a; background:#1a1a1a; color:#fff; cursor:pointer; font-size:13px; transition: background 0.2s ease; }
@@ -284,12 +285,12 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
                 <div><label>Product ID</label><input id="np_id" placeholder="tee-cream" /></div>
                 <div><label>Title</label><input id="np_title" placeholder="Logo Tee - Cream" /></div>
                 <div><label>Price (cents)</label><input id="np_price" type="number" placeholder="3500" /></div>
-                <div><label>Image URL (optional)</label><input id="np_image" placeholder="/uploads/tee-cream.png" /></div>
+                <div><label>Image URLs (optional, one per line — front, back, detail)</label><textarea id="np_image" rows="3" placeholder="/uploads/tee-front.png&#10;/uploads/tee-back.png"></textarea></div>
                 <div><label>Tags (comma separated)</label><input id="np_tags" placeholder="T-Shirt, Essentials" /></div>
               </div>
               <div class="btnline">
-                <input id="np_upload" type="file" accept="image/*" style="display:none" />
-                <button class="btn" id="btnUploadProdImage" type="button">Upload image</button>
+                <input id="np_upload" type="file" accept="image/*" multiple style="display:none" />
+                <button class="btn" id="btnUploadProdImage" type="button">Upload images</button>
                 <button class="btn primary" id="btnAddProd" type="button">Add product</button>
               </div>
               <div class="form-note" id="np_status"></div>
@@ -918,22 +919,29 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       requireKey();
       if (!input.files || !input.files.length) return null;
       const fd = new FormData();
-      fd.append("file", input.files[0]);
-      const res = await fetch("/api/admin/upload-image", {
+      for (const file of Array.from(input.files)) fd.append("files", file);
+      const res = await fetch("/api/admin/upload-images", {
         method: "POST",
         headers: { "x-admin-key": getKey() },
         body: fd,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.url) {
+      const urls = Array.isArray(data.urls) ? data.urls.filter(Boolean) : [];
+      if (!res.ok || !urls.length) {
         throw new Error(data.error || "Upload failed");
       }
+      data.url = urls[0];
       let patched = false;
       if (options.patch !== false) {
         try {
+          // Append to whatever gallery the product already has rather than
+          // replacing it, so uploading a back shot keeps the front one.
+          const existing = (products.find(function (p) { return p.id === productId; }) || {}).images || [];
+          const merged = existing.slice();
+          for (const url of urls) if (!merged.includes(url)) merged.push(url);
           await apiJson("/api/admin/products/" + encodeURIComponent(productId), {
             method: "PATCH",
-            body: { imageUrl: data.url },
+            body: { images: merged },
           });
           patched = true;
         } catch (err) {
@@ -1584,7 +1592,10 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       const id = document.getElementById("np_id").value.trim();
       const title = document.getElementById("np_title").value.trim();
       const priceCents = Number(document.getElementById("np_price").value.trim());
-      const imageUrl = document.getElementById("np_image").value.trim();
+      const images = document.getElementById("np_image").value
+        .split(/[\n,]/)
+        .map(function (line) { return line.trim(); })
+        .filter(Boolean);
       const tags = parseTags(newProductTags ? newProductTags.value : "");
       if (newProductStatus) newProductStatus.textContent = "";
       if (!id || !title || !Number.isFinite(priceCents)) {
@@ -1597,7 +1608,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           id,
           title,
           priceCents: Math.round(priceCents),
-          imageUrl: imageUrl || undefined,
+          images,
           tags,
         },
       });

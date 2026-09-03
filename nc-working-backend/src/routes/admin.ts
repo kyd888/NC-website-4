@@ -83,6 +83,21 @@ import { sendPurchaseNotificationEmail, sendVaultReleaseEmail } from "../lib/mai
 
 export const adminRouter = Router();
 
+/** Accepts an array or a newline/comma separated string of image URLs. */
+function parseImages(input: unknown): string[] {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? input.split(/[\n,]/)
+      : [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const url = String(entry).trim();
+    if (url && !out.includes(url)) out.push(url);
+  }
+  return out.slice(0, 8);
+}
+
 function parseTags(input: unknown): string[] {
   if (Array.isArray(input)) {
     return input
@@ -189,11 +204,18 @@ adminRouter.get("/products", requireKey, (_req, res) => {
 
 adminRouter.post("/products", requireKey, async (req, res) => {
   try {
-    const { id, title, priceCents, imageUrl, tags } = req.body || {};
+    const { id, title, priceCents, imageUrl, images, tags } = req.body || {};
     if (!id || !title || !Number.isFinite(priceCents)) {
       return res.status(400).json({ error: "Missing fields" });
     }
-    await upsertProduct({ id, title, priceCents, imageUrl, tags: parseTags(tags) });
+    await upsertProduct({
+      id,
+      title,
+      priceCents,
+      imageUrl,
+      images: parseImages(images),
+      tags: parseTags(tags),
+    });
     res.json({ ok: true });
   } catch (error) {
     console.error("[admin] failed to save product", error);
@@ -206,6 +228,9 @@ adminRouter.patch("/products/:id", requireKey, async (req, res) => {
     const body = { ...req.body };
     if (body.tags !== undefined) {
       body.tags = parseTags(body.tags);
+    }
+    if (body.images !== undefined) {
+      body.images = parseImages(body.images);
     }
     const ok = await patchProduct(req.params.id, body || {});
     if (!ok) return res.status(404).json({ error: "Not found" });
@@ -265,6 +290,31 @@ adminRouter.post(
       res.status(500).json({ error: "Image upload failed" });
     }
   }
+);
+
+// Same as /upload-image but for a whole gallery in one go — front, back, detail.
+// Returns urls in the order the files were given so the caller keeps its ordering.
+adminRouter.post(
+  "/upload-images",
+  requireKey,
+  upload.array("files", 8),
+  async (req, res) => {
+    const files = Array.isArray(req.files) ? (req.files as Express.Multer.File[]) : [];
+    if (!files.length) return res.status(400).json({ error: "No files" });
+    try {
+      const urls = await Promise.all(
+        files.map(async (file) =>
+          CLOUDINARY_ENABLED && file.buffer
+            ? await uploadToCloudinary(file.buffer)
+            : `/uploads/${file.filename}`,
+        ),
+      );
+      res.json({ urls });
+    } catch (err) {
+      console.error("[upload] failed to upload images", err);
+      res.status(500).json({ error: "Image upload failed" });
+    }
+  },
 );
 
 adminRouter.post("/drop/end", requireKey, (_req, res) => {
