@@ -1593,7 +1593,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       const title = document.getElementById("np_title").value.trim();
       const priceCents = Number(document.getElementById("np_price").value.trim());
       const images = document.getElementById("np_image").value
-        .split(/[\n,]/)
+        .split(/[\\r\\n,]/)
         .map(function (line) { return line.trim(); })
         .filter(Boolean);
       const tags = parseTags(newProductTags ? newProductTags.value : "");
