@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import {
   getProduct,
+  listCatalog,
   getCurrentDrop,
   getAllRemaining,
   getDisplayedRemaining,
@@ -96,7 +97,22 @@ function priceLabel(cents: number): string {
 }
 
 shareRouter.get("/:id", (req, res) => {
-  const product = getProduct(req.params.id);
+  const requested = req.params.id;
+  let product = getProduct(requested);
+
+  // These links get typed, pasted into other apps and auto-capitalised by
+  // phone keyboards, so a wrong-case id shouldn't be a dead end. Send the
+  // reader to the canonical URL rather than serving two URLs for one product.
+  if (!product) {
+    const match = listCatalog().find(
+      (item) => item.id.toLowerCase() === requested.toLowerCase(),
+    );
+    if (match) {
+      res.redirect(301, `/p/${encodeURIComponent(match.id)}`);
+      return;
+    }
+  }
+
   if (!product || product.enabled === false) {
     res.status(404).type("html").send(notFoundPage(frontendOrigin()));
     return;
