@@ -159,7 +159,7 @@ export const visuals: Visual[] = [
     id: "infrasounds-live",
     title: "INFRASOUNDS (LIVE)",
     year: "2025",
-    image: "/kyd/kyd-press.jpg",
+    image: "/kyd/infrasounds-live.jpg",
     url: "https://www.youtube.com/watch?v=Mr3QiT4H_1I",
   },
   {

@@ -213,7 +213,7 @@ const DEFAULT_CONTENT: KydContent = {
       id: "infrasounds-live",
       title: "INFRASOUNDS (LIVE)",
       year: "2025",
-      image: "/kyd/kyd-press.jpg",
+      image: "/kyd/infrasounds-live.jpg",
       url: "https://www.youtube.com/watch?v=Mr3QiT4H_1I",
     },
     {
@@ -384,6 +384,14 @@ function isLegacyPlaceholderContent(value: KydContent): boolean {
   return JSON.stringify(value) === JSON.stringify(sanitizeContent(LEGACY_PLACEHOLDER_CONTENT));
 }
 
+/** Apply narrowly scoped content corrections without replacing admin-managed data. */
+function migrateKnownContent(value: KydContent): boolean {
+  const infrasounds = value.visuals.find((visual) => visual.id === "infrasounds-live");
+  if (infrasounds?.image !== "/kyd/kyd-press.jpg") return false;
+  infrasounds.image = "/kyd/infrasounds-live.jpg";
+  return true;
+}
+
 function ensureDataDir() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -429,6 +437,7 @@ export async function loadKydContent() {
         }
         content = stored;
         loaded = true;
+        if (migrateKnownContent(content)) await persist();
         return;
       }
     } catch (error) {
@@ -454,6 +463,7 @@ export async function loadKydContent() {
         }
         content = stored;
         loaded = true;
+        if (migrateKnownContent(content)) await persist();
         return;
       }
     }
