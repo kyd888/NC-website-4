@@ -48,6 +48,7 @@ export type KydBooking = {
 };
 
 export type KydContent = {
+  revision: number;
   projects: KydProject[];
   shows: KydShow[];
   visuals: KydVisual[];
@@ -57,9 +58,20 @@ export type KydContent = {
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const KYD_FILE = path.join(DATA_DIR, "kyd.json");
 const CONTENT_ID = "kyd";
+const CURRENT_CONTENT_REVISION = 2;
+
+const WHEELER_SHOW: KydShow = {
+  id: "wheeler-summer-concert-series-2026",
+  title: "WHEELER SUMMER CONCERT SERIES",
+  date: "2026-09-18",
+  city: "OKLAHOMA CITY, OK",
+  venue: "WHEELER FERRIS WHEEL",
+  info: "https://www.instagram.com/p/DY2k5GSo0aJ/",
+};
 
 /** The original demo document, retained only so it can be migrated safely. */
 const LEGACY_PLACEHOLDER_CONTENT: KydContent = {
+  revision: 0,
   projects: [
     {
       slug: "ember",
@@ -103,6 +115,7 @@ const LEGACY_PLACEHOLDER_CONTENT: KydContent = {
 
 /** Real KYD content seeded for new installs and the one-time demo migration. */
 const DEFAULT_CONTENT: KydContent = {
+  revision: CURRENT_CONTENT_REVISION,
   projects: [
     {
       slug: "lost",
@@ -169,6 +182,7 @@ const DEFAULT_CONTENT: KydContent = {
     },
   ],
   shows: [
+    WHEELER_SHOW,
     {
       id: "unboxed-2026",
       title: "UNBOXED: THE INAUGURATION FESTIVAL",
@@ -299,6 +313,10 @@ function uniqueSlug(taken: Set<string>, id: string, title: string, fallback: str
 
 export function sanitizeContent(input: unknown): KydContent {
   const source = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const revision =
+    typeof source.revision === "number" && Number.isInteger(source.revision)
+      ? Math.max(0, source.revision)
+      : 0;
 
   const projectSlugs = new Set<string>();
   const projects: KydProject[] = (Array.isArray(source.projects) ? source.projects : [])
@@ -376,7 +394,7 @@ export function sanitizeContent(input: unknown): KydContent {
     photo: optional(bookingRaw.photo),
   };
 
-  return { projects, shows, visuals, booking };
+  return { revision, projects, shows, visuals, booking };
 }
 
 /** Match the exact shipped demo document so real admin edits are never overwritten. */
@@ -386,10 +404,29 @@ function isLegacyPlaceholderContent(value: KydContent): boolean {
 
 /** Apply narrowly scoped content corrections without replacing admin-managed data. */
 function migrateKnownContent(value: KydContent): boolean {
-  const infrasounds = value.visuals.find((visual) => visual.id === "infrasounds-live");
-  if (infrasounds?.image !== "/kyd/kyd-press.jpg") return false;
-  infrasounds.image = "/kyd/infrasounds-live.jpg";
-  return true;
+  let changed = false;
+
+  if (value.revision < 1) {
+    const infrasounds = value.visuals.find((visual) => visual.id === "infrasounds-live");
+    if (infrasounds?.image === "/kyd/kyd-press.jpg") {
+      infrasounds.image = "/kyd/infrasounds-live.jpg";
+    }
+    value.revision = 1;
+    changed = true;
+  }
+
+  if (value.revision < 2) {
+    const hasWheelerShow = value.shows.some(
+      (show) =>
+        show.id === WHEELER_SHOW.id ||
+        (show.date === WHEELER_SHOW.date && show.title.toLowerCase().includes("wheeler")),
+    );
+    if (!hasWheelerShow) value.shows.unshift(clone(WHEELER_SHOW));
+    value.revision = CURRENT_CONTENT_REVISION;
+    changed = true;
+  }
+
+  return changed;
 }
 
 function ensureDataDir() {
@@ -483,6 +520,7 @@ export function getKydContent(): KydContent {
 export async function saveKydContent(input: unknown): Promise<KydContent> {
   const source = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
   const merged = {
+    revision: source.revision ?? content.revision,
     projects: source.projects ?? content.projects,
     shows: source.shows ?? content.shows,
     visuals: source.visuals ?? content.visuals,

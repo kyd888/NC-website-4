@@ -105,6 +105,14 @@ export const projects: Project[] = [
 
 export const shows: Show[] = [
   {
+    id: "wheeler-summer-concert-series-2026",
+    title: "WHEELER SUMMER CONCERT SERIES",
+    date: "2026-09-18",
+    city: "OKLAHOMA CITY, OK",
+    venue: "WHEELER FERRIS WHEEL",
+    info: "https://www.instagram.com/p/DY2k5GSo0aJ/",
+  },
+  {
     id: "unboxed-2026",
     title: "UNBOXED: THE INAUGURATION FESTIVAL",
     date: "2026-08-29",
