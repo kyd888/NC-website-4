@@ -1036,7 +1036,7 @@ function App() {
             </div>
             <div className="price">{formatCurrency(active.priceCents)}</div>
             {active.tags.length > 0 && (
-              <div className="tagline">{active.tags.join(" � ")}</div>
+              <div className="tagline">{active.tags.join(" · ")}</div>
             )}
           </div>
 
@@ -1760,7 +1760,7 @@ function AccountSheet({
                     <span className="account-order-item-id">{item.productId}</span>
                   </div>
                   <div className="account-order-item-meta">
-                    <span>{item.qty} � {formatCurrency(item.priceCents)}</span>
+                    <span>{item.qty} · {formatCurrency(item.priceCents)}</span>
                     <strong>{formatCurrency(item.lineTotalCents)}</strong>
                   </div>
                 </div>
