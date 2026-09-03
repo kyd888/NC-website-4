@@ -484,6 +484,29 @@ function App() {
     }
   }, [visibleCatalog]);
 
+  // Arriving from a shared link (/shop?p=<id>) → land on that product rather
+  // than the top of the shop. Runs once the catalog has rendered its sections.
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current || !visibleCatalog.length) return;
+    const wanted = new URLSearchParams(window.location.search).get("p");
+    if (!wanted) {
+      deepLinked.current = true;
+      return;
+    }
+    if (!visibleCatalog.some((item) => item.id === wanted)) return;
+    const node = sectionRefs.current[wanted];
+    if (!node) return;
+    deepLinked.current = true;
+    setActiveId(wanted);
+    // Jump rather than smooth-scroll: the target is where the page should have
+    // opened, so animating there from the top just looks like a glitch.
+    node.scrollIntoView({ block: "start" });
+    const url = new URL(window.location.href);
+    url.searchParams.delete("p");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }, [visibleCatalog]);
+
   const active = useMemo(() => {
     if (!visibleCatalog.length) return null;
     const fallback = visibleCatalog[0];
@@ -1044,6 +1067,7 @@ function App() {
               >
                 {primaryLabel}
               </button>
+              <ShareButton productId={active.id} title={active.title} />
             </div>
             {itemsTotal > 0 && (
               <div className="meta-secondary">
@@ -1443,6 +1467,36 @@ function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderCon
  * touch. Deliberately no arrows or chrome at rest — the dots only appear when
  * there is more than one shot.
  */
+/** Native share sheet where the device has one, copy-to-clipboard everywhere else. */
+function ShareButton({ productId, title }: { productId: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/p/${encodeURIComponent(productId)}`;
+
+  const share = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+      } catch {
+        /* dismissed — nothing to report */
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard blocked; leave the label alone */
+    }
+  };
+
+  return (
+    <button type="button" className="cta share-cta" onClick={share} aria-label={`Share ${title}`}>
+      {copied ? "Copied" : "Share"}
+    </button>
+  );
+}
+
 function ProductGallery({ images, title }: { images: string[]; title: string }) {
   const [index, setIndex] = useState(0);
   const touchX = useRef<number | null>(null);

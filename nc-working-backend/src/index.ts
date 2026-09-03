@@ -10,6 +10,7 @@ import { adminRouter } from "./routes/admin.js";
 import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
+import { shareRouter } from "./routes/share.js";
 import { seedInventory, registerVaultSavesGetter, onDropEvent } from "./lib/inventory.js";
 import { initializePersistentStores } from "./lib/persistence.js";
 import { getVaultSnapshot } from "./lib/vault.js";
@@ -130,6 +131,9 @@ app.use("/api/admin", adminRouter);
 app.use("/api/account", accountRouter);
 app.use("/api", catalogRouter);
 app.use("/admin", adminUiRouter);
+// Shareable per-product pages. Server-rendered so crawlers get real OG tags —
+// the SPA fallback on Netlify can only ever serve one generic card.
+app.use("/p", shareRouter);
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 

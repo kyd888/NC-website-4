@@ -3,6 +3,16 @@
   command = "npm ci && npm run build"
   publish = "dist"
 
+# Shareable product pages are server-rendered by the backend so link previews
+# get real per-product OG tags — the SPA fallback below can only ever serve one
+# generic card. Set YOUR-BACKEND-HOSTNAME to the Render host, then uncomment.
+# Must stay ABOVE the /* catch-all: Netlify uses the first rule that matches.
+# [[redirects]]
+#   from = "/p/*"
+#   to = "https://YOUR-BACKEND-HOSTNAME/p/:splat"
+#   status = 200
+#   force = true
+
 [[redirects]]
   from = "/admin/*"
   to = "/index.html"
