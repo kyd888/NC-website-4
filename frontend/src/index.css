@@ -1069,3 +1069,11 @@ input,select,textarea{font-size:16px}
 @media (prefers-reduced-motion:reduce){
   .shots img,.shots__dots button{transition:none}
 }
+
+/* Share sits beside the primary action, quieter than it. */
+.share-cta{
+  background:transparent;color:#111;border:1px solid rgba(0,0,0,.14);
+  box-shadow:none;
+}
+.share-cta:hover:not(:disabled){background:rgba(17,17,17,.05);color:#111}
+.meta-primary{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
