@@ -78,7 +78,10 @@ function statusLabel(a: Availability): string {
   }
 }
 
-/** "Saturday 6 September, 4:39 PM UTC" — readable without knowing the reader's zone. */
+/**
+ * UTC rendering of the drop time. This is what crawlers and no-JS readers get;
+ * the browser rewrites it into the reader's own zone on load.
+ */
 function whenLabel(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "";
@@ -256,7 +259,7 @@ ${ogImage ? `<meta name="twitter:image" content="${escapeHtml(ogImage)}" />` : "
            </form>
            <p class="note" id="alertNote">One message if this comes back. Nothing else.</p>`
         : availability.state === "scheduled"
-          ? `<p class="note">Drops <b>${escapeHtml(whenLabel(availability.startsAt))}</b>. Save the link &mdash; this page turns into the buy page when it opens.</p>`
+          ? `<p class="note">Drops <b><time datetime="${escapeHtml(availability.startsAt)}" data-when>${escapeHtml(whenLabel(availability.startsAt))}</time></b>. Save the link &mdash; this page turns into the buy page when it opens.</p>`
           : availability.state === "upcoming"
             ? `<p class="note">This piece isn&rsquo;t in the current drop. ${shop ? `<a href="${escapeHtml(shop)}/shop" style="text-decoration:underline;text-underline-offset:3px">See what&rsquo;s live</a>.` : ""}</p>`
             : ""}
@@ -270,6 +273,23 @@ ${ogImage ? `<meta name="twitter:image" content="${escapeHtml(ogImage)}" />` : "
 
 <script>
 (function () {
+  // The drop time is rendered in UTC so it is correct before any JS runs.
+  // Anyone with a browser gets it in their own timezone instead.
+  var when = document.querySelector("[data-when]");
+  if (when && when.dateTime) {
+    var at = new Date(when.dateTime);
+    if (!isNaN(at.getTime())) {
+      try {
+        when.textContent = at.toLocaleString(undefined, {
+          weekday: "long", month: "long", day: "numeric",
+          hour: "numeric", minute: "2-digit", timeZoneName: "short"
+        });
+      } catch (e) {
+        /* keep the UTC text */
+      }
+    }
+  }
+
   var url = ${JSON.stringify(shareUrl)};
   var title = ${JSON.stringify(product.title)};
   var btn = document.getElementById("share");
