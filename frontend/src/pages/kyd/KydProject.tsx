@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import SiteShell from "../../components/SiteShell";
 import Tile from "../../components/Tile";
-import { projects } from "../../data/site";
+import { useKydContent } from "../../hooks/useKydContent";
 
 type Panel = "listen" | "lyrics" | "credits" | "visual";
 
@@ -19,6 +19,7 @@ const TABS: { key: Panel; label: string }[] = [
  */
 export default function KydProject() {
   const { slug } = useParams();
+  const { projects } = useKydContent();
   const project = projects.find((p) => p.slug === slug);
   const [panel, setPanel] = useState<Panel | null>(null);
 

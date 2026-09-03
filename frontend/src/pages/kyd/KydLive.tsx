@@ -1,12 +1,14 @@
 import SiteShell from "../../components/SiteShell";
 import Tile from "../../components/Tile";
-import { formatShowDate, isPast, shows } from "../../data/site";
+import { formatShowDate, isPast } from "../../data/site";
+import { useKydContent } from "../../hooks/useKydContent";
 
 /**
  * Shows as products. Poster, title, date, city.
  * Upcoming → Tickets / Info. Past → Archive. History builds itself.
  */
 export default function KydLive() {
+  const { shows } = useKydContent();
   const upcoming = shows.filter((s) => !isPast(s.date)).sort((a, b) => a.date.localeCompare(b.date));
   const past = shows.filter((s) => isPast(s.date)).sort((a, b) => b.date.localeCompare(a.date));
 

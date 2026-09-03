@@ -119,6 +119,20 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .id { color:#8e8e8e; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; margin-top:2px; }
   .price { font-size:13px; font-weight:600; color:#bcbcbc; text-align:center; }
   .qtyWrap { display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+  .kyd-rows { display:grid; gap:8px; margin-bottom:10px; }
+  .kyd-row {
+    display:grid; gap:8px; padding:12px 14px;
+    border:1px solid #1f1f1f; border-radius:12px; background:#0f0f0f;
+  }
+  .kyd-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+  .kyd-field label {
+    display:block; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    color:#7d7d7d; margin-bottom:3px;
+  }
+  .kyd-field input { font-size:12px; padding:7px 9px; }
+  .kyd-row__foot { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .kyd-row__slug { font-size:11px; color:#6f6f6f; font-family:ui-monospace,Menlo,monospace; }
+  .kyd-row__foot .btn { font-size:11px; padding:5px 10px; }
   .vault-list { display:grid; gap:8px; }
   .vault-row {
     display:grid; grid-template-columns:1fr auto; gap:10px 14px; align-items:center;
@@ -214,6 +228,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" type="button" data-tab="drop" aria-controls="panel-drop" aria-selected="true">Drop</button>
       <button class="tab" role="tab" type="button" data-tab="catalog" aria-controls="panel-catalog" aria-selected="false">Catalog</button>
+      <button class="tab" role="tab" type="button" data-tab="kyd" aria-controls="panel-kyd" aria-selected="false">KYD</button>
       <button class="tab" role="tab" type="button" data-tab="vault" aria-controls="panel-vault" aria-selected="false">Vault</button>
       <button class="tab" role="tab" type="button" data-tab="analytics" aria-controls="panel-analytics" aria-selected="false">Analytics</button>
       <button class="tab" role="tab" type="button" data-tab="settings" aria-controls="panel-settings" aria-selected="false">Settings</button>
@@ -325,6 +340,34 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
               <div class="form-note" id="np_status"></div>
             </div>
           </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="panel-kyd" role="tabpanel" hidden>
+      <div class="card card-stack">
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>KYD pages</h3>
+            <p class="meta">Live dates, music and visuals. Changes go live as soon as you save.</p>
+          </div>
+          <div class="btnline" style="margin-bottom:14px">
+            <button class="btn primary" id="btnKydSave" type="button">Save KYD content</button>
+            <button class="btn" id="btnKydReload" type="button">Discard changes</button>
+            <span class="form-note" id="kydStatus"></span>
+          </div>
+
+          <div class="section-title">Live dates</div>
+          <div id="kydShows" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kyd-add="shows" type="button">Add a date</button></div>
+
+          <div class="section-title">Music</div>
+          <div id="kydProjects" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kyd-add="projects" type="button">Add a release</button></div>
+
+          <div class="section-title">Visuals</div>
+          <div id="kydVisuals" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kyd-add="visuals" type="button">Add a visual</button></div>
         </section>
       </div>
     </div>
@@ -448,6 +491,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
         // Countdown only ticks while the panel is on screen.
         if (tab.dataset.tab === "vault") {
           if (typeof refreshVault === "function") void refreshVault();
+        } else if (tab.dataset.tab === "kyd") {
+          if (typeof refreshKyd === "function") void refreshKyd();
         } else if (typeof vaultTimer !== "undefined" && vaultTimer) {
           clearInterval(vaultTimer);
           vaultTimer = null;
@@ -460,6 +505,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     if (saved === "vault") {
       // The panel is already open on load, so populate it.
       setTimeout(() => { if (typeof refreshVault === "function") void refreshVault(); }, 0);
+    } else if (saved === "kyd") {
+      setTimeout(() => { if (typeof refreshKyd === "function") void refreshKyd(); }, 0);
     }
   })();
 
@@ -1080,6 +1127,179 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (result.patched) {
         await refreshProducts();
       }
+    });
+  }
+
+  // ---------- KYD pages ----------
+  // Edits are held locally and written in one PUT, so a half-finished row
+  // never reaches the live site.
+  var kydDraft = null;
+
+  var KYD_FIELDS = {
+    shows: [
+      { key: "title", label: "Title", w: 2 },
+      { key: "date", label: "Date", type: "date" },
+      { key: "city", label: "City" },
+      { key: "venue", label: "Venue" },
+      { key: "poster", label: "Poster URL", w: 2 },
+      { key: "tickets", label: "Tickets URL", w: 2 },
+      { key: "info", label: "Info URL", w: 2 }
+    ],
+    projects: [
+      { key: "title", label: "Title", w: 2 },
+      { key: "year", label: "Year" },
+      { key: "image", label: "Cover URL", w: 2 },
+      { key: "listen", label: "Listen URL", w: 2 },
+      { key: "video", label: "Video URL", w: 2 }
+    ],
+    visuals: [
+      { key: "title", label: "Title", w: 2 },
+      { key: "year", label: "Year" },
+      { key: "image", label: "Image URL", w: 2 },
+      { key: "url", label: "Link URL", w: 2 }
+    ]
+  };
+
+  var KYD_TARGET = { shows: "kydShows", projects: "kydProjects", visuals: "kydVisuals" };
+
+  function kydSetStatus(text, isError) {
+    var el = document.getElementById("kydStatus");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#e08585" : "";
+  }
+
+  function renderKydSection(section) {
+    var wrap = document.getElementById(KYD_TARGET[section]);
+    if (!wrap || !kydDraft) return;
+    var rows = kydDraft[section] || [];
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="muted">Nothing here yet.</div>';
+      return;
+    }
+    wrap.innerHTML = rows.map(function (row, i) {
+      var fields = KYD_FIELDS[section].map(function (f) {
+        var value = row[f.key] == null ? "" : String(row[f.key]);
+        return '<div class="kyd-field"' + (f.w === 2 ? ' style="grid-column:span 2"' : "") + '>' +
+          "<label>" + escapeHtml(f.label) + "</label>" +
+          '<input type="' + (f.type || "text") + '"' +
+            ' data-kyd-section="' + section + '" data-kyd-index="' + i + '" data-kyd-key="' + f.key + '"' +
+            ' value="' + escapeHtml(value) + '" />' +
+        "</div>";
+      }).join("");
+      var slug = row.slug || row.id || "";
+      return '<div class="kyd-row">' +
+        '<div class="kyd-grid">' + fields + "</div>" +
+        '<div class="kyd-row__foot">' +
+          '<span class="kyd-row__slug">' + (slug ? escapeHtml(slug) : "new — id set on save") + "</span>" +
+          '<span>' +
+            '<button class="btn" data-kyd-move="' + section + ':' + i + ':-1" type="button">Up</button> ' +
+            '<button class="btn" data-kyd-move="' + section + ':' + i + ':1" type="button">Down</button> ' +
+            '<button class="btn" data-kyd-del="' + section + ':' + i + '" type="button">Remove</button>' +
+          "</span>" +
+        "</div>" +
+      "</div>";
+    }).join("");
+  }
+
+  function renderKyd() {
+    renderKydSection("shows");
+    renderKydSection("projects");
+    renderKydSection("visuals");
+  }
+
+  async function refreshKyd() {
+    try {
+      kydDraft = await apiJson("/api/admin/kyd");
+      renderKyd();
+      kydSetStatus("");
+    } catch (err) {
+      kydSetStatus(err.message || String(err), true);
+    }
+  }
+
+  // Typing only touches the draft; nothing is sent until Save.
+  document.addEventListener("input", function (e) {
+    var el = e.target;
+    if (!el || !el.getAttribute || !el.getAttribute("data-kyd-section")) return;
+    if (!kydDraft) return;
+    var section = el.getAttribute("data-kyd-section");
+    var index = Number(el.getAttribute("data-kyd-index"));
+    var key = el.getAttribute("data-kyd-key");
+    if (!kydDraft[section] || !kydDraft[section][index]) return;
+    kydDraft[section][index][key] = el.value;
+    kydSetStatus("Unsaved changes.");
+  });
+
+  document.addEventListener("click", async function (e) {
+    if (!e.target.closest) return;
+
+    var add = e.target.closest("[data-kyd-add]");
+    if (add) {
+      if (!kydDraft) return;
+      var section = add.getAttribute("data-kyd-add");
+      var blank = { title: "" };
+      if (section === "shows") blank.date = "";
+      else blank.year = String(new Date().getFullYear());
+      kydDraft[section] = (kydDraft[section] || []).concat([blank]);
+      renderKydSection(section);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var del = e.target.closest("[data-kyd-del]");
+    if (del) {
+      if (!kydDraft) return;
+      var parts = del.getAttribute("data-kyd-del").split(":");
+      var sec = parts[0], idx = Number(parts[1]);
+      var row = (kydDraft[sec] || [])[idx];
+      if (row && row.title && !confirm("Remove " + row.title + "?")) return;
+      kydDraft[sec].splice(idx, 1);
+      renderKydSection(sec);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var move = e.target.closest("[data-kyd-move]");
+    if (move) {
+      if (!kydDraft) return;
+      var mp = move.getAttribute("data-kyd-move").split(":");
+      var msec = mp[0], mi = Number(mp[1]), dir = Number(mp[2]);
+      var list = kydDraft[msec] || [];
+      var target = mi + dir;
+      if (target < 0 || target >= list.length) return;
+      var tmp = list[mi]; list[mi] = list[target]; list[target] = tmp;
+      renderKydSection(msec);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+  });
+
+  var kydSaveBtn = document.getElementById("btnKydSave");
+  if (kydSaveBtn) {
+    kydSaveBtn.addEventListener("click", async function () {
+      if (!kydDraft) return;
+      kydSaveBtn.disabled = true;
+      kydSetStatus("Saving\u2026");
+      try {
+        var saved = await apiJson("/api/admin/kyd", { method: "PUT", body: kydDraft });
+        // Take back what the server stored, so generated ids show immediately.
+        kydDraft = saved.content || kydDraft;
+        renderKyd();
+        kydSetStatus("Saved.");
+      } catch (err) {
+        kydSetStatus(err.message || String(err), true);
+      } finally {
+        kydSaveBtn.disabled = false;
+      }
+    });
+  }
+
+  var kydReloadBtn = document.getElementById("btnKydReload");
+  if (kydReloadBtn) {
+    kydReloadBtn.addEventListener("click", function () {
+      if (kydDraft && !confirm("Discard unsaved changes?")) return;
+      void refreshKyd();
     });
   }
 

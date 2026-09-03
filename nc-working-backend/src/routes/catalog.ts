@@ -22,6 +22,7 @@ import { recordSale } from "../lib/sales.js";
 import { sendPurchaseNotificationEmail, sendReceiptEmail, sendCartAbandonmentEmail } from "../lib/mailer.js";
 import type { CatalogItem } from "../lib/types.js";
 import { getAuthContext } from "../lib/auth.js";
+import { getKydContent } from "../lib/siteContent.js";
 import { updateUser } from "../lib/users.js";
 import { addSaveToVault, getVaultSnapshot } from "../lib/vault.js";
 
@@ -207,6 +208,11 @@ function toAbsoluteUrl(input: string | undefined, baseUrl: string): string | und
   const normalizedPath = input.startsWith("/") ? input : `/${input}`;
   return normalizedBase ? `${normalizedBase}${normalizedPath}` : input;
 }
+
+// KYD page content — live dates, music, visuals, booking.
+catalogRouter.get("/kyd", (_req, res) => {
+  res.json(getKydContent());
+});
 
 catalogRouter.get("/products", (_req, res) => {
   const drop = getCurrentDrop();
