@@ -1509,6 +1509,17 @@ function AccountSheet({
     }
   }, [open, user, orders.length, ordersLoading, onRefreshOrders]);
 
+  // Escape closes the sheet — the backdrop sits under it on a phone, so tapping
+  // outside is not an option there.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onRequestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onRequestClose]);
+
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError(null);
