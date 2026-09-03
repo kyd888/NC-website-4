@@ -15,6 +15,8 @@ export type Sale = {
   customerEmail?: string;
   productTitle?: string;
   dropId?: string;
+  /** Chosen at checkout for apparel; absent for products that need no size. */
+  size?: string;
   shippingAddress?: {
     line1: string;
     line2?: string;
@@ -240,6 +242,7 @@ function rowToSale(value: any): Sale | null {
     shippingAddress: value.shipping_address ?? value.shippingAddress,
     orderId: value.order_id ?? value.orderId,
     lineTotalCents: value.line_total_cents ?? value.lineTotalCents,
+    size: value.size ?? undefined,
   });
 }
 
@@ -252,7 +255,8 @@ export async function loadSalesFromDb() {
   try {
     const result = await dbQuery(
       `SELECT id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
-        customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents
+        customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents,
+        size
        FROM sales
        ORDER BY ts ASC
        LIMIT $1`,
@@ -270,9 +274,10 @@ export async function upsertSaleToDb(sale: Sale) {
   await dbQuery(
     `INSERT INTO sales (
       id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
-      customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents
+      customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents,
+      size
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16)
     ON CONFLICT (id) DO UPDATE SET
       ts = EXCLUDED.ts,
       product_id = EXCLUDED.product_id,
@@ -287,7 +292,8 @@ export async function upsertSaleToDb(sale: Sale) {
       drop_id = EXCLUDED.drop_id,
       shipping_address = EXCLUDED.shipping_address,
       order_id = EXCLUDED.order_id,
-      line_total_cents = EXCLUDED.line_total_cents`,
+      line_total_cents = EXCLUDED.line_total_cents,
+      size = EXCLUDED.size`,
     [
       sale.id,
       sale.ts,
@@ -304,6 +310,7 @@ export async function upsertSaleToDb(sale: Sale) {
       jsonParam(sale.shippingAddress ?? null),
       sale.orderId ?? null,
       sale.lineTotalCents ?? sale.qty * sale.priceCents,
+      sale.size ?? null,
     ],
   );
 }
@@ -334,6 +341,7 @@ export async function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: 
     orderId: s.orderId,
     lineTotalCents: s.lineTotalCents ?? s.priceCents * s.qty,
     dropId: s.dropId,
+    size: s.size,
   };
   sales.push(row);
   if (sales.length > MAX_SALES) sales = sales.slice(-MAX_SALES);

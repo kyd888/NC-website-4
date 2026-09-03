@@ -21,6 +21,8 @@ type BackendProduct = {
   /** Primary first — front, back, detail. Falls back to imageUrl alone. */
   images?: string[];
   tags?: string[] | string;
+  /** Sizes this product needs picking from. Empty means no size at all. */
+  sizes?: string[];
   remaining?: number;
 };
 
@@ -34,6 +36,8 @@ type ProductCard = {
   images: string[];
   bg: string;
   tags: string[];
+  /** Empty for anything that doesn't need a size. */
+  sizes: string[];
   order: number;
 };
 
@@ -197,6 +201,8 @@ function App() {
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  // Sizes are picked in the bag, one per unit: { "tee-black": ["M", "L"] }.
+  const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>({});
   const [toast, setToast] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [saveSheet, setSaveSheet] = useState<SaveSheetState | null>(null);
@@ -378,6 +384,7 @@ function App() {
             img,
             images,
             bg: ov.bg || "#f2f2ee",
+            sizes: Array.isArray(product.sizes) ? product.sizes : [],
             tags: Array.isArray(product.tags)
               ? product.tags
               : typeof product.tags === "string"
@@ -572,6 +579,10 @@ function App() {
           item.holdExpiresAt != null
             ? Math.max(0, Math.ceil((item.holdExpiresAt - nowTick) / 1000))
             : null;
+        const sizes = product?.sizes ?? [];
+        // One slot per unit, so two of the same shirt can be M and L.
+        const picked = (sizeChoices[item.id] ?? []).slice(0, item.qty);
+        while (sizes.length && picked.length < item.qty) picked.push("");
         return {
           ...item,
           title: product?.title ?? item.id,
@@ -579,10 +590,40 @@ function App() {
           lineTotal: priceCents * item.qty,
           available: remainingById[item.id] ?? 0,
           holdSecondsRemaining,
+          sizes,
+          picked,
         };
       }),
-    [cart, catalog, remainingById, nowTick],
+    [cart, catalog, remainingById, nowTick, sizeChoices],
   );
+
+  // Every sized unit needs a size before payment can be taken.
+  const missingSizeFor = cartDetails.find(
+    (item) => item.sizes.length > 0 && item.picked.some((size) => !size),
+  );
+  const sizesPayload = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const item of cartDetails) {
+      if (item.sizes.length) out[item.id] = item.picked;
+    }
+    return out;
+  }, [cartDetails]);
+
+  // Confirm runs inside async payment callbacks, so read sizes from a ref
+  // rather than a closure captured when the handler was created.
+  const sizesPayloadRef = useRef<Record<string, string[]>>({});
+  useEffect(() => {
+    sizesPayloadRef.current = sizesPayload;
+  }, [sizesPayload]);
+
+  const chooseSize = (productId: string, unit: number, size: string) => {
+    setSizeChoices((prev) => {
+      const next = (prev[productId] ?? []).slice();
+      while (next.length <= unit) next.push("");
+      next[unit] = size;
+      return { ...prev, [productId]: next };
+    });
+  };
 
   const itemsTotal = cartDetails.reduce((acc, item) => acc + item.qty, 0);
   const priceTotalCents = cartDetails.reduce((acc, item) => acc + item.lineTotal, 0);
@@ -784,7 +825,7 @@ function App() {
       const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentIntentId, customer }),
+        body: JSON.stringify({ paymentIntentId, customer, sizes: sizesPayloadRef.current }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) {
@@ -1230,6 +1271,32 @@ function App() {
                           Hold {formatHoldCountdown(item.holdSecondsRemaining)}
                         </div>
                       )}
+                      {item.sizes.length > 0 &&
+                        item.picked.map((chosenSize, unit) => (
+                          <div className="size-pick" key={`${item.id}-${unit}`}>
+                            <span className="size-pick__label">
+                              {item.qty > 1 ? `Size — item ${unit + 1}` : "Size"}
+                            </span>
+                            <div
+                              className="size-pick__options"
+                              role="radiogroup"
+                              aria-label={`Size for ${item.title}${item.qty > 1 ? `, item ${unit + 1}` : ""}`}
+                            >
+                              {item.sizes.map((size) => (
+                                <button
+                                  key={size}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={chosenSize === size}
+                                  className={`size-pick__option${chosenSize === size ? " is-on" : ""}`}
+                                  onClick={() => chooseSize(item.id, unit, size)}
+                                >
+                                  {size}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       <div className="cart-line__controls">
                         <button
                           type="button"
@@ -1266,6 +1333,7 @@ function App() {
                 </div>
                 <CartPaymentRequestButton
                   amountCents={priceTotalCents}
+                  sizes={sizesPayload}
                   onOrderComplete={(confirmation) => {
                     setCart([]);
                     setCartOpen(false);
@@ -1274,11 +1342,16 @@ function App() {
                   }}
                   onError={(msg) => showToast(msg, 3000)}
                 />
+                {missingSizeFor && (
+                  <div className="cart-sheet__note">
+                    Choose a size for {missingSizeFor.title} to check out.
+                  </div>
+                )}
                 <button
                   type="button"
                   className="cart-sheet__checkout"
                   onClick={beginCheckout}
-                  disabled={checkoutLoading}
+                  disabled={checkoutLoading || Boolean(missingSizeFor)}
                 >
                   {checkoutLoading ? "Preparing..." : "Checkout"}
                 </button>
@@ -2021,10 +2094,12 @@ function formatAddress(address?: CheckoutCustomer["address"]) {
 
 function CartPaymentRequestButton({
   amountCents,
+  sizes,
   onOrderComplete,
   onError,
 }: {
   amountCents: number;
+  sizes: Record<string, string[]>;
   onOrderComplete: (confirmation: OrderConfirmation) => void;
   onError: (msg: string) => void;
 }) {
@@ -2034,6 +2109,8 @@ function CartPaymentRequestButton({
   const [prAvailable, setPrAvailable] = useState(false);
   const onOrderCompleteRef = useRef(onOrderComplete);
   const onErrorRef = useRef(onError);
+  const sizesPayloadRef = useRef(sizes);
+  useEffect(() => { sizesPayloadRef.current = sizes; }, [sizes]);
   useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
   useEffect(() => { onErrorRef.current = onError; });
 
@@ -2123,7 +2200,7 @@ function CartPaymentRequestButton({
         const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paymentIntentId, customer }),
+          body: JSON.stringify({ paymentIntentId, customer, sizes: sizesPayloadRef.current }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.ok) { onErrorRef.current(json.error ?? "Checkout failed"); return; }

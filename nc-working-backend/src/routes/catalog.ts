@@ -23,6 +23,7 @@ import { sendPurchaseNotificationEmail, sendReceiptEmail, sendCartAbandonmentEma
 import type { CatalogItem } from "../lib/types.js";
 import { getAuthContext } from "../lib/auth.js";
 import { getKydContent } from "../lib/siteContent.js";
+import { sizesForProduct, normalizeSize } from "../lib/sizing.js";
 import { updateUser } from "../lib/users.js";
 import { addSaveToVault, getVaultSnapshot } from "../lib/vault.js";
 
@@ -229,6 +230,8 @@ catalogRouter.get("/products", (_req, res) => {
     imageUrl: p.imageUrl,
     images: p.images?.length ? p.images : p.imageUrl ? [p.imageUrl] : [],
     tags: p.tags ?? [],
+    // Empty for anything that doesn't need one — posters behave as before.
+    sizes: sizesForProduct(p),
     remaining: displayRemaining[p.id] ?? 0,
   }));
 
@@ -636,18 +639,54 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     }
   }
 
+  // Sizes are picked at checkout: { productId: ["M", "L"] }, one per unit.
+  const submittedSizes = (req.body?.sizes ?? {}) as Record<string, unknown>;
+  const chosen = new Map<string, string[]>();
+  for (const line of summary.lines) {
+    const options = sizesForProduct(line.product);
+    if (!options.length) continue;
+    const raw = submittedSizes[line.product.id];
+    const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+    const normalized = list
+      .map((entry) => normalizeSize(line.product, entry))
+      .filter((entry): entry is string => entry !== null);
+    // One size per unit, all valid — otherwise there is no way to pick and ship.
+    if (normalized.length !== line.qty) {
+      return res.status(400).json({
+        error: `Choose a size for each ${line.product.title}`,
+        productId: line.product.id,
+        sizes: options,
+      });
+    }
+    chosen.set(line.product.id, normalized);
+  }
+
   const orderId = paymentIntentId ?? `order_${randomUUID()}`;
   const assetBase = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "";
-  const orderItems = summary.lines.map((line) => ({
-    productId: line.product.id,
-    title: line.product.title,
-    qty: line.qty,
-    priceCents: line.product.priceCents,
-    lineTotalCents: line.product.priceCents * line.qty,
-    imageUrl: line.product.imageUrl
-      ? toAbsoluteUrl(line.product.imageUrl, assetBase)
-      : undefined,
-  }));
+  // A line with mixed sizes becomes one item per size, so the order reads as
+  // something you can actually pick and pack.
+  const orderItems = summary.lines.flatMap((line) => {
+    const base = {
+      productId: line.product.id,
+      title: line.product.title,
+      priceCents: line.product.priceCents,
+      imageUrl: line.product.imageUrl
+        ? toAbsoluteUrl(line.product.imageUrl, assetBase)
+        : undefined,
+    };
+    const sizes = chosen.get(line.product.id);
+    if (!sizes) {
+      return [{ ...base, qty: line.qty, lineTotalCents: line.product.priceCents * line.qty, size: undefined as string | undefined }];
+    }
+    const counts = new Map<string, number>();
+    for (const size of sizes) counts.set(size, (counts.get(size) ?? 0) + 1);
+    return [...counts.entries()].map(([size, qty]) => ({
+      ...base,
+      qty,
+      lineTotalCents: line.product.priceCents * qty,
+      size: size as string | undefined,
+    }));
+  });
 
   for (const item of orderItems) {
     await recordSale({
@@ -656,6 +695,7 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       qty: item.qty,
       priceCents: item.priceCents,
       lineTotalCents: item.lineTotalCents,
+      size: item.size,
       ua: req.get("user-agent") ?? undefined,
       ref: paymentIntentId ?? undefined,
       userId,
