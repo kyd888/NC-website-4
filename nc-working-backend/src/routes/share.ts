@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import {
   getProduct,
   getCurrentDrop,
+  getAllRemaining,
   getDisplayedRemaining,
   getRecentlyLiveProductIds,
   getVaultSaveWindowMs,
@@ -16,6 +17,8 @@ type Availability =
   | { state: "available"; qty: number }
   | { state: "low"; qty: number }
   | { state: "soldout" }
+  /** In a drop that hasn't opened yet — the link works, the buying doesn't. */
+  | { state: "scheduled"; startsAt: string }
   | { state: "upcoming"; startsAt: string | null };
 
 function escapeHtml(value: string): string {
@@ -53,6 +56,12 @@ function availabilityOf(productId: string): Availability {
     return qty <= LOW_STOCK_AT ? { state: "low", qty } : { state: "available", qty };
   }
 
+  // Scheduled drop this product is part of: say when, so the link is worth
+  // sharing before the drop opens.
+  if (drop?.status === "scheduled" && drop.startsAt && productId in getAllRemaining()) {
+    return { state: "scheduled", startsAt: drop.startsAt };
+  }
+
   // Between drops: an item that was just live is sold out rather than unreleased.
   const recent = new Set(getRecentlyLiveProductIds(getVaultSaveWindowMs()));
   if (recent.has(productId)) return { state: "soldout" };
@@ -64,8 +73,19 @@ function statusLabel(a: Availability): string {
     case "available": return "In stock";
     case "low": return `${a.qty} left`;
     case "soldout": return "Sold out";
+    case "scheduled": return "Drops soon";
     case "upcoming": return "Not yet released";
   }
+}
+
+/** "Saturday 6 September, 4:39 PM UTC" — readable without knowing the reader's zone. */
+function whenLabel(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleString("en-US", {
+    weekday: "long", month: "long", day: "numeric",
+    hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short",
+  });
 }
 
 function priceLabel(cents: number): string {
@@ -93,7 +113,9 @@ shareRouter.get("/:id", (req, res) => {
   const description =
     availability.state === "soldout"
       ? `${product.title} — sold out. Get told if it returns.`
-      : `${product.title} — ${price}. Limited drops, no restocks.`;
+      : availability.state === "scheduled"
+        ? `${product.title} — ${price}. Drops ${whenLabel(availability.startsAt)}.`
+        : `${product.title} — ${price}. Limited drops, no restocks.`;
 
   // Sold out and between-drops both offer the alert; the copy differs.
   const wantsAlert = availability.state === "soldout";
@@ -233,9 +255,11 @@ ${ogImage ? `<meta name="twitter:image" content="${escapeHtml(ogImage)}" />` : "
              <button class="btn btn--solid" type="submit">Tell me</button>
            </form>
            <p class="note" id="alertNote">One message if this comes back. Nothing else.</p>`
-        : availability.state === "upcoming"
-          ? `<p class="note">This piece isn&rsquo;t in the current drop. ${shop ? `<a href="${escapeHtml(shop)}/shop" style="text-decoration:underline;text-underline-offset:3px">See what&rsquo;s live</a>.` : ""}</p>`
-          : ""}
+        : availability.state === "scheduled"
+          ? `<p class="note">Drops <b>${escapeHtml(whenLabel(availability.startsAt))}</b>. Save the link &mdash; this page turns into the buy page when it opens.</p>`
+          : availability.state === "upcoming"
+            ? `<p class="note">This piece isn&rsquo;t in the current drop. ${shop ? `<a href="${escapeHtml(shop)}/shop" style="text-decoration:underline;text-underline-offset:3px">See what&rsquo;s live</a>.` : ""}</p>`
+            : ""}
     </div>
   </main>
 
