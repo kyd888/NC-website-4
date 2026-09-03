@@ -3,6 +3,7 @@ import { loadInventoryFromDb } from "./inventory.js";
 import { loadSalesFromDb } from "./sales.js";
 import { loadUsersFromDb } from "./users.js";
 import { loadVaultFromDb } from "./vault.js";
+import { loadKydContent } from "./siteContent.js";
 import { schemaSql } from "./schema.js";
 
 const CONNECT_ATTEMPTS = Math.max(1, Number.parseInt(process.env.DB_CONNECT_ATTEMPTS || "5", 10) || 5);
@@ -64,6 +65,8 @@ async function connectWithRetry() {
 }
 
 export async function initializePersistentStores() {
+  // KYD content falls back to disk, so it loads with or without a database.
+  await loadKydContent();
   if (!dbEnabled) return;
   await connectWithRetry();
   await loadUsersFromDb();

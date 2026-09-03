@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import SiteShell from "../components/SiteShell";
 import Tile from "../components/Tile";
-import { events, formatShowDate, isPast, shows, type Show } from "../data/site";
+import { events, formatShowDate, isPast, type Show } from "../data/site";
+import { useKydContent } from "../hooks/useKydContent";
 
 /**
  * One events page for both worlds. No Connection events and KYD shows are
@@ -19,17 +21,22 @@ const FILTERS: { key: "all" | Kind; label: string }[] = [
 
 const KIND_LABEL: Record<Kind, string> = { nc: "No Connection", kyd: "KYD Live" };
 
-const ALL: Entry[] = [
-  ...events.map((e) => ({ ...e, kind: "nc" as const })),
-  ...shows.map((s) => ({ ...s, kind: "kyd" as const })),
-];
-
 export default function Events() {
   const [params, setParams] = useSearchParams();
   const raw = params.get("show");
   const filter: "all" | Kind = raw === "nc" || raw === "kyd" ? raw : "all";
 
-  const pool = filter === "all" ? ALL : ALL.filter((e) => e.kind === filter);
+  // KYD shows are editable in the admin, so the merged list is built per render.
+  const { shows } = useKydContent();
+  const all: Entry[] = useMemo(
+    () => [
+      ...events.map((e) => ({ ...e, kind: "nc" as const })),
+      ...shows.map((s) => ({ ...s, kind: "kyd" as const })),
+    ],
+    [shows],
+  );
+
+  const pool = filter === "all" ? all : all.filter((e) => e.kind === filter);
   const upcoming = pool.filter((e) => !isPast(e.date)).sort((a, b) => a.date.localeCompare(b.date));
   const past = pool.filter((e) => isPast(e.date)).sort((a, b) => b.date.localeCompare(a.date));
 

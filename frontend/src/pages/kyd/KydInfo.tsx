@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
 import SiteShell from "../../components/SiteShell";
 import Tile from "../../components/Tile";
-import { booking } from "../../data/site";
+import { useKydContent } from "../../hooks/useKydContent";
 
 /** Booking / EPK. Administrative on purpose. */
 export default function KydInfo() {
+  const { booking } = useKydContent();
   return (
     <SiteShell section="kyd">
       <div className="booking">

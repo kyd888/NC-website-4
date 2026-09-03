@@ -35,6 +35,7 @@ import {
   getVaultSaveWindowMs,
 } from "../lib/inventory.js";
 import { getVaultSnapshot } from "../lib/vault.js";
+import { getKydContent, saveKydContent } from "../lib/siteContent.js";
 import { listUsers } from "../lib/users.js";
 import { requireAdminApi } from "../lib/adminAuth.js";
 
@@ -126,6 +127,21 @@ adminRouter.get("/state", requireKey, (_req, res) => {
     drop: getCurrentDrop(),          // {id, code, startsAt, endsAt, status}
     remaining: getAllRemaining(),    // { [productId]: number }
   });
+});
+
+// KYD page content. PUT replaces whole sections; sections left out are kept.
+adminRouter.get("/kyd", requireKey, (_req, res) => {
+  res.json(getKydContent());
+});
+
+adminRouter.put("/kyd", requireKey, async (req, res) => {
+  try {
+    const saved = await saveKydContent(req.body ?? {});
+    res.json({ ok: true, content: saved });
+  } catch (error) {
+    console.error("[admin] failed to save KYD content", error);
+    res.status(500).json({ error: "Unable to save content" });
+  }
 });
 
 // Every product that has been live, with how long it has left in the vault.

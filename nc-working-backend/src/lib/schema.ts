@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS vault_records (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS site_content (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS inventory_state (
   id text PRIMARY KEY,
   state jsonb NOT NULL,
