@@ -26,6 +26,10 @@ import {
   getCurrentDropAnalytics,
   getDropHistory,
   setLiveInventory,
+  getVaultAdminRows,
+  setVaultHidden,
+  setVaultExpiry,
+  extendVault,
   addInventoryToLive,
   getVaultReadyProducts,
   getVaultSaveWindowMs,
@@ -122,6 +126,49 @@ adminRouter.get("/state", requireKey, (_req, res) => {
     drop: getCurrentDrop(),          // {id, code, startsAt, endsAt, status}
     remaining: getAllRemaining(),    // { [productId]: number }
   });
+});
+
+// Every product that has been live, with how long it has left in the vault.
+adminRouter.get("/vault", requireKey, (_req, res) => {
+  res.json({ windowMs: getVaultSaveWindowMs(), products: getVaultAdminRows(getVaultSaveWindowMs()) });
+});
+
+// Hide/show, set an exact expiry, or nudge it by minutes.
+adminRouter.patch("/vault/:id", requireKey, (req, res) => {
+  const id = req.params.id;
+  const body = req.body ?? {};
+  let touched = false;
+
+  if (body.hidden !== undefined) {
+    if (!setVaultHidden(id, body.hidden !== false)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    touched = true;
+  }
+
+  if (body.expiresAt !== undefined) {
+    // null clears the override and falls back to the global save window.
+    const value = body.expiresAt === null || body.expiresAt === "" ? null : String(body.expiresAt);
+    if (!setVaultExpiry(id, value)) {
+      return res.status(400).json({ error: "Invalid expiry" });
+    }
+    touched = true;
+  }
+
+  if (body.extendMinutes !== undefined) {
+    const minutes = Number(body.extendMinutes);
+    if (!Number.isFinite(minutes)) {
+      return res.status(400).json({ error: "Invalid minutes" });
+    }
+    if (!extendVault(id, minutes, getVaultSaveWindowMs())) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    touched = true;
+  }
+
+  if (!touched) return res.status(400).json({ error: "Nothing to change" });
+  const row = getVaultAdminRows(getVaultSaveWindowMs()).find((r) => r.id === id);
+  res.json({ ok: true, product: row ?? null });
 });
 
 adminRouter.get("/vault-ready", requireKey, (_req, res) => {
