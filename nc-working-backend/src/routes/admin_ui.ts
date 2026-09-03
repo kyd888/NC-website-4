@@ -119,6 +119,29 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .id { color:#8e8e8e; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; margin-top:2px; }
   .price { font-size:13px; font-weight:600; color:#bcbcbc; text-align:center; }
   .qtyWrap { display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+  .vault-list { display:grid; gap:8px; }
+  .vault-row {
+    display:grid; grid-template-columns:1fr auto; gap:10px 14px; align-items:center;
+    padding:12px 14px; border:1px solid #1f1f1f; border-radius:12px; background:#0f0f0f;
+  }
+  .vault-row.is-out { opacity:.55; }
+  .vault-row__name { font-size:13px; font-weight:500; }
+  .vault-row__id { font-size:11px; color:#7d7d7d; font-family:ui-monospace,Menlo,monospace; }
+  .vault-row__time { font-size:12px; color:#c8c8c8; margin-top:3px; }
+  .vault-row__time b { color:#f2f2f2; font-weight:500; font-variant-numeric:tabular-nums; }
+  .vault-chip {
+    display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    padding:2px 7px; border-radius:999px; margin-left:8px;
+  }
+  .vault-chip.in { background:#14351f; color:#7ee2a8; }
+  .vault-chip.out { background:#2b2b2b; color:#b9b9b9; }
+  .vault-chip.custom { background:#31280f; color:#e4c56b; }
+  .vault-row__actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  .vault-row__actions .btn { font-size:11px; padding:6px 10px; }
+  @media (max-width:640px){
+    .vault-row { grid-template-columns:1fr; }
+    .vault-row__actions { justify-content:flex-start; }
+  }
   .qtyWrap label { font-size:11px; color:#7d7d7d; text-transform:uppercase; letter-spacing:0.05em; }
   .qtyWrap input { width:55px; text-align:right; }
   .rowItem.inactive .qtyWrap input { pointer-events:none; opacity:0.4; }
@@ -191,6 +214,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" type="button" data-tab="drop" aria-controls="panel-drop" aria-selected="true">Drop</button>
       <button class="tab" role="tab" type="button" data-tab="catalog" aria-controls="panel-catalog" aria-selected="false">Catalog</button>
+      <button class="tab" role="tab" type="button" data-tab="vault" aria-controls="panel-vault" aria-selected="false">Vault</button>
       <button class="tab" role="tab" type="button" data-tab="analytics" aria-controls="panel-analytics" aria-selected="false">Analytics</button>
       <button class="tab" role="tab" type="button" data-tab="settings" aria-controls="panel-settings" aria-selected="false">Settings</button>
     </div>
@@ -300,6 +324,19 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       </div>
     </div>
 
+    <div class="tabpanel" id="panel-vault" role="tabpanel" hidden>
+      <div class="card card-stack">
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>Vault</h3>
+            <p class="meta">Products people can still save after a drop ends. Hide one to pull it out early, or change how long it stays.</p>
+          </div>
+          <div class="form-note" id="vaultWindowNote"></div>
+          <div id="vaultList" class="vault-list"><div class="muted">Loading&hellip;</div></div>
+        </section>
+      </div>
+    </div>
+
     <div class="tabpanel" id="panel-analytics" role="tabpanel" hidden>
       <div class="card card-stack">
         <section class="card-section">
@@ -400,10 +437,25 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       try { localStorage.setItem("nc_admin_tab", name); } catch {}
       return true;
     };
-    for (const tab of tabs) tab.addEventListener("click", () => show(tab.dataset.tab));
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        show(tab.dataset.tab);
+        // Countdown only ticks while the panel is on screen.
+        if (tab.dataset.tab === "vault") {
+          if (typeof refreshVault === "function") void refreshVault();
+        } else if (typeof vaultTimer !== "undefined" && vaultTimer) {
+          clearInterval(vaultTimer);
+          vaultTimer = null;
+        }
+      });
+    }
     let saved = null;
     try { saved = localStorage.getItem("nc_admin_tab"); } catch {}
     if (!saved || !show(saved)) show(tabs[0].dataset.tab);
+    if (saved === "vault") {
+      // The panel is already open on load, so populate it.
+      setTimeout(() => { if (typeof refreshVault === "function") void refreshVault(); }, 0);
+    }
   })();
 
   const PLACEHOLDER_IMG =
@@ -1025,6 +1077,110 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       }
     });
   }
+
+  // ---------- Vault ----------
+  var vaultRows = [];
+  var vaultTimer = null;
+
+  function formatLeft(ms) {
+    if (ms === null || ms === undefined) return "\u2014";
+    if (ms <= 0) return "expired";
+    var mins = Math.floor(ms / 60000);
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    if (h >= 24) {
+      var d = Math.floor(h / 24);
+      return d + "d " + (h % 24) + "h";
+    }
+    if (h > 0) return h + "h " + String(m).padStart(2, "0") + "m";
+    var secs = Math.floor((ms % 60000) / 1000);
+    return m + "m " + String(secs).padStart(2, "0") + "s";
+  }
+
+  function renderVault() {
+    var wrap = document.getElementById("vaultList");
+    if (!wrap) return;
+    if (!vaultRows.length) {
+      wrap.innerHTML = '<div class="muted">Nothing has been in the vault yet. Products land here once a drop they were in ends.</div>';
+      return;
+    }
+    var now = Date.now();
+    wrap.innerHTML = vaultRows.map(function (r) {
+      // Recompute from the expiry so the countdown ticks without refetching.
+      var left = r.expiresAt ? new Date(r.expiresAt).getTime() - now : null;
+      var live = !r.hiddenByAdmin && left !== null && left > 0;
+      var chip = r.hiddenByAdmin
+        ? '<span class="vault-chip out">Hidden</span>'
+        : live
+          ? '<span class="vault-chip in">In vault</span>'
+          : '<span class="vault-chip out">Expired</span>';
+      var custom = r.customExpiry ? '<span class="vault-chip custom">Custom</span>' : "";
+      return '<div class="vault-row' + (live ? "" : " is-out") + '">' +
+        '<div>' +
+          '<div class="vault-row__name">' + escapeHtml(r.title) + chip + custom + '</div>' +
+          '<div class="vault-row__id">' + escapeHtml(r.id) + '</div>' +
+          '<div class="vault-row__time">Leaves in <b>' + formatLeft(left) + '</b>' +
+            (r.expiresAt ? ' \u00b7 ' + new Date(r.expiresAt).toLocaleString() : "") + '</div>' +
+        '</div>' +
+        '<div class="vault-row__actions">' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="-60">&minus;1h</button>' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="60">+1h</button>' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="1440">+1d</button>' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="at">Set time</button>' +
+          (r.customExpiry ? '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="clear">Reset</button>' : "") +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="' + (r.hiddenByAdmin ? "show" : "hide") + '">' +
+            (r.hiddenByAdmin ? "Show" : "Hide") + '</button>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  async function refreshVault() {
+    try {
+      var data = await apiJson("/api/admin/vault");
+      vaultRows = Array.isArray(data.products) ? data.products : [];
+      var note = document.getElementById("vaultWindowNote");
+      if (note) {
+        note.textContent = "Default window: " + Math.round((data.windowMs || 0) / 3600000) +
+          "h after a drop ends. Set VAULT_SAVE_WINDOW_HOURS to change it for everything.";
+      }
+      renderVault();
+      if (vaultTimer) clearInterval(vaultTimer);
+      vaultTimer = setInterval(renderVault, 1000);
+    } catch (err) {
+      var w = document.getElementById("vaultList");
+      if (w) w.innerHTML = '<div class="muted">' + escapeHtml(err.message || String(err)) + "</div>";
+    }
+  }
+
+  document.addEventListener("click", async function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-vault]") : null;
+    if (!btn) return;
+    var id = btn.getAttribute("data-vault");
+    var act = btn.getAttribute("data-act");
+    var body = null;
+    if (act === "hide") body = { hidden: true };
+    else if (act === "show") body = { hidden: false };
+    else if (act === "clear") body = { expiresAt: null };
+    else if (act === "at") {
+      var current = (vaultRows.find(function (r) { return r.id === id; }) || {}).expiresAt;
+      var suggested = current ? new Date(current).toISOString().slice(0, 16) : "";
+      var input = prompt("Leave the vault at (YYYY-MM-DDTHH:MM, local time):", suggested);
+      if (!input) return;
+      var parsed = new Date(input);
+      if (isNaN(parsed.getTime())) { alert("Could not read that date."); return; }
+      body = { expiresAt: parsed.toISOString() };
+    } else body = { extendMinutes: Number(act) };
+
+    btn.disabled = true;
+    try {
+      await apiJson("/api/admin/vault/" + encodeURIComponent(id), { method: "PATCH", body: body });
+      await refreshVault();
+    } catch (err) {
+      alert(err.message || String(err));
+      btn.disabled = false;
+    }
+  });
 
   async function handleToggle(product, nextEnabled) {
     try {
