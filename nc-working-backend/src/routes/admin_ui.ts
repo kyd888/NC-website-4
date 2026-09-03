@@ -237,6 +237,11 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
               <div class="form-note">Leave blank to launch immediately.</div>
             </div>
             <div>
+              <label>End time (local)</label>
+              <input id="endAt" type="datetime-local" />
+              <div class="form-note" id="durNote">Ends 2h after it starts.</div>
+            </div>
+            <div>
               <label>Duration (minutes)</label>
               <input id="dur" type="number" value="120" min="5" />
             </div>
@@ -1706,6 +1711,98 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     }
   });
 
+  // ---------- Start / end / duration stay in step ----------
+  // The API only takes durationMinutes, so the end picker is a nicer way to
+  // express the same number: pick a moment, and the minutes follow.
+  var startInput = document.getElementById("startAt");
+  var endInput = document.getElementById("endAt");
+  var durInput = document.getElementById("dur");
+  var durNote = document.getElementById("durNote");
+  var syncing = false;
+
+  function toLocalInputValue(date) {
+    var offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  }
+
+  function dropStartDate() {
+    // Blank start means "launch immediately", so measure from now.
+    if (startInput && startInput.value) {
+      var d = new Date(startInput.value);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  }
+
+  function describeMinutes(mins) {
+    if (!Number.isFinite(mins) || mins <= 0) return "";
+    var h = Math.floor(mins / 60);
+    var m = Math.round(mins % 60);
+    if (h >= 24) {
+      var d = Math.floor(h / 24);
+      var rem = h % 24;
+      return rem ? d + "d " + rem + "h" : d + "d";
+    }
+    if (h > 0) return h + "h" + (m ? " " + m + "m" : "");
+    return m + "m";
+  }
+
+  function noteFor(mins, invalid) {
+    if (!durNote) return;
+    if (invalid) {
+      durNote.textContent = "End time must be after the start.";
+      durNote.style.color = "#e08585";
+      return;
+    }
+    durNote.style.color = "";
+    durNote.textContent = mins > 0 ? "Runs for " + describeMinutes(mins) + "." : "";
+  }
+
+  /** Duration changed (or the start moved): move the end to match. */
+  function syncEndFromDuration() {
+    if (syncing || !endInput || !durInput) return;
+    var mins = Number(durInput.value);
+    if (!Number.isFinite(mins) || mins <= 0) { noteFor(0); return; }
+    syncing = true;
+    endInput.value = toLocalInputValue(new Date(dropStartDate().getTime() + mins * 60000));
+    syncing = false;
+    noteFor(mins);
+  }
+
+  /** End picked: derive the minutes the API actually wants. */
+  function syncDurationFromEnd() {
+    if (syncing || !endInput || !durInput) return;
+    if (!endInput.value) { noteFor(Number(durInput.value)); return; }
+    var end = new Date(endInput.value);
+    if (isNaN(end.getTime())) return;
+    var mins = Math.round((end.getTime() - dropStartDate().getTime()) / 60000);
+    if (mins <= 0) { noteFor(0, true); return; }
+    syncing = true;
+    durInput.value = String(mins);
+    syncing = false;
+    noteFor(mins);
+  }
+
+  if (durInput) durInput.addEventListener("input", syncEndFromDuration);
+  if (endInput) endInput.addEventListener("input", syncDurationFromEnd);
+  // Moving the start slides the whole window, keeping the length.
+  if (startInput) startInput.addEventListener("input", syncEndFromDuration);
+  syncEndFromDuration();
+
+  /** Minutes to send, preferring an explicitly picked end time. */
+  function scheduledMinutes() {
+    if (endInput && endInput.value) {
+      var end = new Date(endInput.value);
+      if (!isNaN(end.getTime())) {
+        var mins = Math.round((end.getTime() - dropStartDate().getTime()) / 60000);
+        if (mins > 0) return mins;
+        return null;
+      }
+    }
+    var typed = Number(durInput ? durInput.value : 120);
+    return Number.isFinite(typed) && typed > 0 ? Math.floor(typed) : 120;
+  }
+
   document.getElementById("btnSchedule").addEventListener("click", async () => {
     try {
       const { selected } = buildQtyPayload();
@@ -1714,11 +1811,15 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
         return;
       }
       const startVal = document.getElementById("startAt").value;
-      const durationVal = Number(document.getElementById("dur").value || 120);
+      const minutes = scheduledMinutes();
+      if (minutes === null) {
+        alert("End time must be after the start time.");
+        return;
+      }
       const startsAt = startVal ? new Date(startVal).toISOString() : "now";
       const body = {
         startsAt,
-        durationMinutes: Number.isFinite(durationVal) && durationVal > 0 ? Math.floor(durationVal) : 120,
+        durationMinutes: minutes,
         initialQty: selected,
       };
       const resp = await apiJson("/api/admin/drop/manual", {
