@@ -12,6 +12,10 @@ import {
 } from "./hooks/useAccount";
 import { requireBackendUrl, stripePublishableKey } from "./config";
 import { fetchWithSession } from "./lib/session";
+import { fetchBackendJson, readCache, writeCache } from "./lib/backend";
+
+// The shop the visitor last saw, replayed while the API wakes up.
+const CATALOG_CACHE_KEY = "catalog";
 
 type BackendProduct = {
   id: string;
@@ -191,13 +195,21 @@ function App() {
     drop,
     remainingById,
     vaultById,
+    waking: dropWaking,
     refresh: refreshDropState,
   } = useDrop(BACKEND_URL);
   const account = useAccount(BACKEND_URL);
 
-  const [catalog, setCatalog] = useState<ProductCard[]>([]);
-  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [catalog, setCatalog] = useState<ProductCard[]>(
+    () => readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? [],
+  );
+  // Only a first-ever visitor waits on an empty screen; everyone else reads
+  // the cached shop while the fetch runs.
+  const [loadingCatalog, setLoadingCatalog] = useState(
+    () => (readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? []).length === 0,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [catalogWaking, setCatalogWaking] = useState(false);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -358,15 +370,18 @@ function App() {
     const fetchCatalog = async () => {
       setLoadingCatalog(true);
       try {
-        const res = await fetchWithSession(`${BACKEND_URL}/api/products`, {
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-        const data = await res.json();
-        const list: BackendProduct[] = Array.isArray(data?.products)
-          ? data.products
+        const data = await fetchBackendJson<{ products?: BackendProduct[] } | BackendProduct[]>(
+          `${BACKEND_URL}/api/products`,
+          {
+            onRetry: () => {
+              if (!cancelled) setCatalogWaking(true);
+            },
+          },
+        );
+        const list: BackendProduct[] = Array.isArray((data as { products?: BackendProduct[] })?.products)
+          ? (data as { products: BackendProduct[] }).products
           : Array.isArray(data)
-          ? data
+          ? (data as BackendProduct[])
           : [];
 
         const cards: ProductCard[] = list.map((product, index) => {
@@ -397,11 +412,23 @@ function App() {
         if (!cancelled) {
           setCatalog(cards);
           setLoadError(null);
+          setCatalogWaking(false);
+          writeCache(CATALOG_CACHE_KEY, cards);
         }
       } catch (err) {
         if (!cancelled) {
-          setCatalog([]);
-          setLoadError(err instanceof Error ? err.message : "Unable to load catalog");
+          setCatalogWaking(false);
+          // Keep the cached shop up rather than blanking it — stale prices for
+          // a moment beat an empty store during a drop.
+          const fallback = readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? [];
+          setCatalog(fallback);
+          setLoadError(
+            fallback.length > 0
+              ? null
+              : err instanceof Error
+              ? err.message
+              : "Unable to load catalog",
+          );
         }
       } finally {
         if (!cancelled) setLoadingCatalog(false);
@@ -966,11 +993,16 @@ function App() {
             countdown={countdownParts}
             startsAtLabel={formattedSetStart}
             countdownComplete={countdownComplete}
+            waking={dropWaking}
             onRefresh={refreshExperience}
           />
         ) : (
           <>
-      {loadingCatalog && <div style={{ padding: 24 }}>Loading catalog...</div>}
+      {loadingCatalog && visibleCatalog.length === 0 && (
+        <div style={{ padding: 24 }}>
+          {catalogWaking ? "Waking the shop up, one moment..." : "Loading catalog..."}
+        </div>
+      )}
       {!loadingCatalog && loadError && <div style={{ padding: 24 }}>{loadError}</div>}
       {!loadingCatalog && !loadError && visibleCatalog.length === 0 && (
         <div className="empty-state">
@@ -1405,6 +1437,8 @@ type LandingScreenProps = {
   countdown: CountdownPart[];
   startsAtLabel: string | null;
   countdownComplete: boolean;
+  /** The API is still waking; "no drop" would be a guess, not a fact. */
+  waking?: boolean;
   onRefresh: () => void;
 };
 
@@ -1413,16 +1447,21 @@ function LandingScreen({
   countdown,
   startsAtLabel,
   countdownComplete,
+  waking = false,
   onRefresh,
 }: LandingScreenProps) {
   const isScheduled = status === "scheduled";
-  const eyebrow = isScheduled ? "Drop incoming" : "No drop active";
-  const title = isScheduled
+  const eyebrow = waking ? "Connecting" : isScheduled ? "Drop incoming" : "No drop active";
+  const title = waking
+    ? "One moment."
+    : isScheduled
     ? countdownComplete
       ? "Going live now"
       : "The room opens soon"
     : "Something's in the works.";
-  const copy = isScheduled
+  const copy = waking
+    ? "Reaching the studio — this page fills in by itself the moment it answers."
+    : isScheduled
     ? countdownComplete
       ? "Hold tight — the drop is loading."
       : "Countdown locked to the scheduled drop time. The storefront opens automatically when we go live."
@@ -1442,6 +1481,8 @@ function LandingScreen({
         <h1 className="landing-screen__title">{title}</h1>
         <p className="landing-screen__copy">{copy}</p>
 
+        {/* No drop data yet while connecting, so empty tiles would be noise. */}
+        {!waking && (
         <div className="landing-screen__countdown" aria-label="Countdown to live set">
           {countdown.map((part) => (
             <div key={part.label} className="landing-screen__tile">
@@ -1450,10 +1491,15 @@ function LandingScreen({
             </div>
           ))}
         </div>
+        )}
 
         <div className="landing-screen__footer">
           <div className="landing-screen__schedule">
-            {startsAtLabel ? `Starts ${startsAtLabel}` : "Release window TBA"}
+            {waking
+              ? "Checking the schedule"
+              : startsAtLabel
+              ? `Starts ${startsAtLabel}`
+              : "Release window TBA"}
           </div>
           <button type="button" className="landing-screen__refresh" onClick={onRefresh}>
             Refresh
