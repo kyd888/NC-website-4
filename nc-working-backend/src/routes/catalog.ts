@@ -20,6 +20,7 @@ import {
 } from "../lib/inventory.js";
 import { recordSale } from "../lib/sales.js";
 import { sendPurchaseNotificationEmail, sendReceiptEmail, sendCartAbandonmentEmail } from "../lib/mailer.js";
+import { noteCartAdd } from "../lib/cartAlerts.js";
 import type { CatalogItem } from "../lib/types.js";
 import { getAuthContext } from "../lib/auth.js";
 import { getKydContent } from "../lib/siteContent.js";
@@ -468,9 +469,20 @@ catalogRouter.post("/cart/add", (req, res) => {
     reservedAt: Date.now(),
   };
 
-  // Schedule abandonment check if we have the user's email
   const auth = getAuthContext(req);
   const userEmail = auth?.user?.email;
+
+  // Batched so a browsing session doesn't turn into a stream of emails.
+  noteCartAdd({
+    sessionId: id,
+    productId,
+    title: product.title,
+    qty: addQty,
+    priceCents: product.priceCents,
+    email: userEmail,
+  });
+
+  // Schedule abandonment check if we have the user's email
   if (userEmail) {
     scheduleAbandonmentCheck(id, userEmail, () => {
       const summary = summarizeCart(getActiveCartEntries(session));
@@ -736,9 +748,17 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     items: orderItems,
     paymentRef: paymentIntentId ?? undefined,
     orderedAt: new Date().toISOString(),
-  }).catch((error) => {
-    console.error("[mailer] Purchase notification failed:", error);
-  });
+  })
+    .then((sent) => {
+      if (sent) console.log(`[mailer] Purchase notification sent for ${orderId}`);
+      else
+        console.warn(
+          `[mailer] Purchase notification for ${orderId} was NOT sent — check ORDER_NOTIFY_EMAIL and the mail transport.`,
+        );
+    })
+    .catch((error) => {
+      console.error("[mailer] Purchase notification failed:", error);
+    });
 
   session.cart = {};
   session.updatedAt = Date.now();

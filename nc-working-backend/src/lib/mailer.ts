@@ -36,6 +36,8 @@ export type ReceiptEmailPayload = {
 
 export type PurchaseNotificationPayload = ReceiptEmailPayload & {
   orderedAt?: string;
+  /** Overrides the configured recipient — used by the admin's test send. */
+  notifyTo?: string;
 };
 
 export type VaultReleaseEmailPayload = {
@@ -61,6 +63,22 @@ export type CartAbandonmentEmailPayload = {
   email: string;
   items: CartAbandonmentItem[];
   stillAvailable: boolean; // true = items still in stock, false = sold out
+};
+
+export type CartActivityLine = {
+  title: string;
+  size?: string;
+  qty: number;
+  priceCents?: number;
+};
+
+export type CartActivityPayload = {
+  lines: CartActivityLine[];
+  carts: number;          // how many separate shoppers this covers
+  windowMinutes: number;  // the batching window that produced this digest
+  shoppers: string[];     // emails of the signed-in ones, when known
+  /** Overrides the configured recipient — used by the admin's test send. */
+  notifyTo?: string;
 };
 
 export type DropTeaserEmailPayload = {
@@ -97,6 +115,62 @@ if (resendClient) {
   console.log("[mailer] Using Resend HTTP API for delivery");
 } else {
   console.log("[mailer] RESEND_API_KEY not set — falling back to SMTP");
+}
+
+// -----------------------------
+// Where store notifications go
+// -----------------------------
+/**
+ * The shop owner's inbox. Defaults to the site's own orders address so a
+ * fresh deploy still notifies somebody; override with ORDER_NOTIFY_EMAIL, or
+ * set it to "off" to silence notifications entirely.
+ */
+const DEFAULT_NOTIFY_EMAIL = "orders@no-connection.com";
+
+function resolveRecipient(raw: string | undefined | null): string | null {
+  const value = (raw ?? "").trim();
+  if (!value) return null;
+  return value.toLowerCase() === "off" ? null : value;
+}
+
+/** Who hears about purchases. */
+export function orderNotificationRecipient(): string | null {
+  return resolveRecipient(
+    process.env.ORDER_NOTIFY_EMAIL ||
+      process.env.PURCHASE_NOTIFY_EMAIL ||
+      process.env.ADMIN_NOTIFY_EMAIL ||
+      DEFAULT_NOTIFY_EMAIL,
+  );
+}
+
+/** Who hears about carts. Follows the order address unless set separately. */
+export function cartNotificationRecipient(): string | null {
+  const explicit = (process.env.CART_NOTIFY_EMAIL ?? "").trim();
+  if (explicit) return resolveRecipient(explicit);
+  return orderNotificationRecipient();
+}
+
+{
+  const orders = orderNotificationRecipient();
+  const carts = cartNotificationRecipient();
+  console.log(
+    orders
+      ? `[mailer] Purchase notifications -> ${orders}`
+      : "[mailer] Purchase notifications are OFF (ORDER_NOTIFY_EMAIL=off)",
+  );
+  console.log(
+    carts
+      ? `[mailer] Cart notifications -> ${carts}`
+      : "[mailer] Cart notifications are OFF (CART_NOTIFY_EMAIL=off)",
+  );
+  if ((orders || carts) && EMAIL_FROM.includes("resend.dev")) {
+    console.warn(
+      "[mailer] EMAIL_FROM is still the Resend sandbox sender — Resend will only " +
+        "deliver to the address that owns the API key. Verify no-connection.com " +
+        'and set EMAIL_FROM="NO CONNECTION <orders@no-connection.com>" to get ' +
+        "notifications at any other address.",
+    );
+  }
 }
 
 // --- SMTP fallback (nodemailer) ---
@@ -462,10 +536,7 @@ The NC team`;
 }
 
 export async function sendPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
-  const notifyTo =
-    process.env.ORDER_NOTIFY_EMAIL ||
-    process.env.PURCHASE_NOTIFY_EMAIL ||
-    process.env.ADMIN_NOTIFY_EMAIL;
+  const notifyTo = payload.notifyTo?.trim() || orderNotificationRecipient();
   if (!notifyTo) return false;
   const orderLabel = condenseOrderId(payload.orderId);
   const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
@@ -499,6 +570,51 @@ ${addressText}`;
     ${formatItemsHtml(payload.items || [])}
     <h3 style="margin:18px 0 8px;">Shipping</h3>
     <p>${escapeHtml(addressText).replace(/\n/g, "<br/>")}</p>
+  </div>`;
+
+  return sendEmail({ to: notifyTo, subject, text: textBody, html: htmlBody });
+}
+
+/**
+ * A digest of what went into carts, not a message per tap. The batching lives
+ * in lib/cartAlerts.ts; this only renders whatever it hands over.
+ */
+export async function sendCartActivityEmail(payload: CartActivityPayload) {
+  const notifyTo = payload.notifyTo?.trim() || cartNotificationRecipient();
+  if (!notifyTo || payload.lines.length === 0) return false;
+
+  const units = payload.lines.reduce((sum, line) => sum + line.qty, 0);
+  const cartWord = payload.carts === 1 ? "cart" : "carts";
+  const windowLabel = `${payload.windowMinutes} minute${payload.windowMinutes === 1 ? "" : "s"}`;
+  const subject = `NC carts: ${units} item${units === 1 ? "" : "s"} added by ${payload.carts} ${cartWord}`;
+
+  const lineText = (line: CartActivityLine) => {
+    const name = line.size ? `${line.title} (${line.size})` : line.title;
+    const price = line.priceCents != null ? ` — ${currencyFormatter.format(line.priceCents / 100)} ea` : "";
+    return `${line.qty}x ${name}${price}`;
+  };
+
+  const who = payload.shoppers.length
+    ? payload.shoppers.join(", ")
+    : "no signed-in shoppers";
+
+  const textBody = `Added to carts in the last ${windowLabel}:
+
+${payload.lines.map(lineText).join("\n")}
+
+Carts: ${payload.carts}
+Signed in: ${who}
+
+Nothing is paid for yet — this is browsing activity.`;
+
+  const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;">
+    <h2 style="margin:0 0 12px;">Added to carts</h2>
+    <p style="margin:0 0 12px;color:#555;">Last ${windowLabel} &middot; ${payload.carts} ${cartWord}</p>
+    <ul style="margin:0 0 16px;padding-left:18px;">
+      ${payload.lines.map((line) => `<li>${escapeHtml(lineText(line))}</li>`).join("")}
+    </ul>
+    <p style="margin:0 0 6px;"><strong>Signed in:</strong> ${escapeHtml(who)}</p>
+    <p style="margin:0;color:#777;font-size:12px;">Nothing is paid for yet — this is browsing activity.</p>
   </div>`;
 
   return sendEmail({ to: notifyTo, subject, text: textBody, html: htmlBody });

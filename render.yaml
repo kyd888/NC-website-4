@@ -39,6 +39,27 @@ services:
       - key: DATA_DIR
         value: /var/data
 
+      # Notifications. RESEND_API_KEY (or SMTP_HOST/SMTP_USER/SMTP_PASS) is what
+      # actually delivers mail — without one, nothing is sent and the server
+      # says so at boot. EMAIL_FROM must be on a domain verified with the
+      # provider, otherwise only the provider account's own address receives
+      # anything.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: NO CONNECTION <orders@no-connection.com>
+      # Where purchase alerts land. Defaults to orders@no-connection.com; set
+      # to "off" to silence them.
+      - key: ORDER_NOTIFY_EMAIL
+        value: orders@no-connection.com
+      # Cart alerts follow ORDER_NOTIFY_EMAIL unless set here. They are batched
+      # into one digest per window, so a busy drop sends a handful of emails
+      # rather than one per tap.
+      - key: CART_NOTIFY_EMAIL
+        sync: false
+      - key: CART_NOTIFY_WINDOW_MINUTES
+        value: "10"
+
     # Render allows a single disk per service, so it holds the data stores
     # rather than uploads. It deliberately sits outside public/: index.ts
     # serves that whole directory statically, so anything under it — including

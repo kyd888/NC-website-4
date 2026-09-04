@@ -444,6 +444,27 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       <div class="card card-stack">
         <section class="card-section">
           <div class="card-section-header">
+            <h3>Notifications</h3>
+            <p class="meta">Where purchase and cart alerts go, and proof they arrive.</p>
+          </div>
+          <div class="card-surface stack">
+            <div id="notif_state" class="meta">Loading…</div>
+            <div class="row">
+              <div>
+                <label>Send a test to</label>
+                <input id="notif_to" type="email" placeholder="Configured address" />
+              </div>
+            </div>
+            <div class="btnline">
+              <button class="btn" id="notif_test_purchase" type="button">Test purchase alert</button>
+              <button class="btn" id="notif_test_cart" type="button">Test cart alert</button>
+              <button class="btn" id="notif_refresh" type="button">Refresh</button>
+            </div>
+            <div id="notif_result" class="meta"></div>
+          </div>
+        </section>
+        <section class="card-section">
+          <div class="card-section-header">
             <h3>Auto-drop</h3>
             <p class="meta">Automatically trigger drops when velocity spikes.</p>
           </div>
@@ -2300,6 +2321,57 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     });
   }
 
+  // ── Notifications ──────────────────────────────────────────────────────────
+  // The store is only as good as the alerts: this says where they go and lets
+  // you prove one lands before a real order depends on it.
+  const notifState = document.getElementById("notif_state");
+  const notifResult = document.getElementById("notif_result");
+
+  async function loadNotifications() {
+    if (!notifState) return;
+    if (!getKey()) {
+      notifState.textContent = "Enter admin key to load notification settings.";
+      return;
+    }
+    try {
+      const cfg = await apiJson("/api/admin/notifications");
+      const parts = [];
+      parts.push("Purchases -> " + (cfg.orderTo || "OFF"));
+      parts.push("Carts -> " + (cfg.cartTo || "OFF") + " (batched every " + cfg.cartWindowMinutes + " min)");
+      parts.push("From " + cfg.from + " via " + cfg.transport);
+      if (cfg.transport === "none") {
+        parts.push("WARNING: no mail transport configured — set RESEND_API_KEY or SMTP_HOST.");
+      } else if (cfg.sandboxSender) {
+        parts.push("WARNING: sandbox sender — Resend will only deliver to the API key owner until no-connection.com is verified and EMAIL_FROM is set.");
+      }
+      notifState.innerHTML = parts.map(function (line) {
+        return "<div>" + line.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</div>";
+      }).join("");
+    } catch (err) {
+      notifState.textContent = err.message || String(err);
+    }
+  }
+
+  async function sendTestNotification(type) {
+    if (!notifResult) return;
+    const toField = document.getElementById("notif_to");
+    const to = toField && toField.value.trim() ? toField.value.trim() : undefined;
+    notifResult.textContent = "Sending…";
+    try {
+      const resp = await apiJson("/api/admin/test-email", { method: "POST", body: { type: type, to: to } });
+      notifResult.textContent = resp.message || "Sent.";
+    } catch (err) {
+      notifResult.textContent = "Failed: " + (err.message || String(err));
+    }
+  }
+
+  const notifPurchaseBtn = document.getElementById("notif_test_purchase");
+  if (notifPurchaseBtn) notifPurchaseBtn.addEventListener("click", () => sendTestNotification("purchase"));
+  const notifCartBtn = document.getElementById("notif_test_cart");
+  if (notifCartBtn) notifCartBtn.addEventListener("click", () => sendTestNotification("cart"));
+  const notifRefreshBtn = document.getElementById("notif_refresh");
+  if (notifRefreshBtn) notifRefreshBtn.addEventListener("click", loadNotifications);
+
   document.getElementById("ad_save").addEventListener("click", async () => {
     try {
       const body = {
@@ -2329,6 +2401,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       refreshState();
       refreshSales();
       loadAutoDrop();
+      loadNotifications();
       refreshVaultReady();
       refreshVaultSaves();
     } else {
@@ -2346,6 +2419,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   refreshState();
   refreshSales();
   loadAutoDrop();
+  loadNotifications();
   refreshDrops();
   refreshVaultReady();
   refreshVaultSaves();
