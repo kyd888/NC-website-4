@@ -110,6 +110,7 @@ export const shows: Show[] = [
     date: "2026-09-18",
     city: "OKLAHOMA CITY, OK",
     venue: "WHEELER FERRIS WHEEL",
+    poster: "/kyd/wheeler-ferris-wheel.jpg",
     info: "https://www.instagram.com/p/DY2k5GSo0aJ/",
   },
   {
@@ -152,15 +153,10 @@ export const shows: Show[] = [
   },
 ];
 
-// No Connection events. Same shape as shows so the two lists render the same way.
-export const events: Show[] = [
-  { id: "NC-006", title: "NC-006", date: "2026-09-18", city: "CHICAGO, IL" },
-  { id: "NC-005", title: "NC-005", date: "2026-06-12", city: "CHICAGO, IL" },
-  { id: "NC-004", title: "NC-004", date: "2026-04-03", city: "CHICAGO, IL" },
-  { id: "NC-003", title: "NC-003", date: "2026-02-14", city: "CHICAGO, IL" },
-  { id: "NC-002", title: "NC-002", date: "2025-12-05", city: "CHICAGO, IL" },
-  { id: "NC-001", title: "NC-001", date: "2025-10-10", city: "CHICAGO, IL" },
-];
+// No Connection events. Same shape as shows so the two lists render the same
+// way. Empty until there is a real date to announce — the page says so rather
+// than showing placeholders that read as a real schedule.
+export const events: Show[] = [];
 
 export const visuals: Visual[] = [
   {
