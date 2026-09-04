@@ -69,7 +69,15 @@ export default function Events() {
           ))}
         </nav>
 
-        {upcoming.length === 0 && <p className="muted">Nothing scheduled.</p>}
+        {upcoming.length === 0 && (
+          <p className="muted">
+            {filter === "kyd"
+              ? "No KYD dates announced right now."
+              : filter === "nc"
+              ? "No Connection dates are being put together. Nothing announced yet."
+              : "Nothing announced yet."}
+          </p>
+        )}
 
         {upcoming.map((ev) => (
           <div className="feature" key={`${ev.kind}-${ev.id}`}>

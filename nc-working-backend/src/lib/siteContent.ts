@@ -58,7 +58,9 @@ export type KydContent = {
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "data");
 const KYD_FILE = path.join(DATA_DIR, "kyd.json");
 const CONTENT_ID = "kyd";
-const CURRENT_CONTENT_REVISION = 2;
+const CURRENT_CONTENT_REVISION = 3;
+
+const WHEELER_POSTER = "/kyd/wheeler-ferris-wheel.jpg";
 
 const WHEELER_SHOW: KydShow = {
   id: "wheeler-summer-concert-series-2026",
@@ -66,6 +68,7 @@ const WHEELER_SHOW: KydShow = {
   date: "2026-09-18",
   city: "OKLAHOMA CITY, OK",
   venue: "WHEELER FERRIS WHEEL",
+  poster: WHEELER_POSTER,
   info: "https://www.instagram.com/p/DY2k5GSo0aJ/",
 };
 
@@ -422,6 +425,15 @@ function migrateKnownContent(value: KydContent): boolean {
         (show.date === WHEELER_SHOW.date && show.title.toLowerCase().includes("wheeler")),
     );
     if (!hasWheelerShow) value.shows.unshift(clone(WHEELER_SHOW));
+    value.revision = 2;
+    changed = true;
+  }
+
+  if (value.revision < 3) {
+    // The Wheeler date shipped without artwork and rendered as a black tile.
+    // Only fills a gap: a poster set in the admin is left alone.
+    const wheeler = value.shows.find((show) => show.id === WHEELER_SHOW.id);
+    if (wheeler && !wheeler.poster) wheeler.poster = WHEELER_POSTER;
     value.revision = CURRENT_CONTENT_REVISION;
     changed = true;
   }
