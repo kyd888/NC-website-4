@@ -27,8 +27,23 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      # Cloudinary hosts product images. Without it, uploads land on the
+      # container filesystem and are lost on the next deploy.
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      # Keeps the JSON stores on the disk below, so the catalog, drops,
+      # inventory, orders and accounts survive a restart while DATABASE_URL is
+      # unset. Remove this once a database is attached — Postgres is the real
+      # answer, and a disk pins the service to one instance and blocks
+      # zero-downtime deploys.
+      - key: DATA_DIR
+        value: /var/data
 
+    # Render allows a single disk per service, so it holds the data stores
+    # rather than uploads. It deliberately sits outside public/: index.ts
+    # serves that whole directory statically, so anything under it — including
+    # password hashes and the orders export — would be publicly fetchable.
     disks:
-      - name: uploads
-        mountPath: /opt/render/project/src/nc-working-backend/public/uploads
+      - name: nc-data
+        mountPath: /var/data
         sizeGB: 1
