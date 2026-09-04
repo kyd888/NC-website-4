@@ -12,6 +12,10 @@ import {
 } from "./hooks/useAccount";
 import { requireBackendUrl, stripePublishableKey } from "./config";
 import { fetchWithSession } from "./lib/session";
+import { fetchBackendJson, readCache, writeCache } from "./lib/backend";
+
+// The shop the visitor last saw, replayed while the API wakes up.
+const CATALOG_CACHE_KEY = "catalog";
 
 type BackendProduct = {
   id: string;
@@ -21,6 +25,8 @@ type BackendProduct = {
   /** Primary first — front, back, detail. Falls back to imageUrl alone. */
   images?: string[];
   tags?: string[] | string;
+  /** Sizes this product needs picking from. Empty means no size at all. */
+  sizes?: string[];
   remaining?: number;
 };
 
@@ -34,6 +40,8 @@ type ProductCard = {
   images: string[];
   bg: string;
   tags: string[];
+  /** Empty for anything that doesn't need a size. */
+  sizes: string[];
   order: number;
 };
 
@@ -187,16 +195,26 @@ function App() {
     drop,
     remainingById,
     vaultById,
+    waking: dropWaking,
     refresh: refreshDropState,
   } = useDrop(BACKEND_URL);
   const account = useAccount(BACKEND_URL);
 
-  const [catalog, setCatalog] = useState<ProductCard[]>([]);
-  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [catalog, setCatalog] = useState<ProductCard[]>(
+    () => readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? [],
+  );
+  // Only a first-ever visitor waits on an empty screen; everyone else reads
+  // the cached shop while the fetch runs.
+  const [loadingCatalog, setLoadingCatalog] = useState(
+    () => (readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? []).length === 0,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [catalogWaking, setCatalogWaking] = useState(false);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  // Sizes are picked in the bag, one per unit: { "tee-black": ["M", "L"] }.
+  const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>({});
   const [toast, setToast] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [saveSheet, setSaveSheet] = useState<SaveSheetState | null>(null);
@@ -352,15 +370,18 @@ function App() {
     const fetchCatalog = async () => {
       setLoadingCatalog(true);
       try {
-        const res = await fetchWithSession(`${BACKEND_URL}/api/products`, {
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-        const data = await res.json();
-        const list: BackendProduct[] = Array.isArray(data?.products)
-          ? data.products
+        const data = await fetchBackendJson<{ products?: BackendProduct[] } | BackendProduct[]>(
+          `${BACKEND_URL}/api/products`,
+          {
+            onRetry: () => {
+              if (!cancelled) setCatalogWaking(true);
+            },
+          },
+        );
+        const list: BackendProduct[] = Array.isArray((data as { products?: BackendProduct[] })?.products)
+          ? (data as { products: BackendProduct[] }).products
           : Array.isArray(data)
-          ? data
+          ? (data as BackendProduct[])
           : [];
 
         const cards: ProductCard[] = list.map((product, index) => {
@@ -378,6 +399,7 @@ function App() {
             img,
             images,
             bg: ov.bg || "#f2f2ee",
+            sizes: Array.isArray(product.sizes) ? product.sizes : [],
             tags: Array.isArray(product.tags)
               ? product.tags
               : typeof product.tags === "string"
@@ -390,11 +412,23 @@ function App() {
         if (!cancelled) {
           setCatalog(cards);
           setLoadError(null);
+          setCatalogWaking(false);
+          writeCache(CATALOG_CACHE_KEY, cards);
         }
       } catch (err) {
         if (!cancelled) {
-          setCatalog([]);
-          setLoadError(err instanceof Error ? err.message : "Unable to load catalog");
+          setCatalogWaking(false);
+          // Keep the cached shop up rather than blanking it — stale prices for
+          // a moment beat an empty store during a drop.
+          const fallback = readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? [];
+          setCatalog(fallback);
+          setLoadError(
+            fallback.length > 0
+              ? null
+              : err instanceof Error
+              ? err.message
+              : "Unable to load catalog",
+          );
         }
       } finally {
         if (!cancelled) setLoadingCatalog(false);
@@ -572,6 +606,10 @@ function App() {
           item.holdExpiresAt != null
             ? Math.max(0, Math.ceil((item.holdExpiresAt - nowTick) / 1000))
             : null;
+        const sizes = product?.sizes ?? [];
+        // One slot per unit, so two of the same shirt can be M and L.
+        const picked = (sizeChoices[item.id] ?? []).slice(0, item.qty);
+        while (sizes.length && picked.length < item.qty) picked.push("");
         return {
           ...item,
           title: product?.title ?? item.id,
@@ -579,10 +617,40 @@ function App() {
           lineTotal: priceCents * item.qty,
           available: remainingById[item.id] ?? 0,
           holdSecondsRemaining,
+          sizes,
+          picked,
         };
       }),
-    [cart, catalog, remainingById, nowTick],
+    [cart, catalog, remainingById, nowTick, sizeChoices],
   );
+
+  // Every sized unit needs a size before payment can be taken.
+  const missingSizeFor = cartDetails.find(
+    (item) => item.sizes.length > 0 && item.picked.some((size) => !size),
+  );
+  const sizesPayload = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const item of cartDetails) {
+      if (item.sizes.length) out[item.id] = item.picked;
+    }
+    return out;
+  }, [cartDetails]);
+
+  // Confirm runs inside async payment callbacks, so read sizes from a ref
+  // rather than a closure captured when the handler was created.
+  const sizesPayloadRef = useRef<Record<string, string[]>>({});
+  useEffect(() => {
+    sizesPayloadRef.current = sizesPayload;
+  }, [sizesPayload]);
+
+  const chooseSize = (productId: string, unit: number, size: string) => {
+    setSizeChoices((prev) => {
+      const next = (prev[productId] ?? []).slice();
+      while (next.length <= unit) next.push("");
+      next[unit] = size;
+      return { ...prev, [productId]: next };
+    });
+  };
 
   const itemsTotal = cartDetails.reduce((acc, item) => acc + item.qty, 0);
   const priceTotalCents = cartDetails.reduce((acc, item) => acc + item.lineTotal, 0);
@@ -784,7 +852,7 @@ function App() {
       const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentIntentId, customer }),
+        body: JSON.stringify({ paymentIntentId, customer, sizes: sizesPayloadRef.current }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) {
@@ -925,11 +993,16 @@ function App() {
             countdown={countdownParts}
             startsAtLabel={formattedSetStart}
             countdownComplete={countdownComplete}
+            waking={dropWaking}
             onRefresh={refreshExperience}
           />
         ) : (
           <>
-      {loadingCatalog && <div style={{ padding: 24 }}>Loading catalog...</div>}
+      {loadingCatalog && visibleCatalog.length === 0 && (
+        <div style={{ padding: 24 }}>
+          {catalogWaking ? "Waking the shop up, one moment..." : "Loading catalog..."}
+        </div>
+      )}
       {!loadingCatalog && loadError && <div style={{ padding: 24 }}>{loadError}</div>}
       {!loadingCatalog && !loadError && visibleCatalog.length === 0 && (
         <div className="empty-state">
@@ -1230,6 +1303,32 @@ function App() {
                           Hold {formatHoldCountdown(item.holdSecondsRemaining)}
                         </div>
                       )}
+                      {item.sizes.length > 0 &&
+                        item.picked.map((chosenSize, unit) => (
+                          <div className="size-pick" key={`${item.id}-${unit}`}>
+                            <span className="size-pick__label">
+                              {item.qty > 1 ? `Size — item ${unit + 1}` : "Size"}
+                            </span>
+                            <div
+                              className="size-pick__options"
+                              role="radiogroup"
+                              aria-label={`Size for ${item.title}${item.qty > 1 ? `, item ${unit + 1}` : ""}`}
+                            >
+                              {item.sizes.map((size) => (
+                                <button
+                                  key={size}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={chosenSize === size}
+                                  className={`size-pick__option${chosenSize === size ? " is-on" : ""}`}
+                                  onClick={() => chooseSize(item.id, unit, size)}
+                                >
+                                  {size}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       <div className="cart-line__controls">
                         <button
                           type="button"
@@ -1266,6 +1365,7 @@ function App() {
                 </div>
                 <CartPaymentRequestButton
                   amountCents={priceTotalCents}
+                  sizes={sizesPayload}
                   onOrderComplete={(confirmation) => {
                     setCart([]);
                     setCartOpen(false);
@@ -1274,11 +1374,16 @@ function App() {
                   }}
                   onError={(msg) => showToast(msg, 3000)}
                 />
+                {missingSizeFor && (
+                  <div className="cart-sheet__note">
+                    Choose a size for {missingSizeFor.title} to check out.
+                  </div>
+                )}
                 <button
                   type="button"
                   className="cart-sheet__checkout"
                   onClick={beginCheckout}
-                  disabled={checkoutLoading}
+                  disabled={checkoutLoading || Boolean(missingSizeFor)}
                 >
                   {checkoutLoading ? "Preparing..." : "Checkout"}
                 </button>
@@ -1332,6 +1437,8 @@ type LandingScreenProps = {
   countdown: CountdownPart[];
   startsAtLabel: string | null;
   countdownComplete: boolean;
+  /** The API is still waking; "no drop" would be a guess, not a fact. */
+  waking?: boolean;
   onRefresh: () => void;
 };
 
@@ -1340,16 +1447,21 @@ function LandingScreen({
   countdown,
   startsAtLabel,
   countdownComplete,
+  waking = false,
   onRefresh,
 }: LandingScreenProps) {
   const isScheduled = status === "scheduled";
-  const eyebrow = isScheduled ? "Drop incoming" : "No drop active";
-  const title = isScheduled
+  const eyebrow = waking ? "Connecting" : isScheduled ? "Drop incoming" : "No drop active";
+  const title = waking
+    ? "One moment."
+    : isScheduled
     ? countdownComplete
       ? "Going live now"
       : "The room opens soon"
     : "Something's in the works.";
-  const copy = isScheduled
+  const copy = waking
+    ? "Reaching the studio — this page fills in by itself the moment it answers."
+    : isScheduled
     ? countdownComplete
       ? "Hold tight — the drop is loading."
       : "Countdown locked to the scheduled drop time. The storefront opens automatically when we go live."
@@ -1369,6 +1481,8 @@ function LandingScreen({
         <h1 className="landing-screen__title">{title}</h1>
         <p className="landing-screen__copy">{copy}</p>
 
+        {/* No drop data yet while connecting, so empty tiles would be noise. */}
+        {!waking && (
         <div className="landing-screen__countdown" aria-label="Countdown to live set">
           {countdown.map((part) => (
             <div key={part.label} className="landing-screen__tile">
@@ -1377,10 +1491,15 @@ function LandingScreen({
             </div>
           ))}
         </div>
+        )}
 
         <div className="landing-screen__footer">
           <div className="landing-screen__schedule">
-            {startsAtLabel ? `Starts ${startsAtLabel}` : "Release window TBA"}
+            {waking
+              ? "Checking the schedule"
+              : startsAtLabel
+              ? `Starts ${startsAtLabel}`
+              : "Release window TBA"}
           </div>
           <button type="button" className="landing-screen__refresh" onClick={onRefresh}>
             Refresh
@@ -2021,10 +2140,12 @@ function formatAddress(address?: CheckoutCustomer["address"]) {
 
 function CartPaymentRequestButton({
   amountCents,
+  sizes,
   onOrderComplete,
   onError,
 }: {
   amountCents: number;
+  sizes: Record<string, string[]>;
   onOrderComplete: (confirmation: OrderConfirmation) => void;
   onError: (msg: string) => void;
 }) {
@@ -2034,6 +2155,8 @@ function CartPaymentRequestButton({
   const [prAvailable, setPrAvailable] = useState(false);
   const onOrderCompleteRef = useRef(onOrderComplete);
   const onErrorRef = useRef(onError);
+  const sizesPayloadRef = useRef(sizes);
+  useEffect(() => { sizesPayloadRef.current = sizes; }, [sizes]);
   useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
   useEffect(() => { onErrorRef.current = onError; });
 
@@ -2123,7 +2246,7 @@ function CartPaymentRequestButton({
         const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paymentIntentId, customer }),
+          body: JSON.stringify({ paymentIntentId, customer, sizes: sizesPayloadRef.current }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.ok) { onErrorRef.current(json.error ?? "Checkout failed"); return; }

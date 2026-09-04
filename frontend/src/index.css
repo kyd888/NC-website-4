@@ -1088,3 +1088,24 @@ input,select,textarea{font-size:16px}
 }
 .share-cta:hover:not(:disabled){background:rgba(17,17,17,.05);color:#111}
 .meta-primary{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* ---------- Size picking in the bag ---------- */
+.size-pick{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.size-pick__label{
+  font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(17,17,17,.55);
+}
+.size-pick__options{display:flex;flex-wrap:wrap;gap:6px}
+.size-pick__option{
+  min-width:38px;padding:7px 10px;border-radius:999px;line-height:1;
+  border:1px solid rgba(0,0,0,.16);background:#fff;color:#111;
+  font-size:12px;letter-spacing:.06em;cursor:pointer;
+  transition:background .15s ease,color .15s ease,border-color .15s ease;
+}
+.size-pick__option:hover{border-color:rgba(0,0,0,.4)}
+.size-pick__option.is-on{background:#111;color:#fdfdfb;border-color:#111}
+.size-pick__option:focus-visible{outline:2px solid #111;outline-offset:2px}
+.cart-sheet__note{
+  font-size:12px;color:#a32b1f;text-align:center;margin-bottom:8px;
+}
+.cart-sheet__checkout:disabled{opacity:.4;cursor:not-allowed}
+@media (prefers-reduced-motion:reduce){.size-pick__option{transition:none}}

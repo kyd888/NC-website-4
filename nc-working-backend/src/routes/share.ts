@@ -123,7 +123,11 @@ shareRouter.get("/:id", (req, res) => {
   const shop = frontendOrigin();
   const images = (product.images?.length ? product.images : product.imageUrl ? [product.imageUrl] : [])
     .map((url) => absoluteUrl(req, url));
-  const ogImage = images[0] ?? "";
+  // Every shared link shows the NC mark, not the garment: one recognisable
+  // thumbnail across the feed instead of a photo cropped to a social card's
+  // shape. The product shots still carry the page itself. Regenerate the
+  // asset with scripts/make-og-card.mjs.
+  const ogImage = absoluteUrl(req, "/og-card.png");
   const canonical = `${trimSlash(process.env.BACKEND_ORIGIN) || `${req.protocol}://${req.get("host") ?? ""}`}/p/${encodeURIComponent(product.id)}`;
   const shareUrl = shop ? `${shop}/p/${encodeURIComponent(product.id)}` : canonical;
 
@@ -154,12 +158,14 @@ shareRouter.get("/:id", (req, res) => {
 <meta property="og:url" content="${escapeHtml(shareUrl)}" />
 <meta property="og:title" content="${title} — ${escapeHtml(price)}" />
 <meta property="og:description" content="${escapeHtml(description)}" />
-${ogImage ? `<meta property="og:image" content="${escapeHtml(ogImage)}" />
-<meta property="og:image:alt" content="${title}" />` : ""}
+<meta property="og:image" content="${escapeHtml(ogImage)}" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="No Connection" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="${title} — ${escapeHtml(price)}" />
 <meta name="twitter:description" content="${escapeHtml(description)}" />
-${ogImage ? `<meta name="twitter:image" content="${escapeHtml(ogImage)}" />` : ""}
+<meta name="twitter:image" content="${escapeHtml(ogImage)}" />
 
 <style>
   *{box-sizing:border-box}

@@ -84,7 +84,13 @@ const upload = multer({
 });
 
 import { getSalesCsvPath, groupSalesByOrder, listSales, summarizeSales } from "../lib/sales.js";
-import { sendPurchaseNotificationEmail, sendVaultReleaseEmail } from "../lib/mailer.js";
+import {
+  cartNotificationRecipient,
+  orderNotificationRecipient,
+  sendCartActivityEmail,
+  sendPurchaseNotificationEmail,
+  sendVaultReleaseEmail,
+} from "../lib/mailer.js";
 
 export const adminRouter = Router();
 
@@ -473,13 +479,33 @@ adminRouter.post("/autodrop", requireKey, (req, res) => {
   res.json({ ok: true, config: getAutoDropConfig() });
 });
 
+/** ========= Notifications ========= **/
+adminRouter.get("/notifications", requireKey, (_req, res) => {
+  const from =
+    process.env.EMAIL_FROM || process.env.SMTP_FROM || "NC Studio <onboarding@resend.dev>";
+  const windowRaw = Number.parseFloat(process.env.CART_NOTIFY_WINDOW_MINUTES ?? "");
+  res.json({
+    orderTo: orderNotificationRecipient(),
+    cartTo: cartNotificationRecipient(),
+    cartWindowMinutes:
+      Number.isFinite(windowRaw) && windowRaw > 0 ? Math.min(120, Math.max(1, windowRaw)) : 10,
+    transport: process.env.RESEND_API_KEY ? "resend" : process.env.SMTP_HOST ? "smtp" : "none",
+    from,
+    // The sandbox sender only delivers to the Resend account owner, which is
+    // the usual reason a correctly configured address still hears nothing.
+    sandboxSender: from.includes("resend.dev"),
+  });
+});
+
 /** ========= Test email ========= **/
 adminRouter.post("/test-email", requireKey, async (req, res) => {
   const to = typeof req.body?.to === "string" && req.body.to.trim()
     ? req.body.to.trim()
-    : process.env.ORDER_NOTIFY_EMAIL;
+    : orderNotificationRecipient();
 
-  const type = req.body?.type === "vault" ? "vault" : "purchase";
+  const requested = req.body?.type;
+  const type: "vault" | "cart" | "purchase" =
+    requested === "vault" ? "vault" : requested === "cart" ? "cart" : "purchase";
 
   if (!to) {
     return res.status(400).json({ error: "No recipient — set ORDER_NOTIFY_EMAIL or pass { to } in the request body" });
@@ -487,7 +513,22 @@ adminRouter.post("/test-email", requireKey, async (req, res) => {
 
   try {
     let ok = false;
-    if (type === "vault") {
+    if (type === "cart") {
+      const product = listCatalog()[0];
+      ok = await sendCartActivityEmail({
+        lines: [
+          {
+            title: product?.title ?? "Test Product",
+            qty: 2,
+            priceCents: product?.priceCents ?? 4000,
+          },
+        ],
+        carts: 1,
+        windowMinutes: 10,
+        shoppers: ["customer@example.com"],
+        notifyTo: to,
+      });
+    } else if (type === "vault") {
       const products = listCatalog();
       const product = products[0];
       ok = await sendVaultReleaseEmail({
@@ -508,6 +549,7 @@ adminRouter.post("/test-email", requireKey, async (req, res) => {
         customerEmail: "customer@example.com",
         items: [{ productId: "test", title: "Test Product", qty: 1, priceCents: 4000, lineTotalCents: 4000 }],
         orderedAt: new Date().toISOString(),
+        notifyTo: to,
       });
     }
     if (ok) {
