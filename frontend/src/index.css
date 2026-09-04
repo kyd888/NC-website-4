@@ -632,11 +632,21 @@ input,select,textarea{font-size:16px}
     padding-top: 0;
     padding-bottom: 0;
   }
+  /* The bar is sticky at bottom:0, so its bottom padding is the only thing
+     between the buttons and whatever the browser puts under the page. Safari
+     leaves room below the viewport; Instagram's in-app browser does not, and
+     16px read as clipped there. viewport-fit=cover is deliberately not set, so
+     env(safe-area-inset-bottom) is 0 in every browser here and cannot do this
+     job — hence a real value, sized to clear an iOS home indicator. */
+  .meta {
+    padding-bottom: 34px;
+  }
   .media {
     position: absolute;
     inset: 0;
     padding-top: clamp(8px, 2vh, 16px);
-    padding-bottom: 120px;
+    /* Kept in step with the taller bar so the shot never sits under it. */
+    padding-bottom: 138px;
     flex: none;
     width: auto;
     display: grid;
