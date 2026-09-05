@@ -1079,7 +1079,11 @@ input,select,textarea{font-size:16px}
 /* ---------- Product shots (front / back / detail) ---------- */
 .shots{position:relative;width:100%;height:100%}
 .shots img{
-  position:absolute;inset:0;width:100%;height:100%;object-fit:inherit;
+  /* object-fit:inherit was inheriting from .shots, which never sets it —
+     so it resolved to the initial 'fill' and stretched every gallery photo
+     to the box instead of preserving its aspect ratio. Match the single-
+     image behavior (.media img) directly. */
+  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
   opacity:0;transition:opacity .28s ease;
 }
 .shots img.is-current{opacity:1}
