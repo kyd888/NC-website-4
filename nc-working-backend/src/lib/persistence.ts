@@ -3,6 +3,7 @@ import { loadInventoryFromDb } from "./inventory.js";
 import { loadSalesFromDb } from "./sales.js";
 import { loadUsersFromDb } from "./users.js";
 import { loadVaultFromDb } from "./vault.js";
+import { loadKydContent } from "./siteContent.js";
 import { schemaSql } from "./schema.js";
 
 const CONNECT_ATTEMPTS = Math.max(1, Number.parseInt(process.env.DB_CONNECT_ATTEMPTS || "5", 10) || 5);
@@ -64,7 +65,22 @@ async function connectWithRetry() {
 }
 
 export async function initializePersistentStores() {
-  if (!dbEnabled) return;
+  // KYD content falls back to disk, so it loads with or without a database.
+  await loadKydContent();
+  if (!dbEnabled) {
+    // Without a database everything lives in DATA_DIR. On a host with an
+    // ephemeral filesystem (Render, unless that path is a mounted disk) each
+    // restart starts from nothing: no catalog, no live drop, so the shop shows
+    // "drop paused" until someone sets it up again. Say so loudly rather than
+    // letting it look like the shop broke.
+    console.warn(
+      "[storage] DATABASE_URL is not set — catalog, drops, inventory, orders and accounts are\n" +
+      "[storage] being written to the local filesystem only. If that path is not a persistent\n" +
+      "[storage] disk, ALL OF IT IS LOST on every restart and deploy, and the shop will come\n" +
+      "[storage] back with no products. Set DATABASE_URL to persist properly.",
+    );
+    return;
+  }
   await connectWithRetry();
   await loadUsersFromDb();
   await loadSalesFromDb();

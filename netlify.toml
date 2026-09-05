@@ -3,6 +3,15 @@
   command = "npm ci && npm run build"
   publish = "dist"
 
+# Shareable product pages are server-rendered by the backend so link previews
+# get real per-product OG tags — the SPA fallback below can only ever serve one
+# generic card. Must stay ABOVE the /* catch-all: Netlify takes the first match.
+[[redirects]]
+  from = "/p/*"
+  to = "https://nc-website-4.onrender.com/p/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/admin/*"
   to = "/index.html"

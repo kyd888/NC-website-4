@@ -26,11 +26,16 @@ import {
   getCurrentDropAnalytics,
   getDropHistory,
   setLiveInventory,
+  getVaultAdminRows,
+  setVaultHidden,
+  setVaultExpiry,
+  extendVault,
   addInventoryToLive,
   getVaultReadyProducts,
   getVaultSaveWindowMs,
 } from "../lib/inventory.js";
 import { getVaultSnapshot } from "../lib/vault.js";
+import { getKydContent, saveKydContent } from "../lib/siteContent.js";
 import { listUsers } from "../lib/users.js";
 import { requireAdminApi } from "../lib/adminAuth.js";
 
@@ -79,9 +84,30 @@ const upload = multer({
 });
 
 import { getSalesCsvPath, groupSalesByOrder, listSales, summarizeSales } from "../lib/sales.js";
-import { sendPurchaseNotificationEmail, sendVaultReleaseEmail } from "../lib/mailer.js";
+import {
+  cartNotificationRecipient,
+  orderNotificationRecipient,
+  sendCartActivityEmail,
+  sendPurchaseNotificationEmail,
+  sendVaultReleaseEmail,
+} from "../lib/mailer.js";
 
 export const adminRouter = Router();
+
+/** Accepts an array or a newline/comma separated string of image URLs. */
+function parseImages(input: unknown): string[] {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? input.split(/[\n,]/)
+      : [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const url = String(entry).trim();
+    if (url && !out.includes(url)) out.push(url);
+  }
+  return out.slice(0, 8);
+}
 
 function parseTags(input: unknown): string[] {
   if (Array.isArray(input)) {
@@ -107,6 +133,64 @@ adminRouter.get("/state", requireKey, (_req, res) => {
     drop: getCurrentDrop(),          // {id, code, startsAt, endsAt, status}
     remaining: getAllRemaining(),    // { [productId]: number }
   });
+});
+
+// KYD page content. PUT replaces whole sections; sections left out are kept.
+adminRouter.get("/kyd", requireKey, (_req, res) => {
+  res.json(getKydContent());
+});
+
+adminRouter.put("/kyd", requireKey, async (req, res) => {
+  try {
+    const saved = await saveKydContent(req.body ?? {});
+    res.json({ ok: true, content: saved });
+  } catch (error) {
+    console.error("[admin] failed to save KYD content", error);
+    res.status(500).json({ error: "Unable to save content" });
+  }
+});
+
+// Every product that has been live, with how long it has left in the vault.
+adminRouter.get("/vault", requireKey, (_req, res) => {
+  res.json({ windowMs: getVaultSaveWindowMs(), products: getVaultAdminRows(getVaultSaveWindowMs()) });
+});
+
+// Hide/show, set an exact expiry, or nudge it by minutes.
+adminRouter.patch("/vault/:id", requireKey, (req, res) => {
+  const id = req.params.id;
+  const body = req.body ?? {};
+  let touched = false;
+
+  if (body.hidden !== undefined) {
+    if (!setVaultHidden(id, body.hidden !== false)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    touched = true;
+  }
+
+  if (body.expiresAt !== undefined) {
+    // null clears the override and falls back to the global save window.
+    const value = body.expiresAt === null || body.expiresAt === "" ? null : String(body.expiresAt);
+    if (!setVaultExpiry(id, value)) {
+      return res.status(400).json({ error: "Invalid expiry" });
+    }
+    touched = true;
+  }
+
+  if (body.extendMinutes !== undefined) {
+    const minutes = Number(body.extendMinutes);
+    if (!Number.isFinite(minutes)) {
+      return res.status(400).json({ error: "Invalid minutes" });
+    }
+    if (!extendVault(id, minutes, getVaultSaveWindowMs())) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    touched = true;
+  }
+
+  if (!touched) return res.status(400).json({ error: "Nothing to change" });
+  const row = getVaultAdminRows(getVaultSaveWindowMs()).find((r) => r.id === id);
+  res.json({ ok: true, product: row ?? null });
 });
 
 adminRouter.get("/vault-ready", requireKey, (_req, res) => {
@@ -189,11 +273,18 @@ adminRouter.get("/products", requireKey, (_req, res) => {
 
 adminRouter.post("/products", requireKey, async (req, res) => {
   try {
-    const { id, title, priceCents, imageUrl, tags } = req.body || {};
+    const { id, title, priceCents, imageUrl, images, tags } = req.body || {};
     if (!id || !title || !Number.isFinite(priceCents)) {
       return res.status(400).json({ error: "Missing fields" });
     }
-    await upsertProduct({ id, title, priceCents, imageUrl, tags: parseTags(tags) });
+    await upsertProduct({
+      id,
+      title,
+      priceCents,
+      imageUrl,
+      images: parseImages(images),
+      tags: parseTags(tags),
+    });
     res.json({ ok: true });
   } catch (error) {
     console.error("[admin] failed to save product", error);
@@ -206,6 +297,9 @@ adminRouter.patch("/products/:id", requireKey, async (req, res) => {
     const body = { ...req.body };
     if (body.tags !== undefined) {
       body.tags = parseTags(body.tags);
+    }
+    if (body.images !== undefined) {
+      body.images = parseImages(body.images);
     }
     const ok = await patchProduct(req.params.id, body || {});
     if (!ok) return res.status(404).json({ error: "Not found" });
@@ -265,6 +359,31 @@ adminRouter.post(
       res.status(500).json({ error: "Image upload failed" });
     }
   }
+);
+
+// Same as /upload-image but for a whole gallery in one go — front, back, detail.
+// Returns urls in the order the files were given so the caller keeps its ordering.
+adminRouter.post(
+  "/upload-images",
+  requireKey,
+  upload.array("files", 8),
+  async (req, res) => {
+    const files = Array.isArray(req.files) ? (req.files as Express.Multer.File[]) : [];
+    if (!files.length) return res.status(400).json({ error: "No files" });
+    try {
+      const urls = await Promise.all(
+        files.map(async (file) =>
+          CLOUDINARY_ENABLED && file.buffer
+            ? await uploadToCloudinary(file.buffer)
+            : `/uploads/${file.filename}`,
+        ),
+      );
+      res.json({ urls });
+    } catch (err) {
+      console.error("[upload] failed to upload images", err);
+      res.status(500).json({ error: "Image upload failed" });
+    }
+  },
 );
 
 adminRouter.post("/drop/end", requireKey, (_req, res) => {
@@ -360,13 +479,33 @@ adminRouter.post("/autodrop", requireKey, (req, res) => {
   res.json({ ok: true, config: getAutoDropConfig() });
 });
 
+/** ========= Notifications ========= **/
+adminRouter.get("/notifications", requireKey, (_req, res) => {
+  const from =
+    process.env.EMAIL_FROM || process.env.SMTP_FROM || "NC Studio <onboarding@resend.dev>";
+  const windowRaw = Number.parseFloat(process.env.CART_NOTIFY_WINDOW_MINUTES ?? "");
+  res.json({
+    orderTo: orderNotificationRecipient(),
+    cartTo: cartNotificationRecipient(),
+    cartWindowMinutes:
+      Number.isFinite(windowRaw) && windowRaw > 0 ? Math.min(120, Math.max(1, windowRaw)) : 10,
+    transport: process.env.RESEND_API_KEY ? "resend" : process.env.SMTP_HOST ? "smtp" : "none",
+    from,
+    // The sandbox sender only delivers to the Resend account owner, which is
+    // the usual reason a correctly configured address still hears nothing.
+    sandboxSender: from.includes("resend.dev"),
+  });
+});
+
 /** ========= Test email ========= **/
 adminRouter.post("/test-email", requireKey, async (req, res) => {
   const to = typeof req.body?.to === "string" && req.body.to.trim()
     ? req.body.to.trim()
-    : process.env.ORDER_NOTIFY_EMAIL;
+    : orderNotificationRecipient();
 
-  const type = req.body?.type === "vault" ? "vault" : "purchase";
+  const requested = req.body?.type;
+  const type: "vault" | "cart" | "purchase" =
+    requested === "vault" ? "vault" : requested === "cart" ? "cart" : "purchase";
 
   if (!to) {
     return res.status(400).json({ error: "No recipient — set ORDER_NOTIFY_EMAIL or pass { to } in the request body" });
@@ -374,7 +513,22 @@ adminRouter.post("/test-email", requireKey, async (req, res) => {
 
   try {
     let ok = false;
-    if (type === "vault") {
+    if (type === "cart") {
+      const product = listCatalog()[0];
+      ok = await sendCartActivityEmail({
+        lines: [
+          {
+            title: product?.title ?? "Test Product",
+            qty: 2,
+            priceCents: product?.priceCents ?? 4000,
+          },
+        ],
+        carts: 1,
+        windowMinutes: 10,
+        shoppers: ["customer@example.com"],
+        notifyTo: to,
+      });
+    } else if (type === "vault") {
       const products = listCatalog();
       const product = products[0];
       ok = await sendVaultReleaseEmail({
@@ -395,6 +549,7 @@ adminRouter.post("/test-email", requireKey, async (req, res) => {
         customerEmail: "customer@example.com",
         items: [{ productId: "test", title: "Test Product", qty: 1, priceCents: 4000, lineTotalCents: 4000 }],
         orderedAt: new Date().toISOString(),
+        notifyTo: to,
       });
     }
     if (ok) {

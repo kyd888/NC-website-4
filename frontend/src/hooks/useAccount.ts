@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchWithSession } from "../lib/session";
+import { fetchWithSession, writeAuthToken } from "../lib/session";
 
 export type ShippingAddress = {
   line1: string;
@@ -127,6 +127,7 @@ export function useAccount(apiBase: string) {
     await fetchJson<ApiResponse<Record<string, never>>>(`${apiBase}/api/account/logout`, {
       method: "POST",
     });
+    writeAuthToken(null);
     setUser(null);
     setOrders([]);
   }, [apiBase]);

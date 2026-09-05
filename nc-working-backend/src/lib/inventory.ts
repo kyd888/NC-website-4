@@ -71,6 +71,10 @@ let currentViews: Record<string, number> = {};
 let currentDropStartedAt: string | null = null;
 let dropHistory: DropAnalytics[] = [];
 let lastLiveSeen: Record<string, string> = {};
+/** Products an admin has pulled out of the vault by hand. */
+let vaultHidden: Record<string, true> = {};
+/** Per-product vault expiry (ISO), overriding the global save window. */
+let vaultExpiry: Record<string, string> = {};
 
 // Injected at startup by index.ts to avoid a circular import with vault.ts
 let _getVaultSaves: ((productId: string) => number) | null = null;
@@ -106,9 +110,30 @@ function normalizeTags(input?: string[] | string): string[] {
   return [];
 }
 
+/** Dedupes, drops blanks, caps the gallery at a sane length. */
+function normalizeImages(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const url = raw.trim();
+    if (!url || out.includes(url)) continue;
+    out.push(url);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function normalizeProduct(input: CatalogItem): CatalogItem {
+  // imageUrl and images[0] are two views of one thing — keep them in step so
+  // older code paths reading imageUrl always get the primary shot.
+  const images = normalizeImages(input.images);
+  const primary = input.imageUrl?.trim() || images[0];
+  if (primary && !images.includes(primary)) images.unshift(primary);
   return {
     ...input,
+    imageUrl: primary || undefined,
+    images,
     enabled: input.enabled !== false,
     tags: normalizeTags(input.tags),
   };
@@ -143,6 +168,7 @@ function sanitizeCatalogEntry(entry: unknown): CatalogItem | null {
     title,
     priceCents: Math.round(priceCents),
     imageUrl,
+    images: normalizeImages(source.images),
     enabled,
     tags,
   });
@@ -174,6 +200,8 @@ function serializeCatalogForDisk(item: CatalogItem) {
     priceCents: Math.round(Number(item.priceCents) || 0),
   };
   if (item.imageUrl) record.imageUrl = item.imageUrl;
+  const images = normalizeImages(item.images);
+  if (images.length) record.images = images;
   if (item.enabled === false) record.enabled = false;
   const tags = normalizeTags(item.tags);
   if (tags.length) record.tags = tags;
@@ -190,12 +218,13 @@ async function persistCatalogNow() {
     await Promise.all(
       rows.map((item) =>
         dbQuery(
-          `INSERT INTO catalog (id, title, price_cents, image_url, enabled, tags, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, now())
+          `INSERT INTO catalog (id, title, price_cents, image_url, images, enabled, tags, updated_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, now())
            ON CONFLICT (id) DO UPDATE SET
              title = EXCLUDED.title,
              price_cents = EXCLUDED.price_cents,
              image_url = EXCLUDED.image_url,
+             images = EXCLUDED.images,
              enabled = EXCLUDED.enabled,
              tags = EXCLUDED.tags,
              updated_at = now()`,
@@ -204,6 +233,7 @@ async function persistCatalogNow() {
             item.title,
             item.priceCents,
             item.imageUrl ?? null,
+            jsonParam(normalizeImages((item as CatalogItem).images)),
             item.enabled !== false,
             jsonParam(item.tags ?? []),
           ],
@@ -368,6 +398,8 @@ function loadRuntimeStateFromDisk() {
     currentViews = cloneViewsMap((parsed.currentViews ?? {}) as Record<string, number>);
     currentDropStartedAt = typeof parsed.currentDropStartedAt === "string" ? parsed.currentDropStartedAt : null;
     lastLiveSeen = sanitizeDateMap(parsed.lastLiveSeen);
+  vaultHidden = sanitizeIdSet(parsed.vaultHidden);
+  vaultExpiry = sanitizeDateMap(parsed.vaultExpiry);
     dropHistory = Array.isArray(parsed.dropHistory)
       ? parsed.dropHistory
           .map((row) => sanitizeDropAnalyticsRow(row))
@@ -447,6 +479,8 @@ function runtimeStatePayload() {
     currentDropStartedAt,
     dropHistory: dropHistory.slice(-DROP_HISTORY_LIMIT),
     lastLiveSeen: sanitizeDateMap(lastLiveSeen),
+    vaultHidden: { ...vaultHidden },
+    vaultExpiry: sanitizeDateMap(vaultExpiry),
     autoDrop,
   };
 }
@@ -459,6 +493,8 @@ function applyRuntimeStatePayload(parsed: Record<string, unknown>) {
   currentViews = cloneViewsMap((parsed.currentViews ?? {}) as Record<string, number>);
   currentDropStartedAt = typeof parsed.currentDropStartedAt === "string" ? parsed.currentDropStartedAt : null;
   lastLiveSeen = sanitizeDateMap(parsed.lastLiveSeen);
+  vaultHidden = sanitizeIdSet(parsed.vaultHidden);
+  vaultExpiry = sanitizeDateMap(parsed.vaultExpiry);
   dropHistory = Array.isArray(parsed.dropHistory)
     ? parsed.dropHistory
         .map((row) => sanitizeDropAnalyticsRow(row))
@@ -628,7 +664,7 @@ export async function loadInventoryFromDb() {
   if (!dbEnabled) return;
   try {
     const catalogRows = await dbQuery(
-      "SELECT id, title, price_cents, image_url, enabled, tags FROM catalog ORDER BY updated_at ASC, id ASC",
+      "SELECT id, title, price_cents, image_url, images, enabled, tags FROM catalog ORDER BY updated_at ASC, id ASC",
     );
     catalog = catalogRows.rows
       .map((row) =>
@@ -637,6 +673,7 @@ export async function loadInventoryFromDb() {
           title: row.title,
           priceCents: row.price_cents,
           imageUrl: row.image_url,
+          images: row.images,
           enabled: row.enabled,
           tags: row.tags,
         }),
@@ -752,6 +789,11 @@ export async function patchProduct(id: string, patch: Partial<CatalogItem>) {
   merged.enabled = patch.enabled === undefined ? catalog[i].enabled : patch.enabled !== false;
   if (patch.tags !== undefined) {
     merged.tags = normalizeTags(patch.tags as any);
+  }
+  if (patch.images !== undefined) {
+    merged.images = normalizeImages(patch.images);
+    // A replaced gallery re-elects its own primary shot.
+    merged.imageUrl = merged.images[0];
   }
   catalog[i] = normalizeProduct(merged);
   if (dbEnabled) {
@@ -974,6 +1016,31 @@ export function onDropEvent(listener: (event: DropEvent) => void) {
   return () => events.off("drop:event", listener);
 }
 
+function sanitizeIdSet(input: unknown): Record<string, true> {
+  const out: Record<string, true> = {};
+  if (!input || typeof input !== "object") return out;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (value && typeof key === "string" && key.trim()) out[key] = true;
+  }
+  return out;
+}
+
+/**
+ * When this product drops out of the vault. A per-product override wins over
+ * the global save window; null means it was never live and isn't in the vault.
+ */
+function vaultExpiryAt(productId: string, windowMs: number): number | null {
+  const override = vaultExpiry[productId];
+  if (override) {
+    const t = new Date(override).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+  const seen = lastLiveSeen[productId];
+  if (!seen) return null;
+  const t = new Date(seen).getTime();
+  return Number.isFinite(t) ? t + windowMs : null;
+}
+
 export function getRecentlyLiveProductIds(windowMs = DEFAULT_SAVE_WINDOW_MS) {
   if (!Number.isFinite(windowMs) || windowMs <= 0) return [];
   const now = Date.now();
@@ -982,15 +1049,102 @@ export function getRecentlyLiveProductIds(windowMs = DEFAULT_SAVE_WINDOW_MS) {
   for (const [productId, iso] of Object.entries(lastLiveSeen)) {
     const ts = new Date(iso).getTime();
     if (!Number.isFinite(ts)) continue;
-    if (now - ts <= windowMs) {
+    // Hidden by an admin: out of the vault now, but the timestamp is kept so
+    // it can be put back without having gone live again.
+    if (vaultHidden[productId]) continue;
+    const expiresAt = vaultExpiryAt(productId, windowMs);
+    if (expiresAt !== null && now <= expiresAt) {
       eligible.push(productId);
-    } else if (now - ts > windowMs * 8) {
+    } else if (!vaultExpiry[productId] && now - ts > windowMs * 8) {
       delete lastLiveSeen[productId];
       cleaned = true;
     }
   }
   if (cleaned) scheduleRuntimePersist();
   return eligible;
+}
+
+export type VaultAdminRow = {
+  id: string;
+  title: string;
+  /** Visible in the vault right now (not hidden, not expired). */
+  inVault: boolean;
+  hiddenByAdmin: boolean;
+  lastLiveAt: string | null;
+  expiresAt: string | null;
+  /** Milliseconds left, 0 once expired. Null when it has no vault window. */
+  msRemaining: number | null;
+  /** True when an admin set the expiry rather than the global window. */
+  customExpiry: boolean;
+  remaining: number;
+};
+
+/** Every product that has ever been live, with its vault state — for the admin. */
+export function getVaultAdminRows(windowMs = DEFAULT_SAVE_WINDOW_MS): VaultAdminRow[] {
+  const now = Date.now();
+  const catalogIndex = new Map(listCatalog().map((item) => [item.id, item]));
+  const ids = new Set([...Object.keys(lastLiveSeen), ...Object.keys(vaultExpiry)]);
+
+  return [...ids]
+    .map((id): VaultAdminRow | null => {
+      const product = catalogIndex.get(id);
+      if (!product) return null;
+      const expiresAt = vaultExpiryAt(id, windowMs);
+      const hiddenByAdmin = Boolean(vaultHidden[id]);
+      return {
+        id,
+        title: product.title,
+        inVault: !hiddenByAdmin && expiresAt !== null && now <= expiresAt,
+        hiddenByAdmin,
+        lastLiveAt: lastLiveSeen[id] ?? null,
+        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
+        msRemaining: expiresAt === null ? null : Math.max(0, expiresAt - now),
+        customExpiry: Boolean(vaultExpiry[id]),
+        remaining: Math.max(0, Math.floor(remaining[id] ?? 0)),
+      };
+    })
+    .filter((row): row is VaultAdminRow => row !== null)
+    .sort((a, b) => {
+      // Still in the vault first, soonest to expire at the top.
+      if (a.inVault !== b.inVault) return a.inVault ? -1 : 1;
+      return (a.msRemaining ?? Infinity) - (b.msRemaining ?? Infinity);
+    });
+}
+
+/** Pull a product out of the vault, or put it back. */
+export function setVaultHidden(productId: string, hidden: boolean): boolean {
+  if (!getProduct(productId)) return false;
+  if (hidden) vaultHidden[productId] = true;
+  else delete vaultHidden[productId];
+  scheduleRuntimePersist();
+  return true;
+}
+
+/**
+ * Set when a product leaves the vault. Pass null to drop the override and go
+ * back to the global save window measured from when it was last live.
+ */
+export function setVaultExpiry(productId: string, expiresAt: string | null): boolean {
+  if (!getProduct(productId)) return false;
+  if (expiresAt === null) {
+    delete vaultExpiry[productId];
+  } else {
+    const t = new Date(expiresAt).getTime();
+    if (!Number.isFinite(t)) return false;
+    vaultExpiry[productId] = new Date(t).toISOString();
+    // An expiry only means something for a product that has been live.
+    if (!lastLiveSeen[productId]) lastLiveSeen[productId] = new Date().toISOString();
+  }
+  scheduleRuntimePersist();
+  return true;
+}
+
+/** Shift the expiry by some minutes, positive or negative, from where it is now. */
+export function extendVault(productId: string, minutes: number, windowMs = DEFAULT_SAVE_WINDOW_MS): boolean {
+  if (!getProduct(productId)) return false;
+  if (!Number.isFinite(minutes)) return false;
+  const base = vaultExpiryAt(productId, windowMs) ?? Date.now();
+  return setVaultExpiry(productId, new Date(base + minutes * 60_000).toISOString());
 }
 
 export function getVaultReadyProducts(windowMs = DEFAULT_SAVE_WINDOW_MS) {

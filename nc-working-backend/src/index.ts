@@ -10,7 +10,14 @@ import { adminRouter } from "./routes/admin.js";
 import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
-import { seedInventory, registerVaultSavesGetter, onDropEvent } from "./lib/inventory.js";
+import { shareRouter } from "./routes/share.js";
+import {
+  seedInventory,
+  registerVaultSavesGetter,
+  onDropEvent,
+  listCatalog,
+  getCurrentDrop,
+} from "./lib/inventory.js";
 import { initializePersistentStores } from "./lib/persistence.js";
 import { getVaultSnapshot } from "./lib/vault.js";
 import { listUsers } from "./lib/users.js";
@@ -76,7 +83,7 @@ const corsMiddleware = cors({
     }
   },
   credentials: true,
-  exposedHeaders: ["X-Session-Id"],
+  exposedHeaders: ["X-Session-Id", "X-Auth-Token"],
 });
 
 app.use("/api", corsMiddleware);
@@ -130,8 +137,45 @@ app.use("/api/admin", adminRouter);
 app.use("/api/account", accountRouter);
 app.use("/api", catalogRouter);
 app.use("/admin", adminUiRouter);
+// Shareable per-product pages. Server-rendered so crawlers get real OG tags —
+// the SPA fallback on Netlify can only ever serve one generic card.
+app.use("/p", shareRouter);
 
+// Render's own deploy check. It must answer 200 whenever the process is
+// alive — a stricter test here would fail deploys — so it says nothing about
+// whether the shop has anything to sell. That is what /api/status is for.
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+/**
+ * Diagnostics, for answering "is the shop actually staying up?"
+ *
+ * Deliberately always 200. An uptime monitor should watch /api/health, whose
+ * only job is to answer at all — that is the failure that costs sales, because
+ * a suspended service answers nothing while it wakes. An empty storefront is
+ * NOT an alarm: between drops it is empty on purpose, so alarming on it would
+ * page constantly and teach everyone to ignore the alerts.
+ *
+ * uptimeSeconds is the honest read on whether keep-alive pings are working. On
+ * an instance that keeps being suspended it resets to near zero all day; on one
+ * that genuinely stays up it climbs. persistence says whether the catalog will
+ * survive the next restart at all.
+ */
+app.get("/api/status", (_req, res) => {
+  const products = listCatalog().filter((item) => item.enabled !== false);
+  const drop = getCurrentDrop();
+
+  res.json({
+    ok: true,
+    products: products.length,
+    drop: drop?.status ?? "none",
+    persistence: process.env.DATABASE_URL
+      ? "database"
+      : process.env.DATA_DIR
+      ? "disk"
+      : "ephemeral",
+    uptimeSeconds: Math.round(process.uptime()),
+  });
+});
 
 app.get("/", (_req, res) => {
   res.json({ ok: true, service: "nc-backend" });

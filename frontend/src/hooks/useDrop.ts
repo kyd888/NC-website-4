@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchWithSession } from "../lib/session";
+import { fetchBackendJson, readCache, writeCache } from "../lib/backend";
 
 type DropState = "idle" | "scheduled" | "live";
 type DropInfo = {
@@ -55,22 +55,30 @@ type DropResponse = {
   vault?: Record<string, VaultInfo>;
 };
 
+const DROP_CACHE_KEY = "drop_state";
+
 export function useDrop(baseUrl: string) {
-  const [state, setState] = useState<DropState>("idle");
-  const [drop, setDrop] = useState<DropInfo | null>(null);
-  const [products, setProducts] = useState<DropProduct[]>([]);
-  const [remainingById, setRemainingById] = useState<Record<string, number>>({});
-  const [vaultById, setVaultById] = useState<Record<string, VaultInfo>>({});
+  // Seeded from the last visit so a waking backend shows the shop it had,
+  // not an empty one. The live fetch overwrites it moments later.
+  const cached = readCache<DropResponse>(DROP_CACHE_KEY);
+  const [state, setState] = useState<DropState>(cached?.state ?? "idle");
+  const [drop, setDrop] = useState<DropInfo | null>(cached?.drop ?? null);
+  const [products, setProducts] = useState<DropProduct[]>(cached?.products ?? []);
+  const [remainingById, setRemainingById] = useState<Record<string, number>>(cached?.remaining ?? {});
+  const [vaultById, setVaultById] = useState<Record<string, VaultInfo>>(cached?.vault ?? {});
+  const [waking, setWaking] = useState(false);
   const cancelledRef = useRef(false);
 
   const loadState = useCallback(async () => {
     try {
-      const res = await fetchWithSession(`${baseUrl}/api/drop/state`, {
-        headers: { Accept: "application/json" },
+      const data = await fetchBackendJson<DropResponse>(`${baseUrl}/api/drop/state`, {
+        onRetry: () => {
+          if (!cancelledRef.current) setWaking(true);
+        },
       });
-      if (!res.ok) throw new Error(`Drop state ${res.status}`);
-      const data: DropResponse = await res.json();
       if (cancelledRef.current) return;
+      setWaking(false);
+      writeCache(DROP_CACHE_KEY, data);
 
       const nextState: DropState = data.state ?? "idle";
       setState(nextState);
@@ -102,13 +110,9 @@ export function useDrop(baseUrl: string) {
         setProducts([]);
       }
     } catch {
-      if (!cancelledRef.current) {
-        setState("idle");
-        setDrop(null);
-        setProducts([]);
-        setRemainingById({});
-        setVaultById({});
-      }
+      // Every retry is spent, so the service is down rather than dozing.
+      // Whatever is already on screen beats wiping the shop blank.
+      if (!cancelledRef.current) setWaking(false);
     }
   }, [baseUrl]);
 
@@ -172,9 +176,10 @@ export function useDrop(baseUrl: string) {
       products,
       remainingById,
       vaultById,
+      waking,
       refresh: loadState,
     }),
-    [state, drop, products, remainingById, vaultById, loadState],
+    [state, drop, products, remainingById, vaultById, waking, loadState],
   );
 }
 

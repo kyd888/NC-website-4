@@ -96,7 +96,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .form-note { font-size:12px; color:#808080; margin-top:6px; }
   .section-title { margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 11px; color: #8d8d8d; }
   label { font-size: 12px; color: #9aa0a6; display:block; margin-bottom:6px; }
-  input, select { width: 100%; background: #0f0f0f; color: #f2f2f2; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+  input, select, textarea { width: 100%; background: #0f0f0f; color: #f2f2f2; border: 1px solid #2a2a2a; border-radius: 10px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
+  textarea { resize: vertical; line-height: 1.5; }
   input[type="datetime-local"] { padding: 7px 8px; }
   .row { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
   .btn { padding: 8px 12px; border-radius: 10px; border: 1px solid #2a2a2a; background:#1a1a1a; color:#fff; cursor:pointer; font-size:13px; transition: background 0.2s ease; }
@@ -118,6 +119,43 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .id { color:#8e8e8e; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; margin-top:2px; }
   .price { font-size:13px; font-weight:600; color:#bcbcbc; text-align:center; }
   .qtyWrap { display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+  .kyd-rows { display:grid; gap:8px; margin-bottom:10px; }
+  .kyd-row {
+    display:grid; gap:8px; padding:12px 14px;
+    border:1px solid #1f1f1f; border-radius:12px; background:#0f0f0f;
+  }
+  .kyd-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+  .kyd-field label {
+    display:block; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    color:#7d7d7d; margin-bottom:3px;
+  }
+  .kyd-field input { font-size:12px; padding:7px 9px; }
+  .kyd-row__foot { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .kyd-row__slug { font-size:11px; color:#6f6f6f; font-family:ui-monospace,Menlo,monospace; }
+  .kyd-row__foot .btn { font-size:11px; padding:5px 10px; }
+  .vault-list { display:grid; gap:8px; }
+  .vault-row {
+    display:grid; grid-template-columns:1fr auto; gap:10px 14px; align-items:center;
+    padding:12px 14px; border:1px solid #1f1f1f; border-radius:12px; background:#0f0f0f;
+  }
+  .vault-row.is-out { opacity:.55; }
+  .vault-row__name { font-size:13px; font-weight:500; }
+  .vault-row__id { font-size:11px; color:#7d7d7d; font-family:ui-monospace,Menlo,monospace; }
+  .vault-row__time { font-size:12px; color:#c8c8c8; margin-top:3px; }
+  .vault-row__time b { color:#f2f2f2; font-weight:500; font-variant-numeric:tabular-nums; }
+  .vault-chip {
+    display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    padding:2px 7px; border-radius:999px; margin-left:8px;
+  }
+  .vault-chip.in { background:#14351f; color:#7ee2a8; }
+  .vault-chip.out { background:#2b2b2b; color:#b9b9b9; }
+  .vault-chip.custom { background:#31280f; color:#e4c56b; }
+  .vault-row__actions { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  .vault-row__actions .btn { font-size:11px; padding:6px 10px; }
+  @media (max-width:640px){
+    .vault-row { grid-template-columns:1fr; }
+    .vault-row__actions { justify-content:flex-start; }
+  }
   .qtyWrap label { font-size:11px; color:#7d7d7d; text-transform:uppercase; letter-spacing:0.05em; }
   .qtyWrap input { width:55px; text-align:right; }
   .rowItem.inactive .qtyWrap input { pointer-events:none; opacity:0.4; }
@@ -190,6 +228,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" type="button" data-tab="drop" aria-controls="panel-drop" aria-selected="true">Drop</button>
       <button class="tab" role="tab" type="button" data-tab="catalog" aria-controls="panel-catalog" aria-selected="false">Catalog</button>
+      <button class="tab" role="tab" type="button" data-tab="kyd" aria-controls="panel-kyd" aria-selected="false">KYD</button>
+      <button class="tab" role="tab" type="button" data-tab="vault" aria-controls="panel-vault" aria-selected="false">Vault</button>
       <button class="tab" role="tab" type="button" data-tab="analytics" aria-controls="panel-analytics" aria-selected="false">Analytics</button>
       <button class="tab" role="tab" type="button" data-tab="settings" aria-controls="panel-settings" aria-selected="false">Settings</button>
     </div>
@@ -210,6 +250,11 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
               <label>Start time (local)</label>
               <input id="startAt" type="datetime-local" />
               <div class="form-note">Leave blank to launch immediately.</div>
+            </div>
+            <div>
+              <label>End time (local)</label>
+              <input id="endAt" type="datetime-local" />
+              <div class="form-note" id="durNote">Ends 2h after it starts.</div>
             </div>
             <div>
               <label>Duration (minutes)</label>
@@ -284,17 +329,76 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
                 <div><label>Product ID</label><input id="np_id" placeholder="tee-cream" /></div>
                 <div><label>Title</label><input id="np_title" placeholder="Logo Tee - Cream" /></div>
                 <div><label>Price (cents)</label><input id="np_price" type="number" placeholder="3500" /></div>
-                <div><label>Image URL (optional)</label><input id="np_image" placeholder="/uploads/tee-cream.png" /></div>
+                <div><label>Image URLs (optional, one per line — front, back, detail)</label><textarea id="np_image" rows="3" placeholder="/uploads/tee-front.png&#10;/uploads/tee-back.png"></textarea></div>
                 <div><label>Tags (comma separated)</label><input id="np_tags" placeholder="T-Shirt, Essentials" /></div>
               </div>
               <div class="btnline">
-                <input id="np_upload" type="file" accept="image/*" style="display:none" />
-                <button class="btn" id="btnUploadProdImage" type="button">Upload image</button>
+                <input id="np_upload" type="file" accept="image/*" multiple style="display:none" />
+                <button class="btn" id="btnUploadProdImage" type="button">Upload images</button>
                 <button class="btn primary" id="btnAddProd" type="button">Add product</button>
               </div>
               <div class="form-note" id="np_status"></div>
             </div>
           </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="panel-kyd" role="tabpanel" hidden>
+      <div class="card card-stack">
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>KYD pages</h3>
+            <p class="meta">Live dates, music and visuals. Changes go live as soon as you save.</p>
+          </div>
+          <div class="btnline" style="margin-bottom:14px">
+            <button class="btn primary" id="btnKydSave" type="button">Save KYD content</button>
+            <button class="btn" id="btnKydReload" type="button">Discard changes</button>
+            <span class="form-note" id="kydStatus"></span>
+          </div>
+
+          <div class="section-title">Live dates</div>
+          <div id="kydShows" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kyd-add="shows" type="button">Add a date</button></div>
+
+          <div class="section-title">Music</div>
+          <div id="kydProjects" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kyd-add="projects" type="button">Add a release</button></div>
+
+          <div class="section-title">Visuals</div>
+          <div id="kydVisuals" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kyd-add="visuals" type="button">Add a visual</button></div>
+
+          <div class="section-title">Booking</div>
+          <div class="kyd-field" style="max-width:420px;margin-bottom:14px">
+            <label>Photo URL</label>
+            <input id="kydPhoto" type="text" placeholder="https://res.cloudinary.com/..." />
+          </div>
+
+          <div class="subheading">Available for</div>
+          <div id="kydServices" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kydb-add="services" type="button">Add a service</button></div>
+
+          <div class="subheading">Contacts</div>
+          <div id="kydContacts" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kydb-add="contacts" type="button">Add a contact</button></div>
+
+          <div class="subheading">Links</div>
+          <div id="kydLinks" class="kyd-rows"></div>
+          <div class="btnline"><button class="btn small" data-kydb-add="links" type="button">Add a link</button></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="panel-vault" role="tabpanel" hidden>
+      <div class="card card-stack">
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>Vault</h3>
+            <p class="meta">Products people can still save after a drop ends. Hide one to pull it out early, or change how long it stays.</p>
+          </div>
+          <div class="form-note" id="vaultWindowNote"></div>
+          <div id="vaultList" class="vault-list"><div class="muted">Loading&hellip;</div></div>
         </section>
       </div>
     </div>
@@ -338,6 +442,27 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 
     <div class="tabpanel" id="panel-settings" role="tabpanel" hidden>
       <div class="card card-stack">
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>Notifications</h3>
+            <p class="meta">Where purchase and cart alerts go, and proof they arrive.</p>
+          </div>
+          <div class="card-surface stack">
+            <div id="notif_state" class="meta">Loading…</div>
+            <div class="row">
+              <div>
+                <label>Send a test to</label>
+                <input id="notif_to" type="email" placeholder="Configured address" />
+              </div>
+            </div>
+            <div class="btnline">
+              <button class="btn" id="notif_test_purchase" type="button">Test purchase alert</button>
+              <button class="btn" id="notif_test_cart" type="button">Test cart alert</button>
+              <button class="btn" id="notif_refresh" type="button">Refresh</button>
+            </div>
+            <div id="notif_result" class="meta"></div>
+          </div>
+        </section>
         <section class="card-section">
           <div class="card-section-header">
             <h3>Auto-drop</h3>
@@ -399,10 +524,29 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       try { localStorage.setItem("nc_admin_tab", name); } catch {}
       return true;
     };
-    for (const tab of tabs) tab.addEventListener("click", () => show(tab.dataset.tab));
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        show(tab.dataset.tab);
+        // Countdown only ticks while the panel is on screen.
+        if (tab.dataset.tab === "vault") {
+          if (typeof refreshVault === "function") void refreshVault();
+        } else if (tab.dataset.tab === "kyd") {
+          if (typeof refreshKyd === "function") void refreshKyd();
+        } else if (typeof vaultTimer !== "undefined" && vaultTimer) {
+          clearInterval(vaultTimer);
+          vaultTimer = null;
+        }
+      });
+    }
     let saved = null;
     try { saved = localStorage.getItem("nc_admin_tab"); } catch {}
     if (!saved || !show(saved)) show(tabs[0].dataset.tab);
+    if (saved === "vault") {
+      // The panel is already open on load, so populate it.
+      setTimeout(() => { if (typeof refreshVault === "function") void refreshVault(); }, 0);
+    } else if (saved === "kyd") {
+      setTimeout(() => { if (typeof refreshKyd === "function") void refreshKyd(); }, 0);
+    }
   })();
 
   const PLACEHOLDER_IMG =
@@ -490,6 +634,15 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  var SITE_ORIGIN = ${JSON.stringify(
+    (process.env.FRONTEND_ORIGIN || process.env.FRONTEND_ORIGIN_2 || "").trim().replace(/\/+$/, ""),
+  )};
+
+  /** The link a fan should get: the public site when we know it, else this host. */
+  function productShareUrl(id) {
+    return (SITE_ORIGIN || window.location.origin) + "/p/" + encodeURIComponent(id);
   }
 
   function escapeHtml(str) {
@@ -699,6 +852,26 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       btnEdit.textContent = "Edit";
       btnEdit.addEventListener("click", () => handleEdit(p));
 
+      // The shareable link exists as soon as the product does — you should not
+      // have to wait for a drop to go live to get hold of it.
+      const btnLink = document.createElement("button");
+      btnLink.className = "btn small";
+      btnLink.type = "button";
+      btnLink.textContent = "Copy link";
+      btnLink.addEventListener("click", async () => {
+        const url = productShareUrl(p.id);
+        try {
+          await navigator.clipboard.writeText(url);
+          btnLink.textContent = "Copied";
+        } catch {
+          // Clipboard blocked (usually a non-secure origin) — show it instead.
+          window.prompt("Product link:", url);
+          btnLink.textContent = "Copy link";
+          return;
+        }
+        setTimeout(() => { btnLink.textContent = "Copy link"; }, 1600);
+      });
+
       const btnDelete = document.createElement("button");
       btnDelete.className = "btn small danger";
       btnDelete.type = "button";
@@ -707,6 +880,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 
       actions.appendChild(uploadInput);
       actions.appendChild(btnUpload);
+      actions.appendChild(btnLink);
       actions.appendChild(btnToggle);
       actions.appendChild(btnEdit);
       actions.appendChild(btnDelete);
@@ -918,22 +1092,29 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       requireKey();
       if (!input.files || !input.files.length) return null;
       const fd = new FormData();
-      fd.append("file", input.files[0]);
-      const res = await fetch("/api/admin/upload-image", {
+      for (const file of Array.from(input.files)) fd.append("files", file);
+      const res = await fetch("/api/admin/upload-images", {
         method: "POST",
         headers: { "x-admin-key": getKey() },
         body: fd,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.url) {
+      const urls = Array.isArray(data.urls) ? data.urls.filter(Boolean) : [];
+      if (!res.ok || !urls.length) {
         throw new Error(data.error || "Upload failed");
       }
+      data.url = urls[0];
       let patched = false;
       if (options.patch !== false) {
         try {
+          // Append to whatever gallery the product already has rather than
+          // replacing it, so uploading a back shot keeps the front one.
+          const existing = (products.find(function (p) { return p.id === productId; }) || {}).images || [];
+          const merged = existing.slice();
+          for (const url of urls) if (!merged.includes(url)) merged.push(url);
           await apiJson("/api/admin/products/" + encodeURIComponent(productId), {
             method: "PATCH",
-            body: { imageUrl: data.url },
+            body: { images: merged },
           });
           patched = true;
         } catch (err) {
@@ -950,7 +1131,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (typeof options.onUploaded === "function") {
         options.onUploaded(data.url, patched);
       }
-      return { url: data.url, patched };
+      return { url: data.url, urls: urls, patched: patched };
     } catch (err) {
       alert(err.message || String(err));
       return null;
@@ -992,19 +1173,433 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (!result) {
         return;
       }
+      var uploaded = result.urls && result.urls.length ? result.urls : [result.url];
       if (newProductImageInput) {
-        newProductImageInput.value = result.url;
+        // Append rather than replace, so a second upload adds the back shot
+        // instead of throwing away the front one.
+        var existing = newProductImageInput.value
+          .split(/[\\r\\n,]/)
+          .map(function (line) { return line.trim(); })
+          .filter(Boolean);
+        uploaded.forEach(function (url) {
+          if (existing.indexOf(url) === -1) existing.push(url);
+        });
+        newProductImageInput.value = existing.join("\\n");
       }
       if (newProductStatus) {
+        var count = uploaded.length;
+        var noun = count === 1 ? "Image" : count + " images";
         newProductStatus.textContent = result.patched
-          ? "Image uploaded and product updated."
-          : "Image uploaded. Complete the product details and click Add product to create it.";
+          ? noun + " uploaded and product updated."
+          : noun + " uploaded. Complete the product details and click Add product to create it.";
       }
       if (result.patched) {
         await refreshProducts();
       }
     });
   }
+
+  // ---------- KYD pages ----------
+  // Edits are held locally and written in one PUT, so a half-finished row
+  // never reaches the live site.
+  var kydDraft = null;
+
+  var KYD_FIELDS = {
+    shows: [
+      { key: "title", label: "Title", w: 2 },
+      { key: "date", label: "Date", type: "date" },
+      { key: "city", label: "City" },
+      { key: "venue", label: "Venue" },
+      { key: "poster", label: "Poster URL", w: 2 },
+      { key: "tickets", label: "Tickets URL", w: 2 },
+      { key: "info", label: "Info URL", w: 2 }
+    ],
+    projects: [
+      { key: "title", label: "Title", w: 2 },
+      { key: "year", label: "Year" },
+      { key: "image", label: "Cover URL", w: 2 },
+      { key: "listen", label: "Listen URL", w: 2 },
+      { key: "video", label: "Video URL", w: 2 }
+    ],
+    visuals: [
+      { key: "title", label: "Title", w: 2 },
+      { key: "year", label: "Year" },
+      { key: "image", label: "Image URL", w: 2 },
+      { key: "url", label: "Link URL", w: 2 }
+    ]
+  };
+
+  var KYD_TARGET = { shows: "kydShows", projects: "kydProjects", visuals: "kydVisuals" };
+
+  function kydSetStatus(text, isError) {
+    var el = document.getElementById("kydStatus");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#e08585" : "";
+  }
+
+  function renderKydSection(section) {
+    var wrap = document.getElementById(KYD_TARGET[section]);
+    if (!wrap || !kydDraft) return;
+    var rows = kydDraft[section] || [];
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="muted">Nothing here yet.</div>';
+      return;
+    }
+    wrap.innerHTML = rows.map(function (row, i) {
+      var fields = KYD_FIELDS[section].map(function (f) {
+        var value = row[f.key] == null ? "" : String(row[f.key]);
+        return '<div class="kyd-field"' + (f.w === 2 ? ' style="grid-column:span 2"' : "") + '>' +
+          "<label>" + escapeHtml(f.label) + "</label>" +
+          '<input type="' + (f.type || "text") + '"' +
+            ' data-kyd-section="' + section + '" data-kyd-index="' + i + '" data-kyd-key="' + f.key + '"' +
+            ' value="' + escapeHtml(value) + '" />' +
+        "</div>";
+      }).join("");
+      var slug = row.slug || row.id || "";
+      return '<div class="kyd-row">' +
+        '<div class="kyd-grid">' + fields + "</div>" +
+        '<div class="kyd-row__foot">' +
+          '<span class="kyd-row__slug">' + (slug ? escapeHtml(slug) : "new — id set on save") + "</span>" +
+          '<span>' +
+            '<button class="btn" data-kyd-move="' + section + ':' + i + ':-1" type="button">Up</button> ' +
+            '<button class="btn" data-kyd-move="' + section + ':' + i + ':1" type="button">Down</button> ' +
+            '<button class="btn" data-kyd-del="' + section + ':' + i + '" type="button">Remove</button>' +
+          "</span>" +
+        "</div>" +
+      "</div>";
+    }).join("");
+  }
+
+  var KYD_BOOKING_FIELDS = {
+    contacts: [
+      { key: "label", label: "Label" },
+      { key: "email", label: "Email", type: "email", w: 2 }
+    ],
+    links: [
+      { key: "label", label: "Label" },
+      { key: "href", label: "URL", w: 2 }
+    ]
+  };
+  var KYDB_TARGET = { services: "kydServices", contacts: "kydContacts", links: "kydLinks" };
+
+  function bookingDraft() {
+    if (!kydDraft) return null;
+    if (!kydDraft.booking || typeof kydDraft.booking !== "object") kydDraft.booking = {};
+    var b = kydDraft.booking;
+    if (!Array.isArray(b.services)) b.services = [];
+    if (!Array.isArray(b.contacts)) b.contacts = [];
+    if (!Array.isArray(b.links)) b.links = [];
+    return b;
+  }
+
+  function renderBookingList(list) {
+    var wrap = document.getElementById(KYDB_TARGET[list]);
+    var b = bookingDraft();
+    if (!wrap || !b) return;
+    var rows = b[list];
+    if (!rows.length) {
+      wrap.innerHTML = '<div class="muted">Nothing here yet.</div>';
+      return;
+    }
+    wrap.innerHTML = rows.map(function (row, i) {
+      var fields;
+      if (list === "services") {
+        // Services are plain strings, so the input holds the value itself.
+        fields = '<div class="kyd-field" style="grid-column:span 2">' +
+          "<label>Service</label>" +
+          '<input type="text" data-kydb-list="services" data-kydb-index="' + i + '"' +
+          ' value="' + escapeHtml(row == null ? "" : String(row)) + '" /></div>';
+      } else {
+        fields = KYD_BOOKING_FIELDS[list].map(function (f) {
+          var value = row && row[f.key] != null ? String(row[f.key]) : "";
+          return '<div class="kyd-field"' + (f.w === 2 ? ' style="grid-column:span 2"' : "") + ">" +
+            "<label>" + escapeHtml(f.label) + "</label>" +
+            '<input type="' + (f.type || "text") + '"' +
+              ' data-kydb-list="' + list + '" data-kydb-index="' + i + '" data-kydb-key="' + f.key + '"' +
+              ' value="' + escapeHtml(value) + '" /></div>';
+        }).join("");
+      }
+      return '<div class="kyd-row">' +
+        '<div class="kyd-grid">' + fields + "</div>" +
+        '<div class="kyd-row__foot"><span class="kyd-row__slug"></span><span>' +
+          '<button class="btn" data-kydb-move="' + list + ":" + i + ':-1" type="button">Up</button> ' +
+          '<button class="btn" data-kydb-move="' + list + ":" + i + ':1" type="button">Down</button> ' +
+          '<button class="btn" data-kydb-del="' + list + ":" + i + '" type="button">Remove</button>' +
+        "</span></div></div>";
+    }).join("");
+  }
+
+  function renderBooking() {
+    var b = bookingDraft();
+    if (!b) return;
+    var photo = document.getElementById("kydPhoto");
+    if (photo && document.activeElement !== photo) photo.value = b.photo || "";
+    renderBookingList("services");
+    renderBookingList("contacts");
+    renderBookingList("links");
+  }
+
+  function renderKyd() {
+    renderKydSection("shows");
+    renderKydSection("projects");
+    renderKydSection("visuals");
+    renderBooking();
+  }
+
+  async function refreshKyd() {
+    try {
+      kydDraft = await apiJson("/api/admin/kyd");
+      renderKyd();
+      kydSetStatus("");
+    } catch (err) {
+      kydSetStatus(err.message || String(err), true);
+    }
+  }
+
+  // Typing only touches the draft; nothing is sent until Save.
+  document.addEventListener("input", function (e) {
+    var el = e.target;
+    if (!el || !el.getAttribute) return;
+
+    if (el.id === "kydPhoto") {
+      var bp = bookingDraft();
+      if (bp) { bp.photo = el.value; kydSetStatus("Unsaved changes."); }
+      return;
+    }
+
+    var blist = el.getAttribute("data-kydb-list");
+    if (blist) {
+      var bd = bookingDraft();
+      if (!bd) return;
+      var bi = Number(el.getAttribute("data-kydb-index"));
+      var bkey = el.getAttribute("data-kydb-key");
+      if (blist === "services") bd.services[bi] = el.value;
+      else if (bd[blist] && bd[blist][bi]) bd[blist][bi][bkey] = el.value;
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    if (!el.getAttribute("data-kyd-section")) return;
+    if (!kydDraft) return;
+    var section = el.getAttribute("data-kyd-section");
+    var index = Number(el.getAttribute("data-kyd-index"));
+    var key = el.getAttribute("data-kyd-key");
+    if (!kydDraft[section] || !kydDraft[section][index]) return;
+    kydDraft[section][index][key] = el.value;
+    kydSetStatus("Unsaved changes.");
+  });
+
+  document.addEventListener("click", async function (e) {
+    if (!e.target.closest) return;
+
+    var add = e.target.closest("[data-kyd-add]");
+    if (add) {
+      if (!kydDraft) return;
+      var section = add.getAttribute("data-kyd-add");
+      var blank = { title: "" };
+      if (section === "shows") blank.date = "";
+      else blank.year = String(new Date().getFullYear());
+      kydDraft[section] = (kydDraft[section] || []).concat([blank]);
+      renderKydSection(section);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var del = e.target.closest("[data-kyd-del]");
+    if (del) {
+      if (!kydDraft) return;
+      var parts = del.getAttribute("data-kyd-del").split(":");
+      var sec = parts[0], idx = Number(parts[1]);
+      var row = (kydDraft[sec] || [])[idx];
+      if (row && row.title && !confirm("Remove " + row.title + "?")) return;
+      kydDraft[sec].splice(idx, 1);
+      renderKydSection(sec);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var badd = e.target.closest("[data-kydb-add]");
+    if (badd) {
+      var bl = badd.getAttribute("data-kydb-add");
+      var bdA = bookingDraft();
+      if (!bdA) return;
+      bdA[bl].push(bl === "services" ? "" : bl === "contacts" ? { label: "", email: "" } : { label: "", href: "" });
+      renderBookingList(bl);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var bdel = e.target.closest("[data-kydb-del]");
+    if (bdel) {
+      var dp = bdel.getAttribute("data-kydb-del").split(":");
+      var bdD = bookingDraft();
+      if (!bdD) return;
+      bdD[dp[0]].splice(Number(dp[1]), 1);
+      renderBookingList(dp[0]);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var bmove = e.target.closest("[data-kydb-move]");
+    if (bmove) {
+      var bmp = bmove.getAttribute("data-kydb-move").split(":");
+      var bdM = bookingDraft();
+      if (!bdM) return;
+      var blist2 = bdM[bmp[0]], bfrom = Number(bmp[1]), bto = bfrom + Number(bmp[2]);
+      if (bto < 0 || bto >= blist2.length) return;
+      var swap = blist2[bfrom]; blist2[bfrom] = blist2[bto]; blist2[bto] = swap;
+      renderBookingList(bmp[0]);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+
+    var move = e.target.closest("[data-kyd-move]");
+    if (move) {
+      if (!kydDraft) return;
+      var mp = move.getAttribute("data-kyd-move").split(":");
+      var msec = mp[0], mi = Number(mp[1]), dir = Number(mp[2]);
+      var list = kydDraft[msec] || [];
+      var target = mi + dir;
+      if (target < 0 || target >= list.length) return;
+      var tmp = list[mi]; list[mi] = list[target]; list[target] = tmp;
+      renderKydSection(msec);
+      kydSetStatus("Unsaved changes.");
+      return;
+    }
+  });
+
+  var kydSaveBtn = document.getElementById("btnKydSave");
+  if (kydSaveBtn) {
+    kydSaveBtn.addEventListener("click", async function () {
+      if (!kydDraft) return;
+      kydSaveBtn.disabled = true;
+      kydSetStatus("Saving\u2026");
+      try {
+        var saved = await apiJson("/api/admin/kyd", { method: "PUT", body: kydDraft });
+        // Take back what the server stored, so generated ids show immediately.
+        kydDraft = saved.content || kydDraft;
+        renderKyd();
+        kydSetStatus("Saved.");
+      } catch (err) {
+        kydSetStatus(err.message || String(err), true);
+      } finally {
+        kydSaveBtn.disabled = false;
+      }
+    });
+  }
+
+  var kydReloadBtn = document.getElementById("btnKydReload");
+  if (kydReloadBtn) {
+    kydReloadBtn.addEventListener("click", function () {
+      if (kydDraft && !confirm("Discard unsaved changes?")) return;
+      void refreshKyd();
+    });
+  }
+
+  // ---------- Vault ----------
+  var vaultRows = [];
+  var vaultTimer = null;
+
+  function formatLeft(ms) {
+    if (ms === null || ms === undefined) return "\u2014";
+    if (ms <= 0) return "expired";
+    var mins = Math.floor(ms / 60000);
+    var h = Math.floor(mins / 60);
+    var m = mins % 60;
+    if (h >= 24) {
+      var d = Math.floor(h / 24);
+      return d + "d " + (h % 24) + "h";
+    }
+    if (h > 0) return h + "h " + String(m).padStart(2, "0") + "m";
+    var secs = Math.floor((ms % 60000) / 1000);
+    return m + "m " + String(secs).padStart(2, "0") + "s";
+  }
+
+  function renderVault() {
+    var wrap = document.getElementById("vaultList");
+    if (!wrap) return;
+    if (!vaultRows.length) {
+      wrap.innerHTML = '<div class="muted">Nothing has been in the vault yet. Products land here once a drop they were in ends.</div>';
+      return;
+    }
+    var now = Date.now();
+    wrap.innerHTML = vaultRows.map(function (r) {
+      // Recompute from the expiry so the countdown ticks without refetching.
+      var left = r.expiresAt ? new Date(r.expiresAt).getTime() - now : null;
+      var live = !r.hiddenByAdmin && left !== null && left > 0;
+      var chip = r.hiddenByAdmin
+        ? '<span class="vault-chip out">Hidden</span>'
+        : live
+          ? '<span class="vault-chip in">In vault</span>'
+          : '<span class="vault-chip out">Expired</span>';
+      var custom = r.customExpiry ? '<span class="vault-chip custom">Custom</span>' : "";
+      return '<div class="vault-row' + (live ? "" : " is-out") + '">' +
+        '<div>' +
+          '<div class="vault-row__name">' + escapeHtml(r.title) + chip + custom + '</div>' +
+          '<div class="vault-row__id">' + escapeHtml(r.id) + '</div>' +
+          '<div class="vault-row__time">Leaves in <b>' + formatLeft(left) + '</b>' +
+            (r.expiresAt ? ' \u00b7 ' + new Date(r.expiresAt).toLocaleString() : "") + '</div>' +
+        '</div>' +
+        '<div class="vault-row__actions">' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="-60">&minus;1h</button>' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="60">+1h</button>' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="1440">+1d</button>' +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="at">Set time</button>' +
+          (r.customExpiry ? '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="clear">Reset</button>' : "") +
+          '<button class="btn" data-vault="' + escapeHtml(r.id) + '" data-act="' + (r.hiddenByAdmin ? "show" : "hide") + '">' +
+            (r.hiddenByAdmin ? "Show" : "Hide") + '</button>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  async function refreshVault() {
+    try {
+      var data = await apiJson("/api/admin/vault");
+      vaultRows = Array.isArray(data.products) ? data.products : [];
+      var note = document.getElementById("vaultWindowNote");
+      if (note) {
+        note.textContent = "Default window: " + Math.round((data.windowMs || 0) / 3600000) +
+          "h after a drop ends. Set VAULT_SAVE_WINDOW_HOURS to change it for everything.";
+      }
+      renderVault();
+      if (vaultTimer) clearInterval(vaultTimer);
+      vaultTimer = setInterval(renderVault, 1000);
+    } catch (err) {
+      var w = document.getElementById("vaultList");
+      if (w) w.innerHTML = '<div class="muted">' + escapeHtml(err.message || String(err)) + "</div>";
+    }
+  }
+
+  document.addEventListener("click", async function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-vault]") : null;
+    if (!btn) return;
+    var id = btn.getAttribute("data-vault");
+    var act = btn.getAttribute("data-act");
+    var body = null;
+    if (act === "hide") body = { hidden: true };
+    else if (act === "show") body = { hidden: false };
+    else if (act === "clear") body = { expiresAt: null };
+    else if (act === "at") {
+      var current = (vaultRows.find(function (r) { return r.id === id; }) || {}).expiresAt;
+      var suggested = current ? new Date(current).toISOString().slice(0, 16) : "";
+      var input = prompt("Leave the vault at (YYYY-MM-DDTHH:MM, local time):", suggested);
+      if (!input) return;
+      var parsed = new Date(input);
+      if (isNaN(parsed.getTime())) { alert("Could not read that date."); return; }
+      body = { expiresAt: parsed.toISOString() };
+    } else body = { extendMinutes: Number(act) };
+
+    btn.disabled = true;
+    try {
+      await apiJson("/api/admin/vault/" + encodeURIComponent(id), { method: "PATCH", body: body });
+      await refreshVault();
+    } catch (err) {
+      alert(err.message || String(err));
+      btn.disabled = false;
+    }
+  });
 
   async function handleToggle(product, nextEnabled) {
     try {
@@ -1530,6 +2125,98 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     }
   });
 
+  // ---------- Start / end / duration stay in step ----------
+  // The API only takes durationMinutes, so the end picker is a nicer way to
+  // express the same number: pick a moment, and the minutes follow.
+  var startInput = document.getElementById("startAt");
+  var endInput = document.getElementById("endAt");
+  var durInput = document.getElementById("dur");
+  var durNote = document.getElementById("durNote");
+  var syncing = false;
+
+  function toLocalInputValue(date) {
+    var offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+  }
+
+  function dropStartDate() {
+    // Blank start means "launch immediately", so measure from now.
+    if (startInput && startInput.value) {
+      var d = new Date(startInput.value);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  }
+
+  function describeMinutes(mins) {
+    if (!Number.isFinite(mins) || mins <= 0) return "";
+    var h = Math.floor(mins / 60);
+    var m = Math.round(mins % 60);
+    if (h >= 24) {
+      var d = Math.floor(h / 24);
+      var rem = h % 24;
+      return rem ? d + "d " + rem + "h" : d + "d";
+    }
+    if (h > 0) return h + "h" + (m ? " " + m + "m" : "");
+    return m + "m";
+  }
+
+  function noteFor(mins, invalid) {
+    if (!durNote) return;
+    if (invalid) {
+      durNote.textContent = "End time must be after the start.";
+      durNote.style.color = "#e08585";
+      return;
+    }
+    durNote.style.color = "";
+    durNote.textContent = mins > 0 ? "Runs for " + describeMinutes(mins) + "." : "";
+  }
+
+  /** Duration changed (or the start moved): move the end to match. */
+  function syncEndFromDuration() {
+    if (syncing || !endInput || !durInput) return;
+    var mins = Number(durInput.value);
+    if (!Number.isFinite(mins) || mins <= 0) { noteFor(0); return; }
+    syncing = true;
+    endInput.value = toLocalInputValue(new Date(dropStartDate().getTime() + mins * 60000));
+    syncing = false;
+    noteFor(mins);
+  }
+
+  /** End picked: derive the minutes the API actually wants. */
+  function syncDurationFromEnd() {
+    if (syncing || !endInput || !durInput) return;
+    if (!endInput.value) { noteFor(Number(durInput.value)); return; }
+    var end = new Date(endInput.value);
+    if (isNaN(end.getTime())) return;
+    var mins = Math.round((end.getTime() - dropStartDate().getTime()) / 60000);
+    if (mins <= 0) { noteFor(0, true); return; }
+    syncing = true;
+    durInput.value = String(mins);
+    syncing = false;
+    noteFor(mins);
+  }
+
+  if (durInput) durInput.addEventListener("input", syncEndFromDuration);
+  if (endInput) endInput.addEventListener("input", syncDurationFromEnd);
+  // Moving the start slides the whole window, keeping the length.
+  if (startInput) startInput.addEventListener("input", syncEndFromDuration);
+  syncEndFromDuration();
+
+  /** Minutes to send, preferring an explicitly picked end time. */
+  function scheduledMinutes() {
+    if (endInput && endInput.value) {
+      var end = new Date(endInput.value);
+      if (!isNaN(end.getTime())) {
+        var mins = Math.round((end.getTime() - dropStartDate().getTime()) / 60000);
+        if (mins > 0) return mins;
+        return null;
+      }
+    }
+    var typed = Number(durInput ? durInput.value : 120);
+    return Number.isFinite(typed) && typed > 0 ? Math.floor(typed) : 120;
+  }
+
   document.getElementById("btnSchedule").addEventListener("click", async () => {
     try {
       const { selected } = buildQtyPayload();
@@ -1538,11 +2225,15 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
         return;
       }
       const startVal = document.getElementById("startAt").value;
-      const durationVal = Number(document.getElementById("dur").value || 120);
+      const minutes = scheduledMinutes();
+      if (minutes === null) {
+        alert("End time must be after the start time.");
+        return;
+      }
       const startsAt = startVal ? new Date(startVal).toISOString() : "now";
       const body = {
         startsAt,
-        durationMinutes: Number.isFinite(durationVal) && durationVal > 0 ? Math.floor(durationVal) : 120,
+        durationMinutes: minutes,
         initialQty: selected,
       };
       const resp = await apiJson("/api/admin/drop/manual", {
@@ -1584,7 +2275,10 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       const id = document.getElementById("np_id").value.trim();
       const title = document.getElementById("np_title").value.trim();
       const priceCents = Number(document.getElementById("np_price").value.trim());
-      const imageUrl = document.getElementById("np_image").value.trim();
+      const images = document.getElementById("np_image").value
+        .split(/[\\r\\n,]/)
+        .map(function (line) { return line.trim(); })
+        .filter(Boolean);
       const tags = parseTags(newProductTags ? newProductTags.value : "");
       if (newProductStatus) newProductStatus.textContent = "";
       if (!id || !title || !Number.isFinite(priceCents)) {
@@ -1597,7 +2291,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           id,
           title,
           priceCents: Math.round(priceCents),
-          imageUrl: imageUrl || undefined,
+          images,
           tags,
         },
       });
@@ -1626,6 +2320,57 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       }
     });
   }
+
+  // ── Notifications ──────────────────────────────────────────────────────────
+  // The store is only as good as the alerts: this says where they go and lets
+  // you prove one lands before a real order depends on it.
+  const notifState = document.getElementById("notif_state");
+  const notifResult = document.getElementById("notif_result");
+
+  async function loadNotifications() {
+    if (!notifState) return;
+    if (!getKey()) {
+      notifState.textContent = "Enter admin key to load notification settings.";
+      return;
+    }
+    try {
+      const cfg = await apiJson("/api/admin/notifications");
+      const parts = [];
+      parts.push("Purchases -> " + (cfg.orderTo || "OFF"));
+      parts.push("Carts -> " + (cfg.cartTo || "OFF") + " (batched every " + cfg.cartWindowMinutes + " min)");
+      parts.push("From " + cfg.from + " via " + cfg.transport);
+      if (cfg.transport === "none") {
+        parts.push("WARNING: no mail transport configured — set RESEND_API_KEY or SMTP_HOST.");
+      } else if (cfg.sandboxSender) {
+        parts.push("WARNING: sandbox sender — Resend will only deliver to the API key owner until no-connection.com is verified and EMAIL_FROM is set.");
+      }
+      notifState.innerHTML = parts.map(function (line) {
+        return "<div>" + line.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</div>";
+      }).join("");
+    } catch (err) {
+      notifState.textContent = err.message || String(err);
+    }
+  }
+
+  async function sendTestNotification(type) {
+    if (!notifResult) return;
+    const toField = document.getElementById("notif_to");
+    const to = toField && toField.value.trim() ? toField.value.trim() : undefined;
+    notifResult.textContent = "Sending…";
+    try {
+      const resp = await apiJson("/api/admin/test-email", { method: "POST", body: { type: type, to: to } });
+      notifResult.textContent = resp.message || "Sent.";
+    } catch (err) {
+      notifResult.textContent = "Failed: " + (err.message || String(err));
+    }
+  }
+
+  const notifPurchaseBtn = document.getElementById("notif_test_purchase");
+  if (notifPurchaseBtn) notifPurchaseBtn.addEventListener("click", () => sendTestNotification("purchase"));
+  const notifCartBtn = document.getElementById("notif_test_cart");
+  if (notifCartBtn) notifCartBtn.addEventListener("click", () => sendTestNotification("cart"));
+  const notifRefreshBtn = document.getElementById("notif_refresh");
+  if (notifRefreshBtn) notifRefreshBtn.addEventListener("click", loadNotifications);
 
   document.getElementById("ad_save").addEventListener("click", async () => {
     try {
@@ -1656,6 +2401,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       refreshState();
       refreshSales();
       loadAutoDrop();
+      loadNotifications();
       refreshVaultReady();
       refreshVaultSaves();
     } else {
@@ -1673,6 +2419,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   refreshState();
   refreshSales();
   loadAutoDrop();
+  loadNotifications();
   refreshDrops();
   refreshVaultReady();
   refreshVaultSaves();

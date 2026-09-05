@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS sales (
   drop_id text,
   shipping_address jsonb,
   order_id text,
-  line_total_cents integer NOT NULL
+  line_total_cents integer NOT NULL,
+  size text
 );
 
 CREATE INDEX IF NOT EXISTS sales_ts_idx ON sales (ts DESC);
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS catalog (
   title text NOT NULL,
   price_cents integer NOT NULL,
   image_url text,
+  images jsonb NOT NULL DEFAULT '[]'::jsonb,
   enabled boolean NOT NULL DEFAULT true,
   tags jsonb NOT NULL DEFAULT '[]'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -52,9 +54,21 @@ CREATE TABLE IF NOT EXISTS vault_records (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS site_content (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS inventory_state (
   id text PRIMARY KEY,
   state jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Added after the catalog table shipped, so CREATE TABLE IF NOT EXISTS won't apply it.
+ALTER TABLE catalog ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+-- Added after sales shipped, so CREATE TABLE IF NOT EXISTS won't apply it.
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS size text;
 `;

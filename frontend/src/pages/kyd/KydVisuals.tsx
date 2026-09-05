@@ -1,9 +1,10 @@
 import SiteShell from "../../components/SiteShell";
 import Tile from "../../components/Tile";
-import { visuals } from "../../data/site";
+import { useKydContent } from "../../hooks/useKydContent";
 
 /** Videos and posters, same grid as everything else. */
 export default function KydVisuals() {
+  const { visuals } = useKydContent();
   return (
     <SiteShell section="kyd">
       <section className="block">

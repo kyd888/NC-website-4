@@ -12,13 +12,21 @@ import {
 } from "./hooks/useAccount";
 import { requireBackendUrl, stripePublishableKey } from "./config";
 import { fetchWithSession } from "./lib/session";
+import { fetchBackendJson, readCache, writeCache } from "./lib/backend";
+
+// The shop the visitor last saw, replayed while the API wakes up.
+const CATALOG_CACHE_KEY = "catalog";
 
 type BackendProduct = {
   id: string;
   title: string;
   priceCents: number;
   imageUrl?: string;
+  /** Primary first — front, back, detail. Falls back to imageUrl alone. */
+  images?: string[];
   tags?: string[] | string;
+  /** Sizes this product needs picking from. Empty means no size at all. */
+  sizes?: string[];
   remaining?: number;
 };
 
@@ -26,9 +34,14 @@ type ProductCard = {
   id: string;
   title: string;
   priceCents: number;
+  /** Primary shot; always images[0]. */
   img: string;
+  /** Every shot for this product, primary first. Never empty. */
+  images: string[];
   bg: string;
   tags: string[];
+  /** Empty for anything that doesn't need a size. */
+  sizes: string[];
   order: number;
 };
 
@@ -182,16 +195,26 @@ function App() {
     drop,
     remainingById,
     vaultById,
+    waking: dropWaking,
     refresh: refreshDropState,
   } = useDrop(BACKEND_URL);
   const account = useAccount(BACKEND_URL);
 
-  const [catalog, setCatalog] = useState<ProductCard[]>([]);
-  const [loadingCatalog, setLoadingCatalog] = useState(true);
+  const [catalog, setCatalog] = useState<ProductCard[]>(
+    () => readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? [],
+  );
+  // Only a first-ever visitor waits on an empty screen; everyone else reads
+  // the cached shop while the fetch runs.
+  const [loadingCatalog, setLoadingCatalog] = useState(
+    () => (readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? []).length === 0,
+  );
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [catalogWaking, setCatalogWaking] = useState(false);
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  // Sizes are picked in the bag, one per unit: { "tee-black": ["M", "L"] }.
+  const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>({});
   const [toast, setToast] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [saveSheet, setSaveSheet] = useState<SaveSheetState | null>(null);
@@ -304,12 +327,13 @@ function App() {
     };
   }, []);
 
-  // Arriving from another section via CART (n) → open the bag immediately.
+  // Arriving from another section via CART (n) / Account → open that sheet immediately.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    if (params.get("cart") === "open") {
-      setCartOpen(true);
+    if (params.get("cart") === "open") setCartOpen(true);
+    if (params.get("account") === "open") setAccountOpen(true);
+    if (params.has("cart") || params.has("account")) {
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
@@ -346,26 +370,36 @@ function App() {
     const fetchCatalog = async () => {
       setLoadingCatalog(true);
       try {
-        const res = await fetchWithSession(`${BACKEND_URL}/api/products`, {
-          headers: { Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-        const data = await res.json();
-        const list: BackendProduct[] = Array.isArray(data?.products)
-          ? data.products
+        const data = await fetchBackendJson<{ products?: BackendProduct[] } | BackendProduct[]>(
+          `${BACKEND_URL}/api/products`,
+          {
+            onRetry: () => {
+              if (!cancelled) setCatalogWaking(true);
+            },
+          },
+        );
+        const list: BackendProduct[] = Array.isArray((data as { products?: BackendProduct[] })?.products)
+          ? (data as { products: BackendProduct[] }).products
           : Array.isArray(data)
-          ? data
+          ? (data as BackendProduct[])
           : [];
 
         const cards: ProductCard[] = list.map((product, index) => {
           const ov = IMAGE_OVERRIDES[product.id] ?? {};
-          const img = ov.img || normalizeImage(product.imageUrl) || "/placeholder.png";
+          const gallery = (Array.isArray(product.images) ? product.images : [])
+            .map((url) => normalizeImage(url))
+            .filter((url): url is string => Boolean(url));
+          const img = ov.img || gallery[0] || normalizeImage(product.imageUrl) || "/placeholder.png";
+          // An override replaces the primary shot but keeps the rest of the gallery.
+          const images = [img, ...gallery.filter((url) => url !== img)];
           return {
             id: product.id,
             title: product.title,
             priceCents: product.priceCents,
             img,
+            images,
             bg: ov.bg || "#f2f2ee",
+            sizes: Array.isArray(product.sizes) ? product.sizes : [],
             tags: Array.isArray(product.tags)
               ? product.tags
               : typeof product.tags === "string"
@@ -378,11 +412,23 @@ function App() {
         if (!cancelled) {
           setCatalog(cards);
           setLoadError(null);
+          setCatalogWaking(false);
+          writeCache(CATALOG_CACHE_KEY, cards);
         }
       } catch (err) {
         if (!cancelled) {
-          setCatalog([]);
-          setLoadError(err instanceof Error ? err.message : "Unable to load catalog");
+          setCatalogWaking(false);
+          // Keep the cached shop up rather than blanking it — stale prices for
+          // a moment beat an empty store during a drop.
+          const fallback = readCache<ProductCard[]>(CATALOG_CACHE_KEY) ?? [];
+          setCatalog(fallback);
+          setLoadError(
+            fallback.length > 0
+              ? null
+              : err instanceof Error
+              ? err.message
+              : "Unable to load catalog",
+          );
         }
       } finally {
         if (!cancelled) setLoadingCatalog(false);
@@ -472,6 +518,29 @@ function App() {
     }
   }, [visibleCatalog]);
 
+  // Arriving from a shared link (/shop?p=<id>) → land on that product rather
+  // than the top of the shop. Runs once the catalog has rendered its sections.
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current || !visibleCatalog.length) return;
+    const wanted = new URLSearchParams(window.location.search).get("p");
+    if (!wanted) {
+      deepLinked.current = true;
+      return;
+    }
+    if (!visibleCatalog.some((item) => item.id === wanted)) return;
+    const node = sectionRefs.current[wanted];
+    if (!node) return;
+    deepLinked.current = true;
+    setActiveId(wanted);
+    // Jump rather than smooth-scroll: the target is where the page should have
+    // opened, so animating there from the top just looks like a glitch.
+    node.scrollIntoView({ block: "start" });
+    const url = new URL(window.location.href);
+    url.searchParams.delete("p");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }, [visibleCatalog]);
+
   const active = useMemo(() => {
     if (!visibleCatalog.length) return null;
     const fallback = visibleCatalog[0];
@@ -537,6 +606,10 @@ function App() {
           item.holdExpiresAt != null
             ? Math.max(0, Math.ceil((item.holdExpiresAt - nowTick) / 1000))
             : null;
+        const sizes = product?.sizes ?? [];
+        // One slot per unit, so two of the same shirt can be M and L.
+        const picked = (sizeChoices[item.id] ?? []).slice(0, item.qty);
+        while (sizes.length && picked.length < item.qty) picked.push("");
         return {
           ...item,
           title: product?.title ?? item.id,
@@ -544,10 +617,40 @@ function App() {
           lineTotal: priceCents * item.qty,
           available: remainingById[item.id] ?? 0,
           holdSecondsRemaining,
+          sizes,
+          picked,
         };
       }),
-    [cart, catalog, remainingById, nowTick],
+    [cart, catalog, remainingById, nowTick, sizeChoices],
   );
+
+  // Every sized unit needs a size before payment can be taken.
+  const missingSizeFor = cartDetails.find(
+    (item) => item.sizes.length > 0 && item.picked.some((size) => !size),
+  );
+  const sizesPayload = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const item of cartDetails) {
+      if (item.sizes.length) out[item.id] = item.picked;
+    }
+    return out;
+  }, [cartDetails]);
+
+  // Confirm runs inside async payment callbacks, so read sizes from a ref
+  // rather than a closure captured when the handler was created.
+  const sizesPayloadRef = useRef<Record<string, string[]>>({});
+  useEffect(() => {
+    sizesPayloadRef.current = sizesPayload;
+  }, [sizesPayload]);
+
+  const chooseSize = (productId: string, unit: number, size: string) => {
+    setSizeChoices((prev) => {
+      const next = (prev[productId] ?? []).slice();
+      while (next.length <= unit) next.push("");
+      next[unit] = size;
+      return { ...prev, [productId]: next };
+    });
+  };
 
   const itemsTotal = cartDetails.reduce((acc, item) => acc + item.qty, 0);
   const priceTotalCents = cartDetails.reduce((acc, item) => acc + item.lineTotal, 0);
@@ -749,7 +852,7 @@ function App() {
       const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentIntentId, customer }),
+        body: JSON.stringify({ paymentIntentId, customer, sizes: sizesPayloadRef.current }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.ok) {
@@ -866,6 +969,7 @@ function App() {
         subtitle="Pre-Season 001"
         cartCount={itemsTotal}
         onCartClick={() => setCartOpen(true)}
+        account={{ label: account.user ? "Account" : "Sign in", onSelect: () => setAccountOpen(true) }}
         extra={
           <>
             <div className="status">
@@ -878,20 +982,6 @@ function App() {
                 </>
               )}
             </div>
-            <button
-              type="button"
-              className={`account-button ${account.user ? "is-auth" : "is-guest"}`}
-              onClick={() => setAccountOpen(true)}
-              aria-label={account.user ? "View account" : "Sign in"}
-            >
-              <span className="account-avatar" aria-hidden="true">
-                <span className="dot-stack">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-              </span>
-            </button>
           </>
         }
       />
@@ -903,11 +993,16 @@ function App() {
             countdown={countdownParts}
             startsAtLabel={formattedSetStart}
             countdownComplete={countdownComplete}
+            waking={dropWaking}
             onRefresh={refreshExperience}
           />
         ) : (
           <>
-      {loadingCatalog && <div style={{ padding: 24 }}>Loading catalog...</div>}
+      {loadingCatalog && visibleCatalog.length === 0 && (
+        <div style={{ padding: 24 }}>
+          {catalogWaking ? "Waking the shop up, one moment..." : "Loading catalog..."}
+        </div>
+      )}
       {!loadingCatalog && loadError && <div style={{ padding: 24 }}>{loadError}</div>}
       {!loadingCatalog && !loadError && visibleCatalog.length === 0 && (
         <div className="empty-state">
@@ -950,7 +1045,7 @@ function App() {
               data-pid={product.id}
               className="media"
             >
-              <img src={product.img} alt={product.title} loading="lazy" />
+              <ProductGallery images={product.images} title={product.title} />
             </div>
             <div className="section-info">
               <div className="section-info__text">
@@ -1014,7 +1109,7 @@ function App() {
             </div>
             <div className="price">{formatCurrency(active.priceCents)}</div>
             {active.tags.length > 0 && (
-              <div className="tagline">{active.tags.join(" � ")}</div>
+              <div className="tagline">{active.tags.join(" · ")}</div>
             )}
           </div>
 
@@ -1045,6 +1140,7 @@ function App() {
               >
                 {primaryLabel}
               </button>
+              <ShareButton productId={active.id} title={active.title} />
             </div>
             {itemsTotal > 0 && (
               <div className="meta-secondary">
@@ -1207,6 +1303,32 @@ function App() {
                           Hold {formatHoldCountdown(item.holdSecondsRemaining)}
                         </div>
                       )}
+                      {item.sizes.length > 0 &&
+                        item.picked.map((chosenSize, unit) => (
+                          <div className="size-pick" key={`${item.id}-${unit}`}>
+                            <span className="size-pick__label">
+                              {item.qty > 1 ? `Size — item ${unit + 1}` : "Size"}
+                            </span>
+                            <div
+                              className="size-pick__options"
+                              role="radiogroup"
+                              aria-label={`Size for ${item.title}${item.qty > 1 ? `, item ${unit + 1}` : ""}`}
+                            >
+                              {item.sizes.map((size) => (
+                                <button
+                                  key={size}
+                                  type="button"
+                                  role="radio"
+                                  aria-checked={chosenSize === size}
+                                  className={`size-pick__option${chosenSize === size ? " is-on" : ""}`}
+                                  onClick={() => chooseSize(item.id, unit, size)}
+                                >
+                                  {size}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
                       <div className="cart-line__controls">
                         <button
                           type="button"
@@ -1243,6 +1365,7 @@ function App() {
                 </div>
                 <CartPaymentRequestButton
                   amountCents={priceTotalCents}
+                  sizes={sizesPayload}
                   onOrderComplete={(confirmation) => {
                     setCart([]);
                     setCartOpen(false);
@@ -1251,11 +1374,16 @@ function App() {
                   }}
                   onError={(msg) => showToast(msg, 3000)}
                 />
+                {missingSizeFor && (
+                  <div className="cart-sheet__note">
+                    Choose a size for {missingSizeFor.title} to check out.
+                  </div>
+                )}
                 <button
                   type="button"
                   className="cart-sheet__checkout"
                   onClick={beginCheckout}
-                  disabled={checkoutLoading}
+                  disabled={checkoutLoading || Boolean(missingSizeFor)}
                 >
                   {checkoutLoading ? "Preparing..." : "Checkout"}
                 </button>
@@ -1309,6 +1437,8 @@ type LandingScreenProps = {
   countdown: CountdownPart[];
   startsAtLabel: string | null;
   countdownComplete: boolean;
+  /** The API is still waking; "no drop" would be a guess, not a fact. */
+  waking?: boolean;
   onRefresh: () => void;
 };
 
@@ -1317,16 +1447,21 @@ function LandingScreen({
   countdown,
   startsAtLabel,
   countdownComplete,
+  waking = false,
   onRefresh,
 }: LandingScreenProps) {
   const isScheduled = status === "scheduled";
-  const eyebrow = isScheduled ? "Drop incoming" : "No drop active";
-  const title = isScheduled
+  const eyebrow = waking ? "Connecting" : isScheduled ? "Drop incoming" : "No drop active";
+  const title = waking
+    ? "One moment."
+    : isScheduled
     ? countdownComplete
       ? "Going live now"
       : "The room opens soon"
     : "Something's in the works.";
-  const copy = isScheduled
+  const copy = waking
+    ? "Reaching the studio — this page fills in by itself the moment it answers."
+    : isScheduled
     ? countdownComplete
       ? "Hold tight — the drop is loading."
       : "Countdown locked to the scheduled drop time. The storefront opens automatically when we go live."
@@ -1346,6 +1481,8 @@ function LandingScreen({
         <h1 className="landing-screen__title">{title}</h1>
         <p className="landing-screen__copy">{copy}</p>
 
+        {/* No drop data yet while connecting, so empty tiles would be noise. */}
+        {!waking && (
         <div className="landing-screen__countdown" aria-label="Countdown to live set">
           {countdown.map((part) => (
             <div key={part.label} className="landing-screen__tile">
@@ -1354,10 +1491,15 @@ function LandingScreen({
             </div>
           ))}
         </div>
+        )}
 
         <div className="landing-screen__footer">
           <div className="landing-screen__schedule">
-            {startsAtLabel ? `Starts ${startsAtLabel}` : "Release window TBA"}
+            {waking
+              ? "Checking the schedule"
+              : startsAtLabel
+              ? `Starts ${startsAtLabel}`
+              : "Release window TBA"}
           </div>
           <button type="button" className="landing-screen__refresh" onClick={onRefresh}>
             Refresh
@@ -1435,6 +1577,107 @@ function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderCon
         </>
       ) : null}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Product shots. One image behaves exactly as before; with more, tapping the
+ * image (or the dots) steps through front / back / detail. Swipe works on
+ * touch. Deliberately no arrows or chrome at rest — the dots only appear when
+ * there is more than one shot.
+ */
+/** Native share sheet where the device has one, copy-to-clipboard everywhere else. */
+function ShareButton({ productId, title }: { productId: string; title: string }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/p/${encodeURIComponent(productId)}`;
+
+  const share = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+      } catch {
+        /* dismissed — nothing to report */
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard blocked; leave the label alone */
+    }
+  };
+
+  return (
+    <button type="button" className="cta share-cta" onClick={share} aria-label={`Share ${title}`}>
+      {copied ? "Copied" : "Share"}
+    </button>
+  );
+}
+
+function ProductGallery({ images, title }: { images: string[]; title: string }) {
+  const [index, setIndex] = useState(0);
+  const touchX = useRef<number | null>(null);
+
+  // A product can be swapped out from under us when the catalog reloads.
+  useEffect(() => {
+    setIndex(0);
+  }, [images.join("|")]);
+
+  if (images.length <= 1) {
+    return <img src={images[0] ?? "/placeholder.png"} alt={title} loading="lazy" />;
+  }
+
+  const step = (delta: number) =>
+    setIndex((i) => (i + delta + images.length) % images.length);
+
+  return (
+    <div
+      className="shots"
+      onTouchStart={(e) => {
+        touchX.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const start = touchX.current;
+        touchX.current = null;
+        if (start == null) return;
+        const dx = (e.changedTouches[0]?.clientX ?? start) - start;
+        if (Math.abs(dx) > 40) step(dx < 0 ? 1 : -1);
+      }}
+    >
+      {images.map((src, i) => (
+        <img
+          key={src}
+          src={src}
+          alt={i === 0 ? title : `${title} — view ${i + 1}`}
+          loading={i === 0 ? "eager" : "lazy"}
+          className={i === index ? "is-current" : undefined}
+          aria-hidden={i === index ? undefined : true}
+        />
+      ))}
+
+      <button
+        type="button"
+        className="shots__hit"
+        aria-label={`${title} — next view`}
+        onClick={() => step(1)}
+      />
+
+      <div className="shots__dots" role="tablist" aria-label={`${title} views`}>
+        {images.map((src, i) => (
+          <button
+            key={src}
+            type="button"
+            role="tab"
+            aria-selected={i === index}
+            aria-label={`View ${i + 1} of ${images.length}`}
+            className={i === index ? "is-on" : undefined}
+            onClick={() => setIndex(i)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1520,6 +1763,17 @@ function AccountSheet({
       void onRefreshOrders();
     }
   }, [open, user, orders.length, ordersLoading, onRefreshOrders]);
+
+  // Escape closes the sheet — the backdrop sits under it on a phone, so tapping
+  // outside is not an option there.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onRequestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onRequestClose]);
 
   const handleLoginSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1625,7 +1879,7 @@ function AccountSheet({
                     <span className="account-order-item-id">{item.productId}</span>
                   </div>
                   <div className="account-order-item-meta">
-                    <span>{item.qty} � {formatCurrency(item.priceCents)}</span>
+                    <span>{item.qty} · {formatCurrency(item.priceCents)}</span>
                     <strong>{formatCurrency(item.lineTotalCents)}</strong>
                   </div>
                 </div>
@@ -1886,10 +2140,12 @@ function formatAddress(address?: CheckoutCustomer["address"]) {
 
 function CartPaymentRequestButton({
   amountCents,
+  sizes,
   onOrderComplete,
   onError,
 }: {
   amountCents: number;
+  sizes: Record<string, string[]>;
   onOrderComplete: (confirmation: OrderConfirmation) => void;
   onError: (msg: string) => void;
 }) {
@@ -1899,6 +2155,8 @@ function CartPaymentRequestButton({
   const [prAvailable, setPrAvailable] = useState(false);
   const onOrderCompleteRef = useRef(onOrderComplete);
   const onErrorRef = useRef(onError);
+  const sizesPayloadRef = useRef(sizes);
+  useEffect(() => { sizesPayloadRef.current = sizes; }, [sizes]);
   useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
   useEffect(() => { onErrorRef.current = onError; });
 
@@ -1988,7 +2246,7 @@ function CartPaymentRequestButton({
         const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paymentIntentId, customer }),
+          body: JSON.stringify({ paymentIntentId, customer, sizes: sizesPayloadRef.current }),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.ok) { onErrorRef.current(json.error ?? "Checkout failed"); return; }

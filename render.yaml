@@ -3,6 +3,9 @@ services:
     name: nc-working-backend
     runtime: node
     rootDir: nc-working-backend
+    # Must stay paid. A free instance suspends after 15 minutes of no traffic
+    # and takes ~50s to wake, and the shop has no products for the whole of
+    # that. Dropping back to free reintroduces exactly that downtime.
     plan: starter
     autoDeploy: true
     region: oregon
@@ -27,8 +30,44 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      # Cloudinary hosts product images. Without it, uploads land on the
+      # container filesystem and are lost on the next deploy.
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      # Keeps the JSON stores on the disk below, so the catalog, drops,
+      # inventory, orders and accounts survive a restart while DATABASE_URL is
+      # unset. Remove this once a database is attached — Postgres is the real
+      # answer, and a disk pins the service to one instance and blocks
+      # zero-downtime deploys.
+      - key: DATA_DIR
+        value: /var/data
 
+      # Notifications. RESEND_API_KEY (or SMTP_HOST/SMTP_USER/SMTP_PASS) is what
+      # actually delivers mail — without one, nothing is sent and the server
+      # says so at boot. EMAIL_FROM must be on a domain verified with the
+      # provider, otherwise only the provider account's own address receives
+      # anything.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: NO CONNECTION <orders@no-connection.com>
+      # Where purchase alerts land. Defaults to orders@no-connection.com; set
+      # to "off" to silence them.
+      - key: ORDER_NOTIFY_EMAIL
+        value: orders@no-connection.com
+      # Cart alerts follow ORDER_NOTIFY_EMAIL unless set here. They are batched
+      # into one digest per window, so a busy drop sends a handful of emails
+      # rather than one per tap.
+      - key: CART_NOTIFY_EMAIL
+        sync: false
+      - key: CART_NOTIFY_WINDOW_MINUTES
+        value: "10"
+
+    # Render allows a single disk per service, so it holds the data stores
+    # rather than uploads. It deliberately sits outside public/: index.ts
+    # serves that whole directory statically, so anything under it — including
+    # password hashes and the orders export — would be publicly fetchable.
     disks:
-      - name: uploads
-        mountPath: /opt/render/project/src/nc-working-backend/public/uploads
+      - name: nc-data
+        mountPath: /var/data
         sizeGB: 1

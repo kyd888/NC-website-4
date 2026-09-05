@@ -1,48 +1,44 @@
 import { Link } from "react-router-dom";
 import "../site.css";
 
+type Door = "nc" | "kyd";
+
+const DOORS: Record<Door, { to: string; title: string; sub: string }> = {
+  nc: { to: "/shop", title: "NO CONNECTION", sub: "SHOP / OBJECTS" },
+  kyd: { to: "/kyd", title: "KYD", sub: "MUSIC / ARTIST" },
+};
+
 /**
  * Opening screen. Two doors, nothing else.
- * Left → the shop. Right → KYD. Events / Booking sit quietly at the bottom.
- *
- * Both doors share one markup shape (title, subtitle, Enter pill) so they can
- * never drift out of sync visually, and the pill gives touch users a plain
- * "this is a button" signal that hover alone can't provide.
+ * Each door is one big tappable panel; the door you touch stays solid while
+ * the other recedes. Events / Booking sit quietly at the bottom.
  */
 export default function Gateway() {
+  const door = (key: Door) => {
+    const d = DOORS[key];
+    return (
+      <Link to={d.to} className={`gateway__door gateway__door--${key}`} aria-label={`${d.title} — ${d.sub}`}>
+        <h2 className="gateway__title">{d.title}</h2>
+        <span className="gateway__sub">{d.sub}</span>
+      </Link>
+    );
+  };
+
   return (
     <div className="gateway">
       <div className="gateway__top">
-        <span className="brand-text">NO CONNECTION</span>
+        <img className="brand-logo" src="/nc-star.png" alt="No Connection" />
       </div>
-
-      <span className="gateway__hint">Choose one</span>
 
       <div className="gateway__doors">
-        <Link to="/shop" className="gateway__door">
-          <h2>No Connection</h2>
-          <span className="label">Shop / Objects</span>
-          <span className="pill-btn is-dark gateway__enter" aria-hidden="true">
-            Enter →
-          </span>
-        </Link>
-        <Link to="/kyd" className="gateway__door">
-          <h2>KYD</h2>
-          <span className="label">Music / Artist</span>
-          <span className="pill-btn is-dark gateway__enter" aria-hidden="true">
-            Enter →
-          </span>
-        </Link>
+        {door("nc")}
+        {door("kyd")}
       </div>
 
-      <div className="gateway__bottom">
-        <Link to="/events" className="pill-btn is-ghost">
-          Events
-        </Link>
-        <Link to="/kyd/info" className="pill-btn is-ghost">
-          Booking
-        </Link>
-      </div>
+      <nav className="gateway__bottom" aria-label="Utility">
+        <Link to="/events">Events</Link>
+        <Link to="/kyd/info">Booking</Link>
+      </nav>
     </div>
   );
 }
