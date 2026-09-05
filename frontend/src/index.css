@@ -345,12 +345,11 @@ input,select,textarea{font-size:16px}
   .media img{
     transform:none;
   }
-  .section:first-of-type .media img{
-    transform:translateY(-19px);
-  }
-  .section:last-of-type .media img{
-    transform:translateY(96px);
-  }
+  /* The -19px/+96px first/last nudges here were hand-tuned to compensate for
+     the gallery box being pinned to the top instead of centered (see the
+     .shots img fix above) — now that centering works for every product,
+     these just shove first/last out of center again (the +96px one badly
+     enough to push the photo into the dots). Removed. */
   .meta{
     display:none;
   }
@@ -1084,6 +1083,16 @@ input,select,textarea{font-size:16px}
      to the box instead of preserving its aspect ratio. Match the single-
      image behavior (.media img) directly. */
   position:absolute;inset:0;width:100%;height:100%;object-fit:contain;
+  /* .media img sets max-width/max-height for the plain single-<img> case,
+     where the box shrinks to match. Here the box is deliberately full-size
+     (100%/100% above) so object-fit can letterbox within it — but that
+     inherited max-height capped the box itself well below the box's real
+     height. With top/bottom both pinned via inset:0, the over-constrained
+     box then anchored to the top and dropped 'bottom', pinning every
+     gallery photo to the top of its section with empty space below
+     instead of centering it. Uncap it; object-fit:contain already keeps
+     the photo itself from distorting or overflowing. */
+  max-width:none;max-height:none;
   opacity:0;transition:opacity .28s ease;
 }
 .shots img.is-current{opacity:1}
