@@ -45,6 +45,16 @@ body{
   margin:0;
   scroll-padding-top: calc(var(--header-offset, 0px) + var(--safe-area-top, 0px));
 }
+/* The viewport's scroll container is <html>, not <body>, and neither
+   scroll-snap-type nor scroll-padding propagates from body to the viewport.
+   Chrome applies them from body anyway; Safari follows the spec and ignores
+   them — so products snapped into place on desktop but free-scrolled on
+   iPhone, letting each one come to rest at an arbitrary height (one photo
+   reading high, the next low). Declared on <html> they work everywhere, and
+   the padding keeps the snapped section clear of the sticky header. */
+html{
+  scroll-padding-top: calc(var(--header-offset, 0px) + var(--safe-area-top, 0px));
+}
 a{color:inherit;text-decoration:none}
 button{background:none;border:0;color:inherit;cursor:pointer;touch-action:manipulation}
 input,select,textarea{font-size:16px}
@@ -268,7 +278,7 @@ input,select,textarea{font-size:16px}
 
 /* Desktop scroll snap — makes every product section settle at the same height */
 @media (min-width: 641px) {
-  body {
+  html, body {
     scroll-snap-type: y mandatory;
   }
   .section {
@@ -304,7 +314,7 @@ input,select,textarea{font-size:16px}
 
 
 @media (max-width: 640px) {
-  body{
+  html, body{
     scroll-snap-type:y mandatory;
   }
   .page-content{
@@ -655,15 +665,11 @@ input,select,textarea{font-size:16px}
   .media {
     position: absolute;
     inset: 0;
-    /* The header is sticky and the section is a full viewport tall, so when a
-       product is scrolled into view the section's top sits UNDER the header
-       and the first ~52px of it are covered. Measured on an iPhone 16 Pro:
-       header bottom at y=102, but the photo's box started at y=65 — 37px of
-       it hidden, which is why the shot read as cut off at the top no matter
-       how it was capped. Reserve the header's own height here so the shot
-       always clears it. max() keeps a sane floor if --header-offset is 0
-       (it is only set when the header computes as sticky/fixed). */
-    padding-top: max(64px, calc(var(--header-offset, 0px) + 12px));
+    /* Small on purpose: scroll-padding-top on <html> keeps the snapped
+       section clear of the sticky header, so this only needs to be breathing
+       room. Reserving the header height here as well double-counted it and
+       pushed the shot too low. */
+    padding-top: clamp(8px, 2vh, 16px);
     /* Kept in step with the taller bar so the shot never sits under it. */
     padding-bottom: 138px;
     flex: none;
