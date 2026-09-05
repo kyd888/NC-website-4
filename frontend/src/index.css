@@ -26,6 +26,13 @@ html::-webkit-scrollbar-thumb:hover{
   --safe-area-left: 0px;
   --header-offset: 0px;
   --meta-offset: 0px;
+  /* Minimum clearance under anything pinned to the bottom of the screen.
+     index.html deliberately omits viewport-fit=cover, so every
+     env(safe-area-inset-bottom) on the site resolves to 0 and none of them
+     reserve this space. Safari hands it to us anyway by keeping its own chrome
+     below the viewport; Instagram's in-app browser does not, and content ends
+     up flush against its bar. Sized to clear an iOS home indicator. */
+  --bottom-chrome-gap: 34px;
 }
 @supports (top: env(safe-area-inset-top)) {
   :root{
@@ -632,14 +639,10 @@ input,select,textarea{font-size:16px}
     padding-top: 0;
     padding-bottom: 0;
   }
-  /* The bar is sticky at bottom:0, so its bottom padding is the only thing
-     between the buttons and whatever the browser puts under the page. Safari
-     leaves room below the viewport; Instagram's in-app browser does not, and
-     16px read as clipped there. viewport-fit=cover is deliberately not set, so
-     env(safe-area-inset-bottom) is 0 in every browser here and cannot do this
-     job — hence a real value, sized to clear an iOS home indicator. */
+  /* Sticky at bottom:0, so this padding is the only thing between the buttons
+     and whatever the browser puts under the page. */
   .meta {
-    padding-bottom: 34px;
+    padding-bottom: max(calc(16px + env(safe-area-inset-bottom)), var(--bottom-chrome-gap));
   }
   .media {
     position: absolute;
