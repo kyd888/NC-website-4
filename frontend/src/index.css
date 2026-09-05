@@ -655,7 +655,15 @@ input,select,textarea{font-size:16px}
   .media {
     position: absolute;
     inset: 0;
-    padding-top: clamp(8px, 2vh, 16px);
+    /* The header is sticky and the section is a full viewport tall, so when a
+       product is scrolled into view the section's top sits UNDER the header
+       and the first ~52px of it are covered. Measured on an iPhone 16 Pro:
+       header bottom at y=102, but the photo's box started at y=65 — 37px of
+       it hidden, which is why the shot read as cut off at the top no matter
+       how it was capped. Reserve the header's own height here so the shot
+       always clears it. max() keeps a sane floor if --header-offset is 0
+       (it is only set when the header computes as sticky/fixed). */
+    padding-top: max(64px, calc(var(--header-offset, 0px) + 12px));
     /* Kept in step with the taller bar so the shot never sits under it. */
     padding-bottom: 138px;
     flex: none;
