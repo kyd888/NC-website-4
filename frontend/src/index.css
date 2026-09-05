@@ -666,6 +666,9 @@ input,select,textarea{font-size:16px}
   .media img {
     max-height: 58svh;
   }
+  /* The matching .shots cap lives with the .shots rules further down — it has
+     to be declared after them to win the cascade (media queries add no
+     specificity, so a .shots rule later in the file beats one in here). */
   .meta-actions,
   .meta-actions.has-bag{
     display:flex;
@@ -1085,6 +1088,16 @@ input,select,textarea{font-size:16px}
    header on phones, since there's no letterboxing margin left to absorb
    normal viewport jitter (e.g. a browser toolbar collapsing on scroll). */
 .shots{position:relative;width:100%;height:100%;max-width:calc(100vw - 20px);max-height:70svh}
+/* Phones get the tighter cap the single-shot path already uses
+   (.media img{max-height:58svh} in the same breakpoint). Without it .shots
+   fills the entire content box, leaving place-items:center no slack to
+   distribute, so the photo sits flush under the header with every spare
+   pixel dumped below it. Declared here, after the base .shots rule, because
+   media queries add no specificity — the same cap written inside the
+   max-width:520px block higher up would lose to the line above. */
+@media (max-width:520px){
+  .shots{max-height:58svh}
+}
 .shots img{
   /* object-fit:inherit was inheriting from .shots, which never sets it —
      so it resolved to the initial 'fill' and stretched every gallery photo
