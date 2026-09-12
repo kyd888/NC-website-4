@@ -18,6 +18,20 @@
   [headers.values]
     Cache-Control = "no-store"
 
+# Shareable product pages (/p/<id>) are server-rendered by the backend, so link
+# previews carry the product's own title, price and availability — the SPA can
+# only ever serve one generic card. Must stay ABOVE the /* catch-all: Netlify
+# takes the first matching rule.
+#
+# This is the config Netlify actually reads (the base directory is frontend/).
+# The rule previously lived only in the repo-root netlify.toml, which Netlify
+# ignores, so /p/ links fell through to the SPA's ProductLinkFallback instead.
+[[redirects]]
+  from = "/p/*"
+  to = "https://nc-website-4.onrender.com/p/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

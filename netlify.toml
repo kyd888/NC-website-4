@@ -1,3 +1,8 @@
+# NOT READ BY NETLIFY. The site's base directory is frontend/, and a
+# netlify.toml there takes precedence — the build log reports
+# "Config file /opt/build/repo/frontend/netlify.toml". Edit
+# frontend/netlify.toml instead. Rules added only here (like /p/* below, until
+# it was copied over) silently never take effect.
 [build]
   base = "frontend"
   command = "npm ci && npm run build"
