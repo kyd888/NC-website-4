@@ -152,6 +152,7 @@ shareRouter.get("/:id", (req, res) => {
      above the iPhone home indicator and the webview paints that strip white.
      The header and footer already pad by env(safe-area-inset-*) for this. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f2f2ee" />
 <title>${title} — NO CONNECTION</title>
 <meta name="description" content="${escapeHtml(description)}" />
 <link rel="canonical" href="${escapeHtml(shareUrl)}" />
@@ -383,6 +384,7 @@ function notFoundPage(shop: string): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f2f2ee" />
 <title>Not found — NO CONNECTION</title>
 <meta name="robots" content="noindex" />
 <style>

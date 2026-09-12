@@ -656,12 +656,12 @@ input,select,textarea{font-size:16px}
     padding-bottom: 0;
   }
   /* The bar is sticky at bottom:0, so its bottom padding is the only thing
-     between the buttons and whatever sits under the page. viewport-fit=cover
-     is now set, so the page reaches the physical bottom edge and the inset is
-     real: in Instagram's browser (no bottom toolbar) it is the 34pt home
-     indicator; in Safari its own toolbar covers that area and it is 0. The
-     34px base is the spacing already tuned on-device, so the buttons land
-     exactly where they did before in both — only the white strip is gone. */
+     between the buttons and whatever the browser draws over the page bottom.
+     Instagram's in-app browser draws an opaque 34pt white bar there (measured:
+     the page runs underneath it), so a flat 34px left the buttons flush
+     against it. With viewport-fit=cover the inset reports that bar, so the
+     buttons keep the same 34px of room above Instagram's bar that they have
+     above Safari's toolbar. */
   .meta {
     padding-bottom: calc(34px + env(safe-area-inset-bottom));
   }
@@ -673,11 +673,8 @@ input,select,textarea{font-size:16px}
        room. Reserving the header height here as well double-counted it and
        pushed the shot too low. */
     padding-top: clamp(8px, 2vh, 16px);
-    /* Kept in step with the bar above, which grows by the same inset — so the
-       shot never sits under it and stays centred where it was tuned. With
-       viewport-fit=cover the section now reaches the physical bottom in
-       Instagram's browser; without the inset here the photo box would slide
-       34pt down behind the bar. */
+    /* Kept in step with the .meta bar, which grows by the same inset — so the
+       shot never slides behind the bar in Instagram's browser. */
     padding-bottom: calc(138px + env(safe-area-inset-bottom));
     flex: none;
     width: auto;
