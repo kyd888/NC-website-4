@@ -26,6 +26,19 @@ html::-webkit-scrollbar-thumb:hover{
   --safe-area-left: 0px;
   --header-offset: 0px;
   --meta-offset: 0px;
+  /* The page ground. Everything that paints the background reads these, so the
+     whole site can change colour in one place. --page-bg-rgb exists for the
+     translucent header and the product bar's fade. */
+  --page-bg: #f2f2ee;
+  --page-bg-rgb: 242, 242, 238;
+}
+/* Instagram's in-app browser draws an opaque white bar over the bottom of the
+   page that no site can paint over, so inside Instagram the page goes white to
+   run into it seamlessly. The class is set by an inline script in index.html's
+   <head>, before first paint, from the "Instagram" token in the user agent. */
+html.in-instagram{
+  --page-bg: #ffffff;
+  --page-bg-rgb: 255, 255, 255;
 }
 @supports (top: env(safe-area-inset-top)) {
   :root{
@@ -36,7 +49,7 @@ html::-webkit-scrollbar-thumb:hover{
   }
 }
 body{
-  background:#f2f2ee;
+  background:var(--page-bg);
   color:#111;
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;
@@ -65,7 +78,7 @@ input,select,textarea{font-size:16px}
   top:0;
   z-index:20;
   backdrop-filter:saturate(1.05) blur(6px);
-  background:rgba(242,242,238,.78);
+  background:rgba(var(--page-bg-rgb),.78);
   border-bottom:1px solid rgba(0,0,0,.06);
   padding-top:env(safe-area-inset-top);
 }
@@ -402,7 +415,7 @@ input,select,textarea{font-size:16px}
 .meta{
   position:sticky;
   bottom:0;
-  background:linear-gradient(to top, rgba(242,242,238,1), rgba(242,242,238,0.9), transparent);
+  background:linear-gradient(to top, rgba(var(--page-bg-rgb),1), rgba(var(--page-bg-rgb),0.9), transparent);
   display:flex;
   align-items:flex-end;
   justify-content:space-between;

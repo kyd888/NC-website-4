@@ -9,10 +9,20 @@
          they sit clear of that bar instead of tucked against or under it. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <!-- Instagram's in-app browser draws an opaque white bar over the bottom
-         34pt (measured: the page already runs underneath it, before and after
-         viewport-fit=cover). A page cannot paint over app UI; theme-color is the
-         one hint apps can read to tint their own chrome. Matches the page. -->
+         34pt (measured: the page runs underneath it). A page cannot paint over
+         app UI, so inside Instagram the page itself goes white to match — see
+         html.in-instagram in index.css. theme-color follows the page colour. -->
     <meta name="theme-color" content="#f2f2ee" />
+    <script>
+      // Runs in <head>, before first paint, so Instagram visitors never see an
+      // off-white flash. "Instagram" is in its in-app browser's user agent on
+      // both iOS and Android; nothing else on the site depends on this.
+      if (/\bInstagram\b/.test(navigator.userAgent)) {
+        document.documentElement.classList.add("in-instagram");
+        var themeColor = document.querySelector('meta[name="theme-color"]');
+        if (themeColor) themeColor.setAttribute("content", "#ffffff");
+      }
+    </script>
     <title>NO CONNECTION</title>
     <meta name="description" content="Limited drops. No restocks. Shop NC." />
 

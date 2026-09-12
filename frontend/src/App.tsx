@@ -81,8 +81,20 @@ type SaveSheetState = {
 const BACKEND_URL = requireBackendUrl();
 const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
 
+// The page ground is a CSS variable (white inside Instagram's in-app browser,
+// off-white elsewhere), so backgrounds that just mean "the page" must reference
+// it rather than pin a hex value.
+const PAGE_BG = "var(--page-bg)";
+
+// A product only overrides the page colour if it sets something else. The old
+// off-white hex is treated as "no override" so catalogs cached in localStorage
+// before the variable existed don't paint off-white sections inside Instagram
+// (the cache renders on first paint, before the fresh fetch replaces it).
+const sectionBackground = (bg?: string) =>
+  !bg || bg.trim().toLowerCase() === "#f2f2ee" ? PAGE_BG : bg;
+
 const IMAGE_OVERRIDES: Record<string, { img?: string; bg?: string }> = {
-  "tee-black": { img: "/tee-black.PNG", bg: "#f2f2ee" },
+  "tee-black": { img: "/tee-black.PNG", bg: PAGE_BG },
 };
 
 type BackendCartSnapshot = Record<
@@ -398,7 +410,7 @@ function App() {
             priceCents: product.priceCents,
             img,
             images,
-            bg: ov.bg || "#f2f2ee",
+            bg: ov.bg || PAGE_BG,
             sizes: Array.isArray(product.sizes) ? product.sizes : [],
             tags: Array.isArray(product.tags)
               ? product.tags
@@ -963,7 +975,7 @@ function App() {
 
   return (
     <Elements stripe={stripePromise}>
-    <div className="grain" style={{ background: "#f2f2ee" }}>
+    <div className="grain" style={{ background: PAGE_BG }}>
       <SiteHeader
         ref={headerRef}
         subtitle="Pre-Season 001"
@@ -1035,7 +1047,7 @@ function App() {
           <section
             key={product.id}
             className="section"
-            style={{ background: product.bg }}
+            style={{ background: sectionBackground(product.bg) }}
             data-tag={product.tags[0] ?? ""}
           >
             <div

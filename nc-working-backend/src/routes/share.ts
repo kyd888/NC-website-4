@@ -153,6 +153,16 @@ shareRouter.get("/:id", (req, res) => {
      The header and footer already pad by env(safe-area-inset-*) for this. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#f2f2ee" />
+<script>
+  /* Same as the SPA: inside Instagram's in-app browser the page goes white to
+     match the opaque white bar the app draws over the bottom. Runs before first
+     paint. indexOf, not a regex: this is a template literal, where \\b breaks. */
+  if (navigator.userAgent.indexOf("Instagram") !== -1) {
+    document.documentElement.classList.add("in-instagram");
+    var themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) themeColor.setAttribute("content", "#ffffff");
+  }
+</script>
 <title>${title} — NO CONNECTION</title>
 <meta name="description" content="${escapeHtml(description)}" />
 <link rel="canonical" href="${escapeHtml(shareUrl)}" />
@@ -173,9 +183,11 @@ shareRouter.get("/:id", (req, res) => {
 
 <style>
   *{box-sizing:border-box}
+  :root{--page-bg:#f2f2ee}
+  html.in-instagram{--page-bg:#ffffff}
   html,body{margin:0}
   body{
-    background:#f2f2ee;color:#111;
+    background:var(--page-bg);color:#111;
     font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;
     min-height:100svh;display:flex;flex-direction:column;
@@ -385,11 +397,20 @@ function notFoundPage(shop: string): string {
 <html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#f2f2ee" />
+<script>
+  if (navigator.userAgent.indexOf("Instagram") !== -1) {
+    document.documentElement.classList.add("in-instagram");
+    var themeColor = document.querySelector('meta[name="theme-color"]');
+    if (themeColor) themeColor.setAttribute("content", "#ffffff");
+  }
+</script>
 <title>Not found — NO CONNECTION</title>
 <meta name="robots" content="noindex" />
 <style>
+  :root{--page-bg:#f2f2ee}
+  html.in-instagram{--page-bg:#ffffff}
   html,body{margin:0}
-  body{background:#f2f2ee;color:#111;min-height:100svh;display:grid;place-items:center;text-align:center;
+  body{background:var(--page-bg);color:#111;min-height:100svh;display:grid;place-items:center;text-align:center;
     font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;padding:24px}
   h1{margin:0 0 12px;font-size:30px;font-weight:700;letter-spacing:-.04em;text-transform:uppercase}
   p{margin:0 0 22px;font-size:13px;letter-spacing:.06em;color:rgba(17,17,17,.6)}
