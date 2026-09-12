@@ -148,7 +148,10 @@ shareRouter.get("/:id", (req, res) => {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- viewport-fit=cover: in Instagram's in-app browser the page otherwise stops
+     above the iPhone home indicator and the webview paints that strip white.
+     The header and footer already pad by env(safe-area-inset-*) for this. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>${title} — NO CONNECTION</title>
 <meta name="description" content="${escapeHtml(description)}" />
 <link rel="canonical" href="${escapeHtml(shareUrl)}" />
@@ -179,14 +182,15 @@ shareRouter.get("/:id", (req, res) => {
   a{color:inherit;text-decoration:none}
   .top{
     display:flex;align-items:center;justify-content:space-between;gap:16px;
-    padding:calc(14px + env(safe-area-inset-top)) 20px 14px;
+    padding:calc(14px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 14px max(20px, env(safe-area-inset-left));
     max-width:1100px;width:100%;margin:0 auto;
   }
   .mark{width:26px;height:auto;display:block}
   .mark path{fill:#111}
   .label{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.55}
   main{
-    flex:1;width:100%;max-width:1100px;margin:0 auto;padding:0 20px 40px;
+    flex:1;width:100%;max-width:1100px;margin:0 auto;
+    padding:0 max(20px, env(safe-area-inset-right)) 40px max(20px, env(safe-area-inset-left));
     display:grid;gap:clamp(20px,4vw,56px);align-content:start;
     grid-template-columns:1fr;
   }
@@ -233,7 +237,7 @@ shareRouter.get("/:id", (req, res) => {
   .note[hidden]{display:none}
   footer{
     max-width:1100px;width:100%;margin:0 auto;
-    padding:16px 20px calc(22px + env(safe-area-inset-bottom));
+    padding:16px max(20px, env(safe-area-inset-right)) calc(22px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
     border-top:1px solid rgba(0,0,0,.08);
     display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;
     font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(17,17,17,.55);
@@ -378,7 +382,7 @@ shareRouter.get("/:id", (req, res) => {
 function notFoundPage(shop: string): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Not found — NO CONNECTION</title>
 <meta name="robots" content="noindex" />
 <style>

@@ -3,7 +3,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the page paint under the iPhone home indicator.
+         Without it, in-app browsers like Instagram leave that 34pt strip to the
+         webview, which paints it white below the off-white page. Every bottom-
+         anchored element pads by env(safe-area-inset-bottom) to stay clear. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>NO CONNECTION</title>
     <meta name="description" content="Limited drops. No restocks. Shop NC." />
 
@@ -23,8 +27,8 @@
     <meta name="twitter:title" content="NO CONNECTION" />
     <meta name="twitter:description" content="Limited drops. No restocks. Shop NC." />
     <meta name="twitter:image" content="https://no-connection.com/og-card.png" />
-    <script type="module" crossorigin src="/assets/index-Cqt6pkCO.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Dw0BEVtw.css">
+    <script type="module" crossorigin src="/assets/index-BOq4t3p9.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Ciw4uoZE.css">
   </head>
   <body>
     <div id="root"></div>

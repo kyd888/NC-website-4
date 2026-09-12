@@ -69,7 +69,9 @@ input,select,textarea{font-size:16px}
   border-bottom:1px solid rgba(0,0,0,.06);
   padding-top:env(safe-area-inset-top);
 }
-.container{max-width:1100px;margin:0 auto;padding:0 16px}
+/* max() is a no-op (16px) everywhere except a landscape iPhone, where
+   viewport-fit=cover would otherwise let content slide under the notch. */
+.container{max-width:1100px;margin:0 auto;padding:0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left))}
 /* .header-row / .brand / nav styles live in site.css (shared with every page) */
 .status{display:flex;align-items:center;gap:.5rem;font-size:13px}
 .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
@@ -654,13 +656,14 @@ input,select,textarea{font-size:16px}
     padding-bottom: 0;
   }
   /* The bar is sticky at bottom:0, so its bottom padding is the only thing
-     between the buttons and whatever the browser puts under the page. Safari
-     leaves room below the viewport; Instagram's in-app browser does not, and
-     16px read as clipped there. viewport-fit=cover is deliberately not set, so
-     env(safe-area-inset-bottom) is 0 in every browser here and cannot do this
-     job — hence a real value, sized to clear an iOS home indicator. */
+     between the buttons and whatever sits under the page. viewport-fit=cover
+     is now set, so the page reaches the physical bottom edge and the inset is
+     real: in Instagram's browser (no bottom toolbar) it is the 34pt home
+     indicator; in Safari its own toolbar covers that area and it is 0. The
+     34px base is the spacing already tuned on-device, so the buttons land
+     exactly where they did before in both — only the white strip is gone. */
   .meta {
-    padding-bottom: 34px;
+    padding-bottom: calc(34px + env(safe-area-inset-bottom));
   }
   .media {
     position: absolute;
@@ -670,8 +673,12 @@ input,select,textarea{font-size:16px}
        room. Reserving the header height here as well double-counted it and
        pushed the shot too low. */
     padding-top: clamp(8px, 2vh, 16px);
-    /* Kept in step with the taller bar so the shot never sits under it. */
-    padding-bottom: 138px;
+    /* Kept in step with the bar above, which grows by the same inset — so the
+       shot never sits under it and stays centred where it was tuned. With
+       viewport-fit=cover the section now reaches the physical bottom in
+       Instagram's browser; without the inset here the photo box would slide
+       34pt down behind the bar. */
+    padding-bottom: calc(138px + env(safe-area-inset-bottom));
     flex: none;
     width: auto;
     display: grid;
