@@ -13,6 +13,13 @@ import {
 import { requireBackendUrl, stripePublishableKey } from "./config";
 import { fetchWithSession } from "./lib/session";
 import { fetchBackendJson, readCache, writeCache } from "./lib/backend";
+import {
+  trackAddToCart,
+  trackInitiateCheckout,
+  trackPurchase,
+  trackViewContent,
+  type PixelLine,
+} from "./lib/metaPixel";
 
 // The shop the visitor last saw, replayed while the API wakes up.
 const CATALOG_CACHE_KEY = "catalog";
@@ -667,6 +674,25 @@ function App() {
   const itemsTotal = cartDetails.reduce((acc, item) => acc + item.qty, 0);
   const priceTotalCents = cartDetails.reduce((acc, item) => acc + item.lineTotal, 0);
 
+  // Meta Commerce: the cart as Pixel lines. Read BEFORE the cart is cleared on
+  // a confirmed order, or Purchase would go out with no products. It runs inside
+  // checkout's own try blocks, so it must never throw — a tracking hiccup there
+  // would read as a failed checkout after the card was already charged.
+  const pixelLines = (): PixelLine[] => {
+    try {
+      return cartDetails.map((item) => ({ id: item.id, quantity: item.qty, priceCents: item.priceCents }));
+    } catch {
+      return [];
+    }
+  };
+
+  // Meta Commerce: a product counts as viewed once it's the one on screen.
+  // Not while the "no drop active" screen is up — no products are shown then.
+  useEffect(() => {
+    if (showLandingScreen || !active) return;
+    trackViewContent(active);
+  }, [active, showLandingScreen]);
+
   const showToast = (message: string, duration = 1200) => {
     setToast(message);
     window.setTimeout(() => setToast(""), duration);
@@ -700,6 +726,8 @@ function App() {
           return [...prev, { id: productId, qty: 1, holdExpiresAt: now + CART_HOLD_MS }];
         });
       }
+      const added = catalog.find((p) => p.id === productId);
+      if (added) trackAddToCart(added, 1);
       showToast("Added to cart");
     } catch {
       showToast("Network error", 1600);
@@ -850,6 +878,7 @@ function App() {
         paymentIntentId: json.paymentIntentId,
         amount: Number(json.amount) || priceTotalCents,
       });
+      trackInitiateCheckout(pixelLines(), Number(json.amount) || priceTotalCents);
       setCartOpen(false);
       setPaymentModalOpen(true);
     } catch {
@@ -871,6 +900,7 @@ function App() {
         setPaymentError(json.error ?? "Checkout failed");
         return false;
       }
+      const purchasedLines = pixelLines();
       setCart([]);
       setPaymentIntentState(null);
       setPaymentModalOpen(false);
@@ -882,6 +912,7 @@ function App() {
         paymentRef: paymentIntentId ?? undefined,
       };
       setOrderConfirmation(confirmed);
+      trackPurchase(confirmed.orderId, purchasedLines, confirmed.totalCents);
       showToast("Order confirmed", 2000);
       if (account.user) {
         void account.loadOrders();
@@ -1378,10 +1409,13 @@ function App() {
                 <CartPaymentRequestButton
                   amountCents={priceTotalCents}
                   sizes={sizesPayload}
+                  onCheckoutStart={() => trackInitiateCheckout(pixelLines(), priceTotalCents)}
                   onOrderComplete={(confirmation) => {
+                    const purchasedLines = pixelLines();
                     setCart([]);
                     setCartOpen(false);
                     setOrderConfirmation(confirmation);
+                    trackPurchase(confirmation.orderId, purchasedLines, confirmation.totalCents);
                     showToast("Order confirmed", 2000);
                   }}
                   onError={(msg) => showToast(msg, 3000)}
@@ -2153,11 +2187,14 @@ function formatAddress(address?: CheckoutCustomer["address"]) {
 function CartPaymentRequestButton({
   amountCents,
   sizes,
+  onCheckoutStart,
   onOrderComplete,
   onError,
 }: {
   amountCents: number;
   sizes: Record<string, string[]>;
+  /** Fired once a wallet payment has a payment intent (Meta InitiateCheckout). */
+  onCheckoutStart?: () => void;
   onOrderComplete: (confirmation: OrderConfirmation) => void;
   onError: (msg: string) => void;
 }) {
@@ -2167,6 +2204,8 @@ function CartPaymentRequestButton({
   const [prAvailable, setPrAvailable] = useState(false);
   const onOrderCompleteRef = useRef(onOrderComplete);
   const onErrorRef = useRef(onError);
+  const onCheckoutStartRef = useRef(onCheckoutStart);
+  useEffect(() => { onCheckoutStartRef.current = onCheckoutStart; });
   const sizesPayloadRef = useRef(sizes);
   useEffect(() => { sizesPayloadRef.current = sizes; }, [sizes]);
   useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
@@ -2221,6 +2260,8 @@ function CartPaymentRequestButton({
         }
         clientSecret = json.clientSecret;
         paymentIntentId = json.paymentIntentId;
+        // Tracking only: guarded separately so it can never fail the payment.
+        try { onCheckoutStartRef.current?.(); } catch { /* ignore */ }
       } catch {
         event.complete("fail");
         onErrorRef.current("Checkout error");

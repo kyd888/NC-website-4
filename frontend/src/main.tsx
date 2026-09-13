@@ -13,6 +13,11 @@ import KydProject from "./pages/kyd/KydProject";
 import KydLive from "./pages/kyd/KydLive";
 import KydVisuals from "./pages/kyd/KydVisuals";
 import KydInfo from "./pages/kyd/KydInfo";
+import { initMetaPixel } from "./lib/metaPixel";
+
+// Meta Pixel for Commerce. No-op until META_PIXEL_ID is set; admin visits are
+// left out so internal traffic doesn't pollute the dataset.
+if (!window.location.pathname.startsWith("/admin")) initMetaPixel();
 
 /**
  * Safety net for /p/:id. Netlify proxies that path to the backend, which serves
