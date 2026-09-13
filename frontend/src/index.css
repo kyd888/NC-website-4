@@ -1198,10 +1198,6 @@ input,select,textarea{font-size:16px}
 @media (prefers-reduced-motion:reduce){.size-pick__option{transition:none}}
 
 /* ---------- Show merch: pick up at a show, or ship after it ---------- */
-/* With show merch the bag uses the screen height it has: header and Checkout
-   stay put, and the items and the choice scroll between them. */
-.cart-sheet--tall{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px)}
-.cart-sheet--tall .cart-sheet__body{flex:1 1 auto;min-height:0;max-height:none}
 .cart-line__fulfill{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#111}
 .cart-line__fulfill.is-pending{color:#a32b1f}
 
@@ -1244,3 +1240,155 @@ input,select,textarea{font-size:16px}
 .payment-note{margin:0;font-size:12px;color:#6b7280;line-height:1.5}
 .payment-note--warn{color:#a32b1f}
 @media (prefers-reduced-motion:reduce){.fulfill__option{transition:none}}
+
+
+/* ---------- Show merch, second pass: product descriptors, compact bag, checkout summary, confirmation ---------- */
+/* What makes one shirt different from the other, right under the price. */
+.tagline--print{opacity:.72}
+.tagline--mto{opacity:.55;letter-spacing:.14em}
+
+/* The bag uses the screen height it has: header and Checkout stay put, and
+   the items and the choice scroll between them, never under the footer. */
+.cart-sheet{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);gap:14px}
+.cart-sheet__body{flex:1 1 auto;min-height:0;max-height:none;gap:16px;padding-right:2px;overscroll-behavior:contain}
+.cart-sheet__footer{flex:none;gap:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.08)}
+.cart-sheet__lines{display:grid;gap:4px}
+.cart-sheet__line{display:flex;justify-content:space-between;font-size:12px;color:rgba(17,17,17,.6)}
+
+/* One compact row per product: thumbnail, name, what it is, size, quantity, price. */
+.cart-line{
+  display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;align-items:start;
+  padding-bottom:14px;border-bottom:1px solid rgba(0,0,0,.06);
+}
+.cart-line:last-of-type{border-bottom:0;padding-bottom:0}
+.cart-line__thumb{width:56px;height:70px;border-radius:12px;background:#f3f3f0;overflow:hidden;display:grid;place-items:center}
+.cart-line__thumb img{width:100%;height:100%;object-fit:contain}
+.cart-line__info{display:grid;gap:8px;min-width:0}
+.cart-line__top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.cart-line__title{font-weight:600;font-size:14px;line-height:1.3}
+.cart-line__desc{margin-top:3px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(17,17,17,.55)}
+.cart-line__price{font-weight:600;font-size:14px;white-space:nowrap;text-align:right}
+.cart-line__price span{font-weight:400;font-size:11px;color:rgba(17,17,17,.55)}
+.cart-line__row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cart-line__controls button{width:30px;height:30px;font-size:17px}
+.cart-line__hold{font-size:11px;letter-spacing:.06em;color:rgba(17,17,17,.55)}
+.cart-line__remove{margin-left:auto;font-size:10px;letter-spacing:.18em;color:rgba(17,17,17,.5)}
+.cart-line__remove:hover{color:#111}
+.cart-line__fulfill{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(17,17,17,.7)}
+/* Neutral guidance: a choice still to be made is not an error. */
+.cart-line__fulfill.is-pending{color:rgba(17,17,17,.5)}
+.cart-sheet__note{font-size:12px;color:rgba(17,17,17,.62);text-align:center;margin:0}
+
+/* Enabled and disabled must read differently at a glance. */
+.cart-sheet__checkout{background:#111;color:#fdfdfb;border:1.5px solid #111;transition:background .15s ease,opacity .15s ease}
+.cart-sheet__checkout:not(:disabled):hover{background:#050505;border-color:#050505}
+.cart-sheet__checkout:not(:disabled):active{background:#000}
+.cart-sheet__checkout:disabled{background:#ececea;color:rgba(17,17,17,.45);border-color:#ececea;opacity:1;cursor:not-allowed}
+
+/* Size: the chosen one is echoed next to the label; the guide sits beside the buttons. */
+.size-pick{margin-top:0}
+.size-pick__label strong{font-weight:600;color:#111;letter-spacing:.06em;margin-left:2px}
+.size-pick__options{align-items:center}
+.size-guide{display:contents}
+.size-guide__toggle{
+  font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(17,17,17,.6);
+  text-decoration:underline;text-underline-offset:3px;padding:6px 4px;margin-left:2px;
+}
+.size-guide__toggle:hover,.size-guide__toggle[aria-expanded="true"]{color:#111}
+.size-guide__toggle:focus-visible{outline:2px solid #111;outline-offset:2px}
+.size-guide__panel{flex-basis:100%;display:grid;gap:6px;margin-top:2px}
+.size-guide__panel table{border-collapse:collapse;font-size:12px;width:100%;max-width:320px}
+.size-guide__panel th,.size-guide__panel td{padding:5px 8px;border-bottom:1px solid rgba(0,0,0,.08);text-align:left;font-weight:400}
+.size-guide__panel thead th{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(17,17,17,.55)}
+.size-guide__panel tbody th{font-weight:600}
+.size-guide__note{font-size:11px;color:rgba(17,17,17,.55)}
+
+/* Fulfillment cards: no prices, a badge for the bonus, an expandable "more". */
+.fulfill__head{align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:8px}
+.fulfill__badge{
+  font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;
+  background:#111;color:#fdfdfb;border-radius:999px;padding:3px 8px;line-height:1;white-space:nowrap;
+}
+.fulfill__option.is-disabled .fulfill__badge{background:rgba(17,17,17,.3)}
+.fulfill__line{display:block}
+.fulfill__more{margin-top:4px}
+.fulfill__more summary{
+  cursor:pointer;list-style:none;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#111;
+  text-decoration:underline;text-underline-offset:3px;padding:4px 0;width:fit-content;
+}
+.fulfill__more summary::-webkit-details-marker{display:none}
+.fulfill__more summary:focus-visible{outline:2px solid #111;outline-offset:2px}
+.fulfill__more-body{display:grid;gap:6px;padding:6px 0 2px}
+.fulfill__more-body p{margin:0;font-size:12px;line-height:1.5;color:rgba(17,17,17,.75)}
+.fulfill__show-option.is-disabled{cursor:not-allowed;background:#f4f4f2;border-style:dashed;color:rgba(17,17,17,.5)}
+.fulfill__show-option.is-disabled input{opacity:.45}
+
+/* Checkout: the choice from the bag as one line, with a way back into it. */
+.checkout-summary{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:12px 14px;border:1.5px solid #111;border-radius:14px;background:#fafaf8;
+}
+.checkout-summary__title{font-size:13px;font-weight:600;color:#111}
+.checkout-summary__detail{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(17,17,17,.7)}
+.checkout-summary__change{
+  flex:none;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#111;
+  text-decoration:underline;text-underline-offset:3px;padding:6px 2px;
+}
+.checkout-summary__change:focus-visible{outline:2px solid #111;outline-offset:2px}
+.payment-totals{display:grid;gap:6px;padding:12px 14px;border-radius:12px;background:#f8f8f6;border:1px solid rgba(0,0,0,.08)}
+.payment-totals__line{display:flex;justify-content:space-between;font-size:13px;color:rgba(17,17,17,.7)}
+.payment-totals__line--total{font-weight:600;color:#111;font-size:14px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08)}
+.payment-submit:disabled{background:#ececea;color:rgba(17,17,17,.45);opacity:1}
+
+/* Confirmation: what was bought, where it goes, what was paid, who to ask. */
+.order-confirm-sheet{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column}
+.order-confirm-header{flex:none}
+.order-confirm-number{font-weight:600;color:#111;letter-spacing:.04em}
+.order-confirm-items{display:grid;gap:10px}
+.order-confirm-item{display:grid;grid-template-columns:48px minmax(0,1fr) auto;gap:12px;align-items:center}
+.order-confirm-item__thumb{width:48px;height:60px;border-radius:10px;background:#f3f3f0;overflow:hidden}
+.order-confirm-item__thumb img{width:100%;height:100%;object-fit:contain}
+.order-confirm-item__title{font-size:14px;font-weight:600}
+.order-confirm-item__meta{margin-top:2px;font-size:12px;color:rgba(17,17,17,.6)}
+.order-confirm-item__price{font-size:13px;font-weight:600;white-space:nowrap}
+.order-confirm-card{background:#f6f5f1;border:1px solid rgba(0,0,0,.08);border-radius:16px;padding:14px 16px;display:grid;gap:6px}
+.order-confirm-card--pickup{border-color:#111}
+.order-confirm-card__label{font-size:11px;text-transform:uppercase;letter-spacing:.18em;color:#7a7a7a}
+.order-confirm-card__body{display:grid;gap:4px;font-size:13px;line-height:1.5;color:#222}
+.order-confirm-card__bonus{font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;color:#111}
+.order-confirm-more summary{cursor:pointer;font-size:11px;letter-spacing:.12em;text-transform:uppercase;text-decoration:underline;text-underline-offset:3px;list-style:none;width:fit-content;padding:2px 0}
+.order-confirm-more summary::-webkit-details-marker{display:none}
+.order-confirm-more p{margin:6px 0 0;font-size:12px;line-height:1.5;color:rgba(17,17,17,.75)}
+.order-confirm-total__note{font-weight:400;font-size:11px;opacity:.75}
+.order-confirm-support{
+  display:block;text-align:center;font-size:12px;letter-spacing:.06em;color:#111;
+  text-decoration:underline;text-underline-offset:3px;padding:8px 0 2px;
+}
+
+/* Labeled views under the shot: "Front", "Back", "Artwork". */
+.shots__dots--labeled{gap:6px;flex-wrap:wrap;padding:0 12px}
+.shots__dots--labeled button{
+  width:auto;height:auto;padding:5px 10px;border-radius:999px;
+  background:rgba(255,255,255,.7);color:rgba(17,17,17,.7);border:1px solid rgba(17,17,17,.14);
+  font-size:10px;letter-spacing:.12em;text-transform:uppercase;line-height:1;
+}
+.shots__dots--labeled button.is-on{background:#111;color:#fdfdfb;border-color:#111;transform:none}
+/* On phones the shot isn't lifted, so the named tabs get their own strip under
+   it instead of sitting on the garment's hem. */
+@media (max-width:640px){
+  .shots--labeled img{height:calc(100% - 44px)}
+  .shots--labeled .shots__hit{height:calc(100% - 44px)}
+  .shots--labeled .shots__dots--labeled{bottom:4px}
+}
+
+@media (max-width:520px){
+  .cart-sheet{padding-left:16px;padding-right:16px}
+  .cart-line{flex-direction:unset;grid-template-columns:52px minmax(0,1fr);gap:10px}
+  .cart-line__thumb{width:52px;height:64px}
+  .order-confirm-item{grid-template-columns:44px minmax(0,1fr) auto}
+}
+
+/* On wide screens the bag keeps the checkout sheet's width, so rows stay compact. */
+@media (min-width:641px){
+  .cart-sheet{max-width:560px;margin:0 auto}
+}

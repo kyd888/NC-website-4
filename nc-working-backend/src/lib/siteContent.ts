@@ -29,7 +29,11 @@ export type ShowMerchPickup = {
    * show's own timezone. Pickup stays closed until one is set.
    */
   cutoff?: string;
-  /** Where and how to collect. Shown to customers exactly as written. */
+  /** The essentials, shown up front: "Merch table, 6–10 pm". */
+  hours?: string;
+  /** Public pickup location, when it should read differently from venue · city. */
+  location?: string;
+  /** How to collect, in full. Shown to customers exactly as written. */
   instructions?: string;
 };
 
@@ -329,12 +333,18 @@ function sanitizeMerchPickup(input: unknown): ShowMerchPickup | undefined {
   const r = input as Record<string, unknown>;
   // datetime-local inputs may add seconds; the cutoff is kept to the minute.
   const cutoff = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:\d{2})?$/.exec(str(r.cutoff))?.[1];
-  const instructions = str(r.instructions).slice(0, 1000);
+  const hours = str(r.hours).slice(0, 160);
+  const location = str(r.location).slice(0, 160);
+  // Capped at what a paid order can carry: the whole text is copied onto the
+  // order at checkout, and that snapshot has a 500-character limit per field.
+  const instructions = str(r.instructions).slice(0, 500);
   const out: ShowMerchPickup = { enabled: r.enabled === true };
   if (cutoff) out.cutoff = cutoff;
+  if (hours) out.hours = hours;
+  if (location) out.location = location;
   if (instructions) out.instructions = instructions;
   // Nothing set at all: leave the field off, so plain shows stay plain.
-  if (!out.enabled && !out.cutoff && !out.instructions) return undefined;
+  if (!out.enabled && !out.cutoff && !out.hours && !out.location && !out.instructions) return undefined;
   return out;
 }
 

@@ -1,5 +1,6 @@
 import type { Request } from "express";
 import {
+  isMadeToOrder,
   getCurrentDrop,
   getAllRemaining,
   getDisplayedRemaining,
@@ -19,7 +20,8 @@ import {
 export const LOW_STOCK_AT = 5;
 
 export type Availability =
-  | { state: "available"; qty: number }
+  /** madeToOrder: in the live drop with no unit count, so it can't sell out. */
+  | { state: "available"; qty: number; madeToOrder?: boolean }
   | { state: "low"; qty: number }
   | { state: "soldout" }
   /** Sold out in an earlier drop whose save window has closed: no alert sign-up. */
@@ -53,6 +55,7 @@ export function availabilityOf(productId: string): Availability {
   const qty = getDisplayedRemaining()[productId] ?? 0;
 
   if (drop?.status === "live") {
+    if (isMadeToOrder(productId) && productId in getAllRemaining()) return { state: "available", qty: 0, madeToOrder: true };
     if (qty <= 0) return { state: "soldout" };
     return qty <= LOW_STOCK_AT ? { state: "low", qty } : { state: "available", qty };
   }

@@ -52,7 +52,7 @@ function pagePhotoUrl(url: string): string {
 
 function statusLabel(a: Availability): string {
   switch (a.state) {
-    case "available": return "In stock";
+    case "available": return a.madeToOrder ? "Made to order" : "In stock";
     case "low": return `${a.qty} left`;
     case "soldout": return "Sold out";
     case "ended": return "Sold out";

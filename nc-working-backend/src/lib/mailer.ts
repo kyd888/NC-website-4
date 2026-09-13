@@ -24,6 +24,8 @@ export type ReceiptItem = {
   lineTotalCents: number;
   imageUrl?: string;
   size?: string;
+  /** "Front print · Standard black tee" */
+  detail?: string;
   /** How this line reaches the customer; absent reads as shipped. */
   method?: FulfillmentMethod;
 };
@@ -33,17 +35,22 @@ export type ReceiptFulfillment = {
   /** The show merch choice; null when the order has no show merch. */
   method: FulfillmentMethod | null;
   show?: { name: string; dateLabel: string; location: string };
+  pickupHours?: string;
   pickupInstructions?: string;
   missedPickupPolicy?: string;
   bonus?: string;
   shipsAfterLabel?: string;
   dispatchEstimate?: string;
+  /** Delivery charged on top of the items, when shipping isn't in the price. */
+  shippingFeeCents?: number;
   /** Other items in the order ship the usual way. */
   otherItemsShip: boolean;
 };
 
 export type ReceiptEmailPayload = {
   orderId: string;
+  /** The short number the customer quotes; falls back to a condensed order id. */
+  orderNumber?: string;
   totalCents: number;
   customerName?: string;
   customerEmail?: string;
@@ -98,6 +105,29 @@ export type CartActivityPayload = {
   shoppers: string[];     // emails of the signed-in ones, when known
   /** Overrides the configured recipient — used by the admin's test send. */
   notifyTo?: string;
+};
+
+export type ShippingUpdateEmailPayload = {
+  orderId: string;
+  orderNumber: string;
+  customerName?: string;
+  customerEmail: string;
+  items: ReceiptItem[];
+  shippingAddress?: ShippingAddress;
+  carrier?: string;
+  trackingNumber?: string;
+};
+
+export type AddressRequestEmailPayload = {
+  orderId: string;
+  orderNumber: string;
+  customerName?: string;
+  customerEmail: string;
+  items: ReceiptItem[];
+  show?: { name: string; dateLabel: string };
+  /** The secure link where the customer enters an address. */
+  link: string;
+  missedPickupPolicy?: string;
 };
 
 export type DropTeaserEmailPayload = {
@@ -365,10 +395,11 @@ function escapeHtml(input: string) {
   });
 }
 
-/** "Size M · Pickup" — only the parts that apply, and the method only when the order mixes them. */
+/** "Size M · Front print · Pickup" — only the parts that apply, and the method only when the order mixes them. */
 function itemDetail(item: ReceiptItem, showMethod: boolean) {
   const parts: string[] = [];
   if (item.size) parts.push(`Size ${item.size}`);
+  if (item.detail) parts.push(item.detail);
   if (showMethod) parts.push(item.method === "pickup" ? "Pickup" : "Ships");
   return parts.join(" · ");
 }
@@ -480,12 +511,14 @@ function fulfillmentSections(payload: ReceiptEmailPayload, { includeAddress = tr
   };
 
   if (f?.method === "pickup") {
+    // Where, when, what to bring, and the bonus — in that order.
     block("Pick up at the show", [
       f.show?.name ?? "",
       f.show ? [f.show.dateLabel, f.show.location].filter(Boolean).join(" · ") : "",
-      "Bring your order confirmation: this email or your order number.",
-      f.bonus ? `Your ${f.bonus.toLowerCase()} is included as a pickup bonus.` : "",
-      f.pickupInstructions ? `Pickup instructions: ${f.pickupInstructions}` : "",
+      f.pickupHours ? `When: ${f.pickupHours}` : "",
+      `Bring: this email or your order number (${payload.orderNumber ?? condenseOrderId(payload.orderId)}).`,
+      f.bonus ? `${f.bonus} included with your pickup.` : "",
+      f.pickupInstructions ? `How to collect: ${f.pickupInstructions}` : "",
       f.missedPickupPolicy ? `If you can't make it: ${f.missedPickupPolicy}` : "",
     ]);
   }
@@ -493,6 +526,8 @@ function fulfillmentSections(payload: ReceiptEmailPayload, { includeAddress = tr
     block("Ships after the show", [
       f.shipsAfterLabel ? `Ships after ${f.shipsAfterLabel}.` : "Ships after the show.",
       f.dispatchEstimate ?? "",
+      f.shippingFeeCents ? `Delivery: ${currencyFormatter.format(f.shippingFeeCents / 100)}` : "",
+      "We'll email you when it ships.",
     ]);
   }
   if (payload.shippingAddress && includeAddress) {
@@ -514,7 +549,7 @@ function isPickupOnly(payload: ReceiptEmailPayload) {
 }
 
 export function buildReceiptEmail(payload: ReceiptEmailPayload) {
-  const orderLabel = condenseOrderId(payload.orderId);
+  const orderLabel = payload.orderNumber ?? condenseOrderId(payload.orderId);
   const subject = `Your NC order ${orderLabel}`;
   const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
   const itemsText = formatItemsText(payload.items || []);
@@ -526,7 +561,7 @@ export function buildReceiptEmail(payload: ReceiptEmailPayload) {
   const show = payload.fulfillment?.show;
   const closing = pickupOnly
     ? "Thanks for your purchase. Your order will be ready at the show. If you have any questions, reply to this email."
-    : "Thanks for your purchase. We will reach out when your order ships. If you have any questions, reply to this email.";
+    : "Thanks for your purchase. We'll email you when your order ships. If you have any questions, reply to this email.";
   const siteUrl =
     process.env.FRONTEND_ORIGIN ??
     process.env.BACKEND_ORIGIN ??
@@ -536,8 +571,9 @@ export function buildReceiptEmail(payload: ReceiptEmailPayload) {
 
 Thanks for your purchase. Here are your order details:
 
-Order ID: ${payload.orderId}
-${payload.paymentRef ? `Payment reference: ${payload.paymentRef}\n` : ""}Items:\n${itemsText}
+Order number: ${orderLabel}
+Items:
+${itemsText}
 
 Order total: ${totalText}
 
@@ -571,16 +607,9 @@ The NC team`;
             <tr>
               <td style="text-align:center;padding-bottom:6px;">
                 <div style="font-size:12px;letter-spacing:0.32em;text-transform:uppercase;color:#6b6b6b;">Order Receipt</div>
-                <div style="margin-top:10px;font-size:26px;font-weight:700;letter-spacing:-0.03em;">#${escapeHtml(orderLabel)}</div>
+                <div style="margin-top:10px;font-size:26px;font-weight:700;letter-spacing:-0.03em;">${escapeHtml(orderLabel)}</div>
               </td>
             </tr>
-            ${
-              payload.paymentRef
-                ? `<tr><td style="text-align:center;font-size:12px;color:#6b7280;padding-bottom:18px;">
-                    Payment reference: <span style="font-weight:600;color:#111;">${escapeHtml(payload.paymentRef)}</span>
-                  </td></tr>`
-                : ""
-            }
             <tr>
               <td style="padding:24px 0;border-top:1px solid rgba(17,17,17,.08);border-bottom:1px solid rgba(17,17,17,.08);">
                 ${formatItemsHtml(payload.items || [])}
@@ -661,7 +690,7 @@ function fulfillmentHeadline(payload: ReceiptEmailPayload) {
 }
 
 export function buildPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
-  const orderLabel = condenseOrderId(payload.orderId);
+  const orderLabel = payload.orderNumber ?? condenseOrderId(payload.orderId);
   const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
   const itemsText = formatItemsText(payload.items || []);
   const orderedAt = payload.orderedAt ? formatDateTime(payload.orderedAt) : formatDateTime(new Date().toISOString());
@@ -704,6 +733,153 @@ export async function sendPurchaseNotificationEmail(payload: PurchaseNotificatio
   if (!notifyTo) return false;
   const email = buildPurchaseNotificationEmail(payload);
   return sendEmail({ to: notifyTo, subject: email.subject, text: email.text, html: email.html });
+}
+
+/** Public tracking page for the carriers the shop uses; none for anything else. */
+export function trackingUrl(carrier: string | undefined, trackingNumber: string | undefined): string | undefined {
+  const number = (trackingNumber ?? "").trim();
+  const name = (carrier ?? "").toLowerCase();
+  if (!number) return undefined;
+  if (name.includes("usps")) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(number)}`;
+  if (name.includes("ups")) return `https://www.ups.com/track?tracknum=${encodeURIComponent(number)}`;
+  if (name.includes("fedex")) return `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(number)}`;
+  if (name.includes("dhl")) return `https://www.dhl.com/en/express/tracking.html?AWB=${encodeURIComponent(number)}`;
+  return undefined;
+}
+
+/** "Your order is on its way" — sent on purpose from the admin, never automatically. */
+export function buildShippingUpdateEmail(payload: ShippingUpdateEmailPayload) {
+  const subject = `Your NC order ${payload.orderNumber} has shipped`;
+  const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
+  const itemsText = formatItemsText(payload.items || []);
+  const url = trackingUrl(payload.carrier, payload.trackingNumber);
+  const trackingLines = [
+    payload.carrier ? `Carrier: ${payload.carrier}` : "",
+    payload.trackingNumber ? `Tracking number: ${payload.trackingNumber}` : "",
+    url ? `Track it: ${url}` : "",
+  ].filter(Boolean);
+  const addressText = payload.shippingAddress ? formatAddress(payload.shippingAddress) : "";
+  const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc-website.com";
+
+  const textBody = `${greeting}
+
+Your order ${payload.orderNumber} is on its way.
+
+Items:
+${itemsText}
+${trackingLines.length ? `\n${trackingLines.join("\n")}\n` : ""}${addressText ? `\nShipping to:\n${addressText}\n` : ""}
+If anything looks wrong, reply to this email.
+
+The NC team
+${siteUrl}`;
+
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr><td align="center" style="padding:48px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border-radius:32px;background:#ffffff;padding:40px 36px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+          <tr><td style="text-align:center;padding-bottom:20px;"><img src="cid:nc-logo" alt="NC logo" style="max-width:160px;height:auto;display:inline-block;"/></td></tr>
+          <tr><td style="text-align:center;padding-bottom:18px;">
+            <div style="font-size:12px;letter-spacing:0.32em;text-transform:uppercase;color:#6b6b6b;">On its way</div>
+            <div style="margin-top:10px;font-size:26px;font-weight:700;letter-spacing:-0.03em;">Order ${escapeHtml(payload.orderNumber)} has shipped</div>
+          </td></tr>
+          <tr><td style="padding:24px 0;border-top:1px solid rgba(17,17,17,.08);border-bottom:1px solid rgba(17,17,17,.08);">${formatItemsHtml(payload.items || [])}</td></tr>
+          ${trackingLines.length ? `<tr><td style="padding-top:18px;">
+            <div style="padding:18px 20px;border-radius:20px;background:#f6f5f1;border:1px solid rgba(17,17,17,.08);">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Tracking</div>
+              ${payload.carrier ? `<div style="margin-top:12px;font-size:14px;line-height:1.6;">Carrier: ${escapeHtml(payload.carrier)}</div>` : ""}
+              ${payload.trackingNumber ? `<div style="margin-top:8px;font-size:14px;line-height:1.6;">Tracking number: <strong>${escapeHtml(payload.trackingNumber)}</strong></div>` : ""}
+              ${url ? `<div style="margin-top:14px;"><a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;font-size:11px;">Track package</a></div>` : ""}
+            </div></td></tr>` : ""}
+          ${addressText ? `<tr><td style="padding-top:18px;">
+            <div style="padding:18px 20px;border-radius:20px;background:#f6f5f1;border:1px solid rgba(17,17,17,.08);">
+              <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Shipping to</div>
+              <div style="margin-top:12px;font-size:14px;line-height:1.7;">${escapeHtml(addressText).replace(/\n/g, "<br/>")}</div>
+            </div></td></tr>` : ""}
+          <tr><td style="padding-top:24px;font-size:13px;line-height:1.7;color:#111;">
+            <p style="margin:0 0 18px 0;">${escapeHtml(greeting)}</p>
+            <p style="margin:0 0 18px 0;">If anything looks wrong, reply to this email.</p>
+            <p style="margin:0;">The NC team</p>
+          </td></tr>
+          <tr><td style="padding-top:28px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">${escapeHtml(siteUrl)}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </div>`;
+  return { subject, text: textBody, html: htmlBody };
+}
+
+export async function sendShippingUpdateEmail(payload: ShippingUpdateEmailPayload) {
+  if (!payload.customerEmail) return false;
+  const email = buildShippingUpdateEmail(payload);
+  return sendEmail({ to: payload.customerEmail, subject: email.subject, text: email.text, html: email.html, logoAttachment: getLogoAttachment() });
+}
+
+/** A missed pickup: asks the customer for an address through a secure link. Nothing is charged. */
+export function buildAddressRequestEmail(payload: AddressRequestEmailPayload) {
+  const subject = `Your NC order ${payload.orderNumber}: where should we send it?`;
+  const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
+  const itemsText = formatItemsText(payload.items || []);
+  const where = payload.show ? ` at ${payload.show.name} (${payload.show.dateLabel})` : "";
+  const intro = `Your order ${payload.orderNumber} wasn't collected${where}, so we'll ship it to you instead. Standard shipping was already covered by your order, so there's nothing more to pay.`;
+  const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc-website.com";
+
+  const textBody = `${greeting}
+
+${intro}
+
+Tell us where to send it (this link is just for your order):
+${payload.link}
+
+Items:
+${itemsText}
+${payload.missedPickupPolicy ? `\nOur missed-pickup policy: ${payload.missedPickupPolicy}\n` : ""}
+If you have any questions, reply to this email.
+
+The NC team
+${siteUrl}`;
+
+  const htmlBody = `
+  <div style="margin:0;padding:0;background:#f2f2ee;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr><td align="center" style="padding:48px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border-radius:32px;background:#ffffff;padding:40px 36px;box-shadow:0 28px 60px rgba(17,17,17,.08);font-family:Arial,sans-serif;color:#111;">
+          <tr><td style="text-align:center;padding-bottom:20px;"><img src="cid:nc-logo" alt="NC logo" style="max-width:160px;height:auto;display:inline-block;"/></td></tr>
+          <tr><td style="text-align:center;padding-bottom:18px;">
+            <div style="font-size:12px;letter-spacing:0.32em;text-transform:uppercase;color:#6b6b6b;">Order ${escapeHtml(payload.orderNumber)}</div>
+            <div style="margin-top:10px;font-size:26px;font-weight:700;letter-spacing:-0.03em;">Where should we send it?</div>
+          </td></tr>
+          <tr><td style="font-size:14px;line-height:1.7;color:#111;padding-bottom:18px;">
+            <p style="margin:0 0 14px 0;">${escapeHtml(greeting)}</p>
+            <p style="margin:0;">${escapeHtml(intro)}</p>
+          </td></tr>
+          <tr><td style="text-align:center;padding:6px 0 24px;">
+            <a href="${escapeHtml(payload.link)}" style="display:inline-block;padding:14px 28px;border-radius:999px;background:#111;color:#ffffff;text-decoration:none;font-weight:600;letter-spacing:0.2em;text-transform:uppercase;font-size:12px;">Enter my address</a>
+            <div style="margin-top:12px;font-size:12px;color:#6b7280;">This link is just for your order.</div>
+          </td></tr>
+          <tr><td style="padding:24px 0;border-top:1px solid rgba(17,17,17,.08);border-bottom:1px solid rgba(17,17,17,.08);">${formatItemsHtml(payload.items || [])}</td></tr>
+          ${payload.missedPickupPolicy ? `<tr><td style="padding-top:18px;font-size:13px;line-height:1.7;color:#6b7280;">Our missed-pickup policy: ${escapeHtml(payload.missedPickupPolicy)}</td></tr>` : ""}
+          <tr><td style="padding-top:24px;font-size:13px;line-height:1.7;color:#111;">
+            <p style="margin:0 0 18px 0;">If you have any questions, reply to this email.</p>
+            <p style="margin:0;">The NC team</p>
+          </td></tr>
+          <tr><td style="padding-top:28px;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:0.24em;text-transform:uppercase;">${escapeHtml(siteUrl)}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </div>`;
+  return { subject, text: textBody, html: htmlBody };
+}
+
+export async function sendAddressRequestEmail(payload: AddressRequestEmailPayload) {
+  if (!payload.customerEmail) return false;
+  const email = buildAddressRequestEmail(payload);
+  return sendEmail({ to: payload.customerEmail, subject: email.subject, text: email.text, html: email.html, logoAttachment: getLogoAttachment() });
+}
+
+/** Whether any mail transport is configured at all. The admin says so before offering to send. */
+export function mailerConfigured(): boolean {
+  return Boolean(resendClient) || Boolean(process.env.SMTP_HOST);
 }
 
 /**

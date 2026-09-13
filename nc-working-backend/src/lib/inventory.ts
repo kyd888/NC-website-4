@@ -3,7 +3,18 @@ import fs from "fs";
 import path from "path";
 import dayjs from "dayjs";
 import { nanoid } from "nanoid";
-import type { CatalogItem, Drop, DropCode, DropStatus, RemainingMap } from "./types.js";
+import type {
+  CatalogItem,
+  Drop,
+  DropCode,
+  DropStatus,
+  InventoryMode,
+  PrintPlacement,
+  ProductDetails,
+  RemainingMap,
+  SizeGuide,
+  SizeGuideRow,
+} from "./types.js";
 import { listSales } from "./sales.js";
 import { dbEnabled, dbQuery, logDbError } from "./db.js";
 
@@ -124,18 +135,83 @@ function normalizeImages(input: unknown): string[] {
   return out;
 }
 
+const text = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
+
+/** A size list typed by hand: "S, M, L, XL" or an array. Empty means "use the tag default". */
+export function normalizeSizes(input: unknown): string[] {
+  const raw = Array.isArray(input) ? input : typeof input === "string" ? input.split(/[\n,]/) : [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const size = String(entry ?? "").trim().slice(0, 12);
+    if (size && !out.some((s) => s.toLowerCase() === size.toLowerCase())) out.push(size);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function normalizeSizeGuide(input: unknown): SizeGuide | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const r = input as Record<string, unknown>;
+  const rows = (Array.isArray(r.rows) ? r.rows : [])
+    .map((row): SizeGuideRow | null => {
+      if (!row || typeof row !== "object") return null;
+      const v = row as Record<string, unknown>;
+      const size = text(v.size, 12);
+      if (!size) return null;
+      return { size, chest: text(v.chest, 24), length: text(v.length, 24) };
+    })
+    .filter((row): row is SizeGuideRow => row !== null)
+    .slice(0, 12);
+  const note = text(r.note, 200);
+  if (!rows.length && !note) return undefined;
+  return { rows, ...(note ? { note } : {}) };
+}
+
+/** Labels only for images the product actually has, so a removed shot takes its label with it. */
+function normalizeImageLabels(input: unknown, images: string[]): Record<string, string> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const out: Record<string, string> = {};
+  for (const [url, label] of Object.entries(input as Record<string, unknown>)) {
+    const clean = text(label, 40);
+    if (clean && images.includes(url)) out[url] = clean;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** The optional garment details. Absent fields stay absent, so old products serialize as before. */
+function normalizeDetails(input: Partial<ProductDetails> | undefined, images: string[]): ProductDetails {
+  const out: ProductDetails = {};
+  if (!input) return out;
+  const description = text(input.description, 600);
+  if (description) out.description = description;
+  if (input.printPlacement === "front" || input.printPlacement === "front_back") out.printPlacement = input.printPlacement;
+  const garment = text(input.garment, 120);
+  if (garment) out.garment = garment;
+  const sizeGuide = normalizeSizeGuide(input.sizeGuide);
+  if (sizeGuide) out.sizeGuide = sizeGuide;
+  const sizes = normalizeSizes(input.sizes);
+  if (sizes.length) out.sizes = sizes;
+  const imageLabels = normalizeImageLabels(input.imageLabels, images);
+  if (imageLabels) out.imageLabels = imageLabels;
+  if (input.inventoryMode === "made_to_order") out.inventoryMode = "made_to_order";
+  else if (input.inventoryMode === "stocked") out.inventoryMode = "stocked";
+  return out;
+}
+
 function normalizeProduct(input: CatalogItem): CatalogItem {
   // imageUrl and images[0] are two views of one thing — keep them in step so
   // older code paths reading imageUrl always get the primary shot.
   const images = normalizeImages(input.images);
   const primary = input.imageUrl?.trim() || images[0];
   if (primary && !images.includes(primary)) images.unshift(primary);
+  const { description, printPlacement, garment, sizeGuide, sizes, imageLabels, inventoryMode, ...rest } = input;
   return {
-    ...input,
+    ...rest,
     imageUrl: primary || undefined,
     images,
     enabled: input.enabled !== false,
     tags: normalizeTags(input.tags),
+    ...normalizeDetails({ description, printPlacement, garment, sizeGuide, sizes, imageLabels, inventoryMode }, images),
   };
 }
 
@@ -171,6 +247,13 @@ function sanitizeCatalogEntry(entry: unknown): CatalogItem | null {
     images: normalizeImages(source.images),
     enabled,
     tags,
+    description: source.description as string | undefined,
+    printPlacement: source.printPlacement as PrintPlacement | undefined,
+    garment: source.garment as string | undefined,
+    sizeGuide: source.sizeGuide as SizeGuide | undefined,
+    sizes: source.sizes as string[] | undefined,
+    imageLabels: source.imageLabels as Record<string, string> | undefined,
+    inventoryMode: source.inventoryMode as InventoryMode | undefined,
   });
 }
 
@@ -193,6 +276,11 @@ function loadCatalogFromDisk(): CatalogItem[] | null {
   }
 }
 
+/** The garment details as one object, for the DB column and the JSON file. */
+function productDetails(item: CatalogItem): ProductDetails {
+  return normalizeDetails(item, normalizeImages(item.images));
+}
+
 function serializeCatalogForDisk(item: CatalogItem) {
   const record: Record<string, unknown> = {
     id: item.id,
@@ -205,6 +293,7 @@ function serializeCatalogForDisk(item: CatalogItem) {
   if (item.enabled === false) record.enabled = false;
   const tags = normalizeTags(item.tags);
   if (tags.length) record.tags = tags;
+  Object.assign(record, productDetails(item));
   return record;
 }
 
@@ -218,8 +307,8 @@ async function persistCatalogNow() {
     await Promise.all(
       rows.map((item) =>
         dbQuery(
-          `INSERT INTO catalog (id, title, price_cents, image_url, images, enabled, tags, updated_at)
-           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, now())
+          `INSERT INTO catalog (id, title, price_cents, image_url, images, enabled, tags, details, updated_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb, now())
            ON CONFLICT (id) DO UPDATE SET
              title = EXCLUDED.title,
              price_cents = EXCLUDED.price_cents,
@@ -227,6 +316,7 @@ async function persistCatalogNow() {
              images = EXCLUDED.images,
              enabled = EXCLUDED.enabled,
              tags = EXCLUDED.tags,
+             details = EXCLUDED.details,
              updated_at = now()`,
           [
             item.id,
@@ -236,6 +326,7 @@ async function persistCatalogNow() {
             jsonParam(normalizeImages((item as CatalogItem).images)),
             item.enabled !== false,
             jsonParam(item.tags ?? []),
+            jsonParam(productDetails(item as unknown as CatalogItem)),
           ],
         ),
       ),
@@ -664,11 +755,12 @@ export async function loadInventoryFromDb() {
   if (!dbEnabled) return;
   try {
     const catalogRows = await dbQuery(
-      "SELECT id, title, price_cents, image_url, images, enabled, tags FROM catalog ORDER BY updated_at ASC, id ASC",
+      "SELECT id, title, price_cents, image_url, images, enabled, tags, details FROM catalog ORDER BY updated_at ASC, id ASC",
     );
     catalog = catalogRows.rows
       .map((row) =>
         sanitizeCatalogEntry({
+          ...(row.details && typeof row.details === "object" ? row.details : {}),
           id: row.id,
           title: row.title,
           priceCents: row.price_cents,
@@ -718,6 +810,11 @@ export function getAllRemaining(): RemainingMap {
   return { ...remaining };
 }
 
+/** Made-to-order products don't run out: no unit count, no hold, no simulated sell-down. */
+export function isMadeToOrder(productId: string): boolean {
+  return catalog.find((item) => item.id === productId)?.inventoryMode === "made_to_order";
+}
+
 export function getDisplayedRemaining(): RemainingMap {
   if (!autoDrop.phantomDecayEnabled || !currentDrop || currentDrop.status !== "live") {
     return { ...remaining };
@@ -745,6 +842,11 @@ export function getDisplayedRemaining(): RemainingMap {
 
   const out: RemainingMap = {};
   for (const [productId, actualQty] of Object.entries(remaining)) {
+    // A made-to-order count is never shown, so there's nothing to simulate.
+    if (isMadeToOrder(productId)) {
+      out[productId] = actualQty;
+      continue;
+    }
     const initial = Math.max(actualQty, plannedInitial[productId] ?? actualQty);
 
     const normSaves = savesMap[productId] / maxSaves;
@@ -794,6 +896,11 @@ export async function patchProduct(id: string, patch: Partial<CatalogItem>) {
     merged.images = normalizeImages(patch.images);
     // A replaced gallery re-elects its own primary shot.
     merged.imageUrl = merged.images[0];
+  }
+  // Blanking a detail field clears it; leaving it out keeps what was there.
+  const clearable: Array<keyof ProductDetails> = ["description", "printPlacement", "garment", "sizeGuide", "sizes", "imageLabels", "inventoryMode"];
+  for (const key of clearable) {
+    if (key in patch && (patch[key] === null || patch[key] === "")) delete (merged as Record<string, unknown>)[key];
   }
   catalog[i] = normalizeProduct(merged);
   if (dbEnabled) {
@@ -871,7 +978,7 @@ function activateDrop() {
   currentDrop = { ...currentDrop, status: "live" };
   const nowIso = new Date().toISOString();
   for (const [productId, qty] of Object.entries(remaining)) {
-    if (Number.isFinite(qty) && Number(qty) > 0) {
+    if ((Number.isFinite(qty) && Number(qty) > 0) || isMadeToOrder(productId)) {
       lastLiveSeen[productId] = nowIso;
     }
   }
@@ -953,7 +1060,7 @@ export function endCurrentDrop() {
   const endedAt = new Date().toISOString();
   const snapshotDrop: Drop = { ...currentDrop, status: "ended" };
   const liveIds = Object.entries(plannedInitial)
-    .filter(([, qty]) => Number.isFinite(qty) && Number(qty) > 0)
+    .filter(([productId, qty]) => (Number.isFinite(qty) && Number(qty) > 0) || isMadeToOrder(productId))
     .map(([productId]) => productId);
   liveIds.forEach((productId) => {
     lastLiveSeen[productId] = endedAt;
@@ -982,9 +1089,16 @@ export function endCurrentDrop() {
   scheduleRuntimePersist();
 }
 
+/** A product is on sale in the live drop when it was put in it, whatever its count. */
+export function inLiveDrop(productId: string): boolean {
+  return Boolean(currentDrop && currentDrop.status === "live" && productId in remaining);
+}
+
 export function reserve(productId: string, qty: number) {
   if (!currentDrop || currentDrop.status !== "live") return false;
   const amount = Math.max(1, Math.floor(qty));
+  // Made to order: it has to be in the drop, but there are no units to run out of.
+  if (isMadeToOrder(productId)) return productId in remaining;
   const left = remaining[productId] ?? 0;
   if (left < amount) return false;
   remaining[productId] = left - amount;
@@ -994,6 +1108,7 @@ export function reserve(productId: string, qty: number) {
 }
 
 export function release(productId: string, qty: number) {
+  if (isMadeToOrder(productId)) return;
   const amount = Math.max(1, Math.floor(qty));
   remaining[productId] = (remaining[productId] ?? 0) + amount;
   emitInventory(productId);

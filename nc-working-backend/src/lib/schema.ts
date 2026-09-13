@@ -72,6 +72,13 @@ ALTER TABLE catalog ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]':
 -- Added after sales shipped, so CREATE TABLE IF NOT EXISTS won't apply it.
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS size text;
 
+-- Garment details (description, print placement, size guide, inventory mode …)
+-- as one document, so a new field never needs another migration.
+ALTER TABLE catalog ADD COLUMN IF NOT EXISTS details jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- What the customer was told about the product, as sold ("Front print · Standard black tee").
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS product_detail text;
+
 -- Show merch: how each line reaches the customer (pickup at a show, or ship),
 -- saved at purchase. Null on older rows, which shipped.
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS fulfillment jsonb;
@@ -85,4 +92,7 @@ CREATE TABLE IF NOT EXISTS order_fulfillment (
   tracking_number text,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Shipping-update sends, missed-pickup address collection and check-in times.
+ALTER TABLE order_fulfillment ADD COLUMN IF NOT EXISTS extra jsonb NOT NULL DEFAULT '{}'::jsonb;
 `;
