@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import fs from "fs";
 import path from "path";
 import { Resend } from "resend";
+import type { FulfillmentMethod } from "./types.js";
 
 // -----------------------------
 // Types
@@ -22,6 +23,23 @@ export type ReceiptItem = {
   priceCents: number;
   lineTotalCents: number;
   imageUrl?: string;
+  size?: string;
+  /** How this line reaches the customer; absent reads as shipped. */
+  method?: FulfillmentMethod;
+};
+
+/** Show merch details for the order, captured when it was paid. */
+export type ReceiptFulfillment = {
+  /** The show merch choice; null when the order has no show merch. */
+  method: FulfillmentMethod | null;
+  show?: { name: string; dateLabel: string; location: string };
+  pickupInstructions?: string;
+  missedPickupPolicy?: string;
+  bonus?: string;
+  shipsAfterLabel?: string;
+  dispatchEstimate?: string;
+  /** Other items in the order ship the usual way. */
+  otherItemsShip: boolean;
 };
 
 export type ReceiptEmailPayload = {
@@ -32,6 +50,7 @@ export type ReceiptEmailPayload = {
   shippingAddress?: ShippingAddress;
   items: ReceiptItem[];
   paymentRef?: string;
+  fulfillment?: ReceiptFulfillment;
 };
 
 export type PurchaseNotificationPayload = ReceiptEmailPayload & {
@@ -285,7 +304,7 @@ const RECEIPT_FALLBACK_IMAGE =
   "https://via.placeholder.com/160x160/111111/FFFFFF?text=NC";
 
 // Shorten long order IDs for display (e.g., ABCD…WXYZ)
-function condenseOrderId(orderId: string) {
+export function condenseOrderId(orderId: string) {
   const clean = (orderId || "").replace(/[^a-zA-Z0-9]/g, "");
   if (clean.length <= 10) return clean || "N/A";
   return `${clean.slice(0, 4)}…${clean.slice(-4)}`;
@@ -346,13 +365,27 @@ function escapeHtml(input: string) {
   });
 }
 
+/** "Size M · Pickup" — only the parts that apply, and the method only when the order mixes them. */
+function itemDetail(item: ReceiptItem, showMethod: boolean) {
+  const parts: string[] = [];
+  if (item.size) parts.push(`Size ${item.size}`);
+  if (showMethod) parts.push(item.method === "pickup" ? "Pickup" : "Ships");
+  return parts.join(" · ");
+}
+
+function mixesMethods(items: ReceiptItem[]) {
+  return new Set(items.map((item) => item.method ?? "ship")).size > 1;
+}
+
 function formatItemsText(items: ReceiptItem[]) {
+  const showMethod = mixesMethods(items);
   return items
     .map((item) => {
       const title = item.title || item.productId || "Item";
       const qty = Number.isFinite(item.qty) ? Number(item.qty) : 0;
       const subtotal = currencyFormatter.format((item.lineTotalCents || 0) / 100);
-      return `- ${title} x${qty} | ${subtotal}`;
+      const detail = itemDetail(item, showMethod);
+      return `- ${title}${detail ? ` (${detail})` : ""} x${qty} | ${subtotal}`;
     })
     .join("\n");
 }
@@ -362,10 +395,12 @@ function formatItemsHtml(items: ReceiptItem[]) {
     return `<div style="padding:12px;font-family:Arial,sans-serif;font-size:13px;color:#6b7280;">No items found for this order.</div>`;
   }
 
+  const showMethod = mixesMethods(items);
   const rows = items
     .map((item) => {
       const title = escapeHtml(item.title || item.productId || "Item");
       const qty = String(item.qty ?? 0);
+      const detail = itemDetail(item, showMethod);
       const subtotal = currencyFormatter.format((item.lineTotalCents || 0) / 100);
       const imageSrc = escapeHtml(
         item.imageUrl && /^https?:\/\//i.test(item.imageUrl)
@@ -383,7 +418,7 @@ function formatItemsHtml(items: ReceiptItem[]) {
               </td>
               <td style="vertical-align:top;">
                 <div style="font-weight:600;font-size:15px;letter-spacing:-0.01em;color:#111;">${title}</div>
-                <div style="margin-top:8px;font-size:12px;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;">Qty ${qty}</div>
+                <div style="margin-top:8px;font-size:12px;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;">Qty ${qty}${detail ? ` · ${escapeHtml(detail)}` : ""}</div>
                 <div style="margin-top:12px;font-weight:600;font-size:14px;color:#111;">${escapeHtml(subtotal)}</div>
               </td>
             </tr>
@@ -418,15 +453,80 @@ function formatDateTime(iso: string) {
 // -----------------------------
 // Mailers
 // -----------------------------
-export async function sendReceiptEmail(payload: ReceiptEmailPayload) {
-  if (!payload.customerEmail) return false;
+/**
+ * Pickup and shipping details for an order, as text and HTML from one source.
+ * Every value comes from the order as it was paid; nothing here is inferred.
+ */
+function fulfillmentSections(payload: ReceiptEmailPayload, { includeAddress = true } = {}) {
+  const f = payload.fulfillment;
+  const text: string[] = [];
+  const html: string[] = [];
 
+  const block = (title: string, lines: string[]) => {
+    const kept = lines.filter((line) => line && line.trim());
+    if (!kept.length) return;
+    text.push(`${title}:\n${kept.join("\n")}`);
+    html.push(
+      `<div style="margin-top:18px;padding:18px 20px;border-radius:20px;background:#f6f5f1;border:1px solid rgba(17,17,17,.08);">` +
+        `<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">${escapeHtml(title)}</div>` +
+        kept
+          .map(
+            (line, i) =>
+              `<div style="margin-top:${i === 0 ? 12 : 8}px;font-size:14px;line-height:1.6;color:#111;">${escapeHtml(line)}</div>`,
+          )
+          .join("") +
+        `</div>`,
+    );
+  };
+
+  if (f?.method === "pickup") {
+    block("Pick up at the show", [
+      f.show?.name ?? "",
+      f.show ? [f.show.dateLabel, f.show.location].filter(Boolean).join(" · ") : "",
+      "Bring your order confirmation: this email or your order number.",
+      f.bonus ? `Your ${f.bonus.toLowerCase()} is included as a pickup bonus.` : "",
+      f.pickupInstructions ? `Pickup instructions: ${f.pickupInstructions}` : "",
+      f.missedPickupPolicy ? `If you can't make it: ${f.missedPickupPolicy}` : "",
+    ]);
+  }
+  if (f?.method === "ship") {
+    block("Ships after the show", [
+      f.shipsAfterLabel ? `Ships after ${f.shipsAfterLabel}.` : "Ships after the show.",
+      f.dispatchEstimate ?? "",
+    ]);
+  }
+  if (payload.shippingAddress && includeAddress) {
+    block(shippingAddressTitle(payload), formatAddress(payload.shippingAddress).split("\n"));
+  }
+
+  return { text: text.join("\n\n"), html: html.join("") };
+}
+
+/** In a pickup order the address is only for the other items, so it says so. */
+function shippingAddressTitle(payload: ReceiptEmailPayload) {
+  const f = payload.fulfillment;
+  return f?.method === "pickup" && f.otherItemsShip ? "Other items ship to" : "Shipping to";
+}
+
+/** Pickup-only orders have nothing to ship, so the receipt says so. */
+function isPickupOnly(payload: ReceiptEmailPayload) {
+  return payload.fulfillment?.method === "pickup" && !payload.fulfillment.otherItemsShip && !payload.shippingAddress;
+}
+
+export function buildReceiptEmail(payload: ReceiptEmailPayload) {
   const orderLabel = condenseOrderId(payload.orderId);
   const subject = `Your NC order ${orderLabel}`;
   const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
   const itemsText = formatItemsText(payload.items || []);
   const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
-  const addressText = formatAddress(payload.shippingAddress);
+  // The receipt already shows the address in its summary column, so the section list leaves it out.
+  const sections = fulfillmentSections(payload, { includeAddress: false });
+  const textSections = fulfillmentSections(payload);
+  const pickupOnly = isPickupOnly(payload);
+  const show = payload.fulfillment?.show;
+  const closing = pickupOnly
+    ? "Thanks for your purchase. Your order will be ready at the show. If you have any questions, reply to this email."
+    : "Thanks for your purchase. We will reach out when your order ships. If you have any questions, reply to this email.";
   const siteUrl =
     process.env.FRONTEND_ORIGIN ??
     process.env.BACKEND_ORIGIN ??
@@ -441,16 +541,22 @@ ${payload.paymentRef ? `Payment reference: ${payload.paymentRef}\n` : ""}Items:\
 
 Order total: ${totalText}
 
-Shipping to:
-${addressText}
+${textSections.text}
 
-We will reach out when your order ships. If you have any questions, reply to this email.
+${closing}
 
 Visit us: ${siteUrl}
 
 The NC team`;
 
-  const addressHtml = escapeHtml(addressText).replace(/\n/g, "<br/>");
+  const summaryRight = payload.shippingAddress
+    ? `<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">${escapeHtml(shippingAddressTitle(payload))}</div>
+                      <div style="margin-top:14px;font-size:14px;line-height:1.7;color:#111;">${escapeHtml(formatAddress(payload.shippingAddress)).replace(/\n/g, "<br/>")}</div>`
+    : show
+    ? `<div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Pickup</div>
+                      <div style="margin-top:14px;font-size:14px;line-height:1.7;color:#111;">${escapeHtml(show.name)}<br/>${escapeHtml(show.dateLabel)}</div>`
+    : "";
+
   const htmlBody = `
   <div style="margin:0;padding:0;background:#f2f2ee;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
@@ -494,11 +600,15 @@ The NC team`;
                       )}</div>
                     </td>
                     <td style="width:50%;padding-left:14px;vertical-align:top;">
-                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.28em;color:#6b7280;">Shipping Address</div>
-                      <div style="margin-top:14px;font-size:14px;line-height:1.7;color:#111;">${addressHtml}</div>
+                      ${summaryRight}
                     </td>
                   </tr>
                 </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-top:10px;">
+                ${sections.html}
               </td>
             </tr>
             <tr>
@@ -508,10 +618,8 @@ The NC team`;
             </tr>
             <tr>
               <td style="padding-top:24px;font-size:13px;line-height:1.7;color:#111;">
-                <p style="margin:0 0 18px 0;">${escapeHtml(
-                  greeting,
-                )}</p>
-                <p style="margin:0 0 18px 0;">Thanks for your purchase. We’ll reach out as soon as your order ships. If you have any questions, simply reply to this email.</p>
+                <p style="margin:0 0 18px 0;">${escapeHtml(greeting)}</p>
+                <p style="margin:0 0 18px 0;">${escapeHtml(closing)}</p>
                 <p style="margin:0;">The NC team</p>
               </td>
             </tr>
@@ -526,25 +634,41 @@ The NC team`;
     </table>
   </div>`;
 
+  return { subject, text: textBody, html: htmlBody };
+}
+
+export async function sendReceiptEmail(payload: ReceiptEmailPayload) {
+  if (!payload.customerEmail) return false;
+  const email = buildReceiptEmail(payload);
   return sendEmail({
     to: payload.customerEmail,
-    subject,
-    text: textBody,
-    html: htmlBody,
+    subject: email.subject,
+    text: email.text,
+    html: email.html,
     logoAttachment: getLogoAttachment(),
   });
 }
 
-export async function sendPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
-  const notifyTo = payload.notifyTo?.trim() || orderNotificationRecipient();
-  if (!notifyTo) return false;
+/** One line for the store inbox: how this order gets to the customer. */
+function fulfillmentHeadline(payload: ReceiptEmailPayload) {
+  const f = payload.fulfillment;
+  if (!f?.method) return "Ship";
+  if (f.method === "pickup") {
+    const where = f.show ? ` at ${f.show.name} (${f.show.dateLabel})` : "";
+    return `PICKUP${where}${f.otherItemsShip ? " + other items ship" : ""}`;
+  }
+  return `Ship after ${f.shipsAfterLabel || "the show"}`;
+}
+
+export function buildPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
   const orderLabel = condenseOrderId(payload.orderId);
   const totalText = currencyFormatter.format((payload.totalCents || 0) / 100);
-  const addressText = formatAddress(payload.shippingAddress);
   const itemsText = formatItemsText(payload.items || []);
   const orderedAt = payload.orderedAt ? formatDateTime(payload.orderedAt) : formatDateTime(new Date().toISOString());
   const customer = [payload.customerName, payload.customerEmail].filter(Boolean).join(" | ") || "No customer info";
-  const subject = `New NC purchase ${orderLabel} | ${totalText}`;
+  const headline = fulfillmentHeadline(payload);
+  const sections = fulfillmentSections(payload);
+  const subject = `New NC purchase ${orderLabel} | ${totalText}${payload.fulfillment?.method === "pickup" ? " | PICKUP" : ""}`;
 
   const textBody = `New purchase received.
 
@@ -552,12 +676,12 @@ Order ID: ${payload.orderId}
 Ordered at: ${orderedAt}
 Total: ${totalText}
 Customer: ${customer}
+Fulfillment: ${headline}
 ${payload.paymentRef ? `Payment reference: ${payload.paymentRef}\n` : ""}
 Items:
 ${itemsText}
 
-Shipping:
-${addressText}`;
+${sections.text || "No shipping address provided."}`;
 
   const htmlBody = `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111;">
     <h2 style="margin:0 0 12px;">New NC purchase</h2>
@@ -565,14 +689,21 @@ ${addressText}`;
     <p><strong>Ordered at:</strong> ${escapeHtml(orderedAt)}</p>
     <p><strong>Total:</strong> ${escapeHtml(totalText)}</p>
     <p><strong>Customer:</strong> ${escapeHtml(customer)}</p>
+    <p><strong>Fulfillment:</strong> ${escapeHtml(headline)}</p>
     ${payload.paymentRef ? `<p><strong>Payment:</strong> ${escapeHtml(payload.paymentRef)}</p>` : ""}
     <h3 style="margin:18px 0 8px;">Items</h3>
     ${formatItemsHtml(payload.items || [])}
-    <h3 style="margin:18px 0 8px;">Shipping</h3>
-    <p>${escapeHtml(addressText).replace(/\n/g, "<br/>")}</p>
+    ${sections.html || "<p>No shipping address provided.</p>"}
   </div>`;
 
-  return sendEmail({ to: notifyTo, subject, text: textBody, html: htmlBody });
+  return { subject, text: textBody, html: htmlBody };
+}
+
+export async function sendPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
+  const notifyTo = payload.notifyTo?.trim() || orderNotificationRecipient();
+  if (!notifyTo) return false;
+  const email = buildPurchaseNotificationEmail(payload);
+  return sendEmail({ to: notifyTo, subject: email.subject, text: email.text, html: email.html });
 }
 
 /**

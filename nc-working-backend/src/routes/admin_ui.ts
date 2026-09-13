@@ -207,6 +207,37 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .drop-compare-row { display:grid; gap:10px; }
   .drop-compare-header { display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#e8e8e8; }
   .drop-compare-bars { display:grid; gap:6px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  /* Show merch: settings, per-show pickup, order fulfillment */
+  .sm-checklist { list-style:none; margin:0; padding:0; display:grid; gap:6px; font-size:13px; }
+  .sm-checklist li { display:flex; gap:8px; align-items:flex-start; line-height:1.45; }
+  .sm-checklist .sm-mark { width:14px; flex:none; text-align:center; }
+  .sm-checklist .ok .sm-mark { color:#7ee2a8; }
+  .sm-checklist .todo .sm-mark { color:#e4c56b; }
+  .sm-products { display:grid; gap:6px; }
+  .sm-products label { display:flex; align-items:center; gap:10px; font-size:13px; color:#e8e8e8; margin:0; cursor:pointer; }
+  .sm-products input { width:auto; accent-color:#f5f5f5; }
+  .sm-products .id { margin:0; }
+  .sm-pill { display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+  .sm-pill.open { background:#14351f; color:#7ee2a8; }
+  .sm-pill.closed { background:#3a1111; color:#fecaca; }
+  .sm-pill.off { background:#2b2b2b; color:#b9b9b9; }
+  .sm-view { font-size:13px; line-height:1.6; color:#d4d4d4; }
+  .kyd-pickup { display:grid; gap:8px; padding:10px 12px; border:1px dashed #262626; border-radius:10px; }
+  .kyd-pickup__head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .kyd-field select, .kyd-field textarea { font-size:12px; padding:7px 9px; }
+  .kyd-check { display:flex; align-items:center; gap:8px; font-size:12px; color:#d4d4d4; margin:0; cursor:pointer; }
+  .kyd-check input { width:auto; accent-color:#f5f5f5; }
+  .queue-tabs { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .queue-tabs .btn[aria-pressed="true"] { background:#f5f5f5; color:#000; border-color:#f5f5f5; }
+  .queue-tabs select { width:auto; min-width:200px; }
+  .order-fulfillment { margin-top:12px; padding:10px 12px; border:1px solid #1f1f1f; border-radius:10px; background:#0b0b0b; display:grid; gap:10px; }
+  .order-fulfillment__row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
+  .order-fulfillment__row > div { min-width:150px; }
+  .order-fulfillment__row input, .order-fulfillment__row select { width:auto; min-width:150px; }
+  .fulfill-chip { display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:2px 8px; border-radius:999px; margin:4px 6px 0 0; }
+  .fulfill-chip.pickup { background:#31280f; color:#e4c56b; }
+  .fulfill-chip.ship { background:#12263a; color:#9ecbff; }
   @media (max-width: 860px) {
     .grid2 { grid-template-columns: 1fr; }
     .rowItem { grid-template-columns: minmax(0,1fr); grid-template-rows:auto auto auto auto; }
@@ -341,6 +372,52 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
             </div>
           </div>
         </section>
+        <section class="card-section" id="showMerchSection">
+          <div class="card-section-header">
+            <h3>Show merch</h3>
+            <p class="meta">Products customers can pick up at a KYD show with a free sticker pack, or have shipped after the show. The price is the same either way: build standard shipping into the product price, because checkout never adds a shipping charge.</p>
+          </div>
+          <div class="card-surface stack">
+            <div>
+              <div class="subheading">Before launch</div>
+              <ul id="sm_readiness" class="sm-checklist"><li class="muted">Loading&hellip;</li></ul>
+            </div>
+            <div>
+              <div class="subheading">Show merch products</div>
+              <div id="sm_products" class="sm-products"><div class="muted">Loading&hellip;</div></div>
+              <div class="form-note">Only these products get the pickup / ship-after-the-show choice. Everything else checks out and ships exactly as before, including in mixed carts.</div>
+            </div>
+            <div>
+              <div class="subheading">Shipping</div>
+              <div class="row">
+                <div><label for="sm_countries">Ships to (country codes, comma separated)</label><input id="sm_countries" autocomplete="off" /></div>
+                <div><label for="sm_excluded">Excluded states / regions (codes, comma separated)</label><input id="sm_excluded" autocomplete="off" /></div>
+                <div><label for="sm_ships_after">Shipping orders go out after</label><input id="sm_ships_after" type="date" /></div>
+              </div>
+              <div style="margin-top:10px">
+                <label for="sm_dispatch">Dispatch estimate (shown to customers exactly as written)</label>
+                <input id="sm_dispatch" autocomplete="off" />
+                <div class="form-note">Don&rsquo;t promise a delivery date here unless you can keep it. Leave blank to show only the ships-after date.</div>
+              </div>
+            </div>
+            <div>
+              <div class="subheading">Pickup</div>
+              <label for="sm_missed">Missed-pickup policy (shown to customers exactly as written)</label>
+              <textarea id="sm_missed" rows="3"></textarea>
+              <div class="form-note">Each show&rsquo;s status, timezone, pickup on/off, order cutoff and pickup instructions live on its row under Live dates in the KYD tab.</div>
+            </div>
+            <div>
+              <div class="subheading">What customers see right now</div>
+              <div id="sm_customer_view" class="sm-view"><span class="muted">Loading&hellip;</span></div>
+              <table style="margin-top:10px"><thead><tr><th>Show</th><th>Date</th><th>Pickup</th></tr></thead><tbody id="sm_shows"></tbody></table>
+            </div>
+            <div class="btnline">
+              <button class="btn primary" id="sm_save" type="button">Save show merch settings</button>
+              <button class="btn" id="sm_reload" type="button">Discard changes</button>
+              <span class="form-note" id="sm_status"></span>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -358,6 +435,16 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           </div>
 
           <div class="section-title">Live dates</div>
+          <p class="form-note" style="margin:0 0 10px">Merch pickup opens for a show only when it&rsquo;s confirmed, has a timezone, is within two calendar months, has pickup on, and its order cutoff hasn&rsquo;t passed. Canceled and past shows never offer pickup.</p>
+          <datalist id="kydTimezones">
+            <option value="America/New_York"></option>
+            <option value="America/Chicago"></option>
+            <option value="America/Denver"></option>
+            <option value="America/Phoenix"></option>
+            <option value="America/Los_Angeles"></option>
+            <option value="America/Anchorage"></option>
+            <option value="Pacific/Honolulu"></option>
+          </datalist>
           <div id="kydShows" class="kyd-rows"></div>
           <div class="btnline"><button class="btn small" data-kyd-add="shows" type="button">Add a date</button></div>
 
@@ -426,11 +513,23 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
         <section class="card-section">
           <div class="card-section-toolbar">
             <div class="card-section-header">
-              <h3>Recent sales</h3>
-              <p class="meta">Last 200 orders, newest first.</p>
+              <h3>Orders</h3>
+              <p class="meta">Newest first. Pickup and shipping each have their own queue and status.</p>
             </div>
             <div class="btnline">
-              <button class="btn" id="btnDownloadSalesCsv" type="button">Download CSV</button>
+              <button class="btn" id="btnDownloadSalesCsv" type="button">Download all orders CSV</button>
+            </div>
+          </div>
+          <div class="card-section-toolbar">
+            <div class="queue-tabs" role="group" aria-label="Filter orders by fulfillment">
+              <button class="btn small" type="button" data-queue="all" aria-pressed="true">All</button>
+              <button class="btn small" type="button" data-queue="pickup" aria-pressed="false">Pickup</button>
+              <button class="btn small" type="button" data-queue="ship" aria-pressed="false">Shipping</button>
+              <select id="queueShow" aria-label="Pickup show" hidden><option value="">All shows</option></select>
+            </div>
+            <div class="btnline">
+              <button class="btn small" id="btnExportPickup" type="button">Export pickup list</button>
+              <button class="btn small" id="btnExportShipping" type="button">Export shipping queue</button>
             </div>
           </div>
           <div id="salesWrap" class="card-surface">
@@ -532,6 +631,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           if (typeof refreshVault === "function") void refreshVault();
         } else if (tab.dataset.tab === "kyd") {
           if (typeof refreshKyd === "function") void refreshKyd();
+        } else if (tab.dataset.tab === "catalog") {
+          if (typeof refreshShowMerch === "function") void refreshShowMerch();
         } else if (typeof vaultTimer !== "undefined" && vaultTimer) {
           clearInterval(vaultTimer);
           vaultTimer = null;
@@ -546,6 +647,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       setTimeout(() => { if (typeof refreshVault === "function") void refreshVault(); }, 0);
     } else if (saved === "kyd") {
       setTimeout(() => { if (typeof refreshKyd === "function") void refreshKyd(); }, 0);
+    } else if (saved === "catalog") {
+      setTimeout(() => { if (typeof refreshShowMerch === "function") void refreshShowMerch(); }, 0);
     }
   })();
 
@@ -1231,6 +1334,77 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 
   var KYD_TARGET = { shows: "kydShows", projects: "kydProjects", visuals: "kydVisuals" };
 
+  // Merch pickup per show. The pill is the server's verdict on the saved show;
+  // edits here take effect on Save.
+  var kydShowChecks = {};
+
+  async function refreshKydChecks() {
+    try {
+      var data = await apiJson("/api/admin/show-merch");
+      kydShowChecks = {};
+      (data.shows || []).forEach(function (check) { kydShowChecks[check.id] = check; });
+    } catch (_err) {
+      // Without the checks the pills just read "Not saved yet"; editing still works.
+    }
+  }
+
+  function showPickupFields(row, i) {
+    var pickup = row.merchPickup || {};
+    var check = row.id ? kydShowChecks[row.id] : null;
+    var pill = check
+      ? '<span class="sm-pill ' + (check.eligible ? "open" : check.closed ? "closed" : "off") + '">' + escapeHtml(check.reason) + "</span>"
+      : '<span class="sm-pill off">Not saved yet</span>';
+    var status = row.status || "";
+    function opt(value, label) {
+      return '<option value="' + value + '"' + (status === value ? " selected" : "") + ">" + label + "</option>";
+    }
+    return '<div class="kyd-pickup">' +
+      '<div class="kyd-pickup__head"><span class="subheading" style="margin:0">Merch pickup</span>' + pill + "</div>" +
+      '<div class="kyd-grid">' +
+        '<div class="kyd-field"><label>Show status</label>' +
+          '<select data-kyds-index="' + i + '" data-kyds-key="status">' +
+            opt("", "Not set") + opt("confirmed", "Confirmed") + opt("tentative", "Tentative") + opt("canceled", "Canceled") +
+          "</select></div>" +
+        '<div class="kyd-field"><label>Timezone (where the show is)</label>' +
+          '<input type="text" list="kydTimezones" autocomplete="off" data-kyds-index="' + i + '" data-kyds-key="timezone" value="' + escapeHtml(row.timezone || "") + '" /></div>' +
+        '<div class="kyd-field"><label>Pickup orders close (show time)</label>' +
+          '<input type="datetime-local" data-kydp-index="' + i + '" data-kydp-key="cutoff" value="' + escapeHtml(pickup.cutoff || "") + '" /></div>' +
+        '<div class="kyd-field" style="align-self:end"><label class="kyd-check">' +
+          '<input type="checkbox" data-kydp-index="' + i + '" data-kydp-key="enabled"' + (pickup.enabled ? " checked" : "") + " /> Offer merch pickup</label></div>" +
+      "</div>" +
+      '<div class="kyd-field"><label>Pickup instructions (shown to customers exactly as written)</label>' +
+        '<textarea rows="2" data-kydp-index="' + i + '" data-kydp-key="instructions">' + escapeHtml(pickup.instructions || "") + "</textarea></div>" +
+    "</div>";
+  }
+
+  // Selects and checkboxes: handled on change too, for browsers that don't fire input for them.
+  function applyShowPickupEdit(el) {
+    if (!kydDraft || !Array.isArray(kydDraft.shows)) return false;
+    var showIndex = el.getAttribute("data-kyds-index");
+    if (showIndex !== null) {
+      var show = kydDraft.shows[Number(showIndex)];
+      if (show) show[el.getAttribute("data-kyds-key")] = el.value;
+      kydSetStatus("Unsaved changes.");
+      return true;
+    }
+    var pickupIndex = el.getAttribute("data-kydp-index");
+    if (pickupIndex !== null) {
+      var target = kydDraft.shows[Number(pickupIndex)];
+      if (!target) return true;
+      if (!target.merchPickup) target.merchPickup = { enabled: false };
+      var key = el.getAttribute("data-kydp-key");
+      target.merchPickup[key] = key === "enabled" ? el.checked : el.value;
+      kydSetStatus("Unsaved changes.");
+      return true;
+    }
+    return false;
+  }
+
+  document.addEventListener("change", function (e) {
+    var el = e.target;
+    if (el && el.getAttribute) applyShowPickupEdit(el);
+  });
+
   function kydSetStatus(text, isError) {
     var el = document.getElementById("kydStatus");
     if (!el) return;
@@ -1259,6 +1433,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       var slug = row.slug || row.id || "";
       return '<div class="kyd-row">' +
         '<div class="kyd-grid">' + fields + "</div>" +
+        (section === "shows" ? showPickupFields(row, i) : "") +
         '<div class="kyd-row__foot">' +
           '<span class="kyd-row__slug">' + (slug ? escapeHtml(slug) : "new — id set on save") + "</span>" +
           '<span>' +
@@ -1350,6 +1525,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   async function refreshKyd() {
     try {
       kydDraft = await apiJson("/api/admin/kyd");
+      await refreshKydChecks();
       renderKyd();
       kydSetStatus("");
     } catch (err) {
@@ -1379,6 +1555,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       kydSetStatus("Unsaved changes.");
       return;
     }
+
+    if (applyShowPickupEdit(el)) return;
 
     if (!el.getAttribute("data-kyd-section")) return;
     if (!kydDraft) return;
@@ -1476,11 +1654,25 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       kydSaveBtn.disabled = true;
       kydSetStatus("Saving\u2026");
       try {
+        var typedZones = (kydDraft.shows || []).map(function (s) {
+          return { title: s.title, zone: String(s.timezone || "").trim() };
+        });
         var saved = await apiJson("/api/admin/kyd", { method: "PUT", body: kydDraft });
         // Take back what the server stored, so generated ids show immediately.
         kydDraft = saved.content || kydDraft;
+        await refreshKydChecks();
         renderKyd();
-        kydSetStatus("Saved.");
+        // An unrecognized timezone is dropped on save; say so rather than let it vanish.
+        var lostZones = typedZones.filter(function (t) {
+          return t.zone && !(kydDraft.shows || []).some(function (s) { return s.title === t.title && s.timezone === t.zone; });
+        });
+        kydSetStatus(
+          lostZones.length
+            ? "Saved, but these timezones weren't recognized and were cleared: " +
+                lostZones.map(function (t) { return t.zone + " (" + t.title + ")"; }).join(", ")
+            : "Saved.",
+          lostZones.length > 0,
+        );
       } catch (err) {
         kydSetStatus(err.message || String(err), true);
       } finally {
@@ -1496,6 +1688,126 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       void refreshKyd();
     });
   }
+
+  // ---------- Show merch settings ----------
+  var smData = null;
+
+  function smSetStatus(text, isError) {
+    var el = document.getElementById("sm_status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = isError ? "#e08585" : "";
+  }
+
+  function smSetField(id, value) {
+    var el = document.getElementById(id);
+    if (el && document.activeElement !== el) el.value = value;
+  }
+
+  function smCustomerView(view) {
+    if (!view) return "";
+    var pickup = view.pickup || {};
+    var shipping = view.shipping || {};
+    var lines = [];
+    if (pickup.state === "available") {
+      lines.push("<b>" + escapeHtml(view.labels.pickup) + "</b> is open for:");
+      (pickup.shows || []).forEach(function (s) {
+        lines.push("&nbsp;&nbsp;" + escapeHtml(s.name + " · " + s.dateLabel + " · " + s.location) +
+          (s.cutoffLabel ? ' <span class="muted">(orders close ' + escapeHtml(s.cutoffLabel) + ")</span>" : ""));
+      });
+    } else {
+      lines.push("<b>" + escapeHtml(view.labels.pickup) + "</b> is greyed out with: &ldquo;" + escapeHtml(pickup.message) + "&rdquo;");
+    }
+    if (shipping.available) {
+      lines.push("<b>" + escapeHtml(view.labels.ship) + "</b> is open: ships after " + escapeHtml(shipping.shipsAfterLabel) +
+        " to " + escapeHtml(shipping.regionLabel) + (shipping.dispatchEstimate ? ". &ldquo;" + escapeHtml(shipping.dispatchEstimate) + "&rdquo;" : "."));
+    } else {
+      lines.push("<b>" + escapeHtml(view.labels.ship) + "</b> is unavailable until a shipping region and ships-after date are saved.");
+    }
+    if (!view.productIds.length) lines.push('<span class="muted">No products are marked as show merch, so the shop shows none of this yet.</span>');
+    return lines.map(function (line) { return "<div>" + line + "</div>"; }).join("");
+  }
+
+  function renderShowMerch() {
+    if (!smData) return;
+    var s = smData.settings || {};
+    var readiness = document.getElementById("sm_readiness");
+    if (readiness) {
+      readiness.innerHTML = (smData.readiness || []).map(function (item) {
+        return '<li class="' + (item.ok ? "ok" : "todo") + '"><span class="sm-mark" aria-hidden="true">' + (item.ok ? "&#10003;" : "&#9675;") + "</span>" +
+          '<span><span class="sr-only">' + (item.ok ? "Done: " : "To do: ") + "</span>" + escapeHtml(item.label) + "</span></li>";
+      }).join("");
+    }
+    var productsWrap = document.getElementById("sm_products");
+    if (productsWrap) {
+      var chosen = s.productIds || [];
+      var rows = (smData.products || []).map(function (p) {
+        return '<label><input type="checkbox" data-sm-product="' + escapeHtml(p.id) + '"' + (chosen.indexOf(p.id) >= 0 ? " checked" : "") + " />" +
+          "<span>" + escapeHtml(p.title) + ' <span class="id">' + escapeHtml(p.id) + " &middot; " + escapeHtml(formatMoney(p.priceCents)) + (p.enabled ? "" : " &middot; hidden") + "</span></span></label>";
+      });
+      productsWrap.innerHTML = rows.length ? rows.join("") : '<div class="muted">No products yet.</div>';
+    }
+    smSetField("sm_countries", (s.shippingCountries || []).join(", "));
+    smSetField("sm_excluded", (s.excludedRegions || []).join(", "));
+    smSetField("sm_ships_after", s.shipsAfterDate || "");
+    smSetField("sm_dispatch", s.dispatchEstimate || "");
+    smSetField("sm_missed", s.missedPickupPolicy || "");
+    var view = document.getElementById("sm_customer_view");
+    if (view) view.innerHTML = smCustomerView(smData.customerView);
+    var showsBody = document.getElementById("sm_shows");
+    if (showsBody) {
+      var showRows = (smData.shows || []).map(function (c) {
+        var cls = c.eligible ? "open" : c.closed ? "closed" : "off";
+        return "<tr><td>" + escapeHtml(c.name) + '<div class="id">' + escapeHtml(c.location || "") + "</div></td>" +
+          "<td>" + escapeHtml(c.date) + "</td>" +
+          '<td><span class="sm-pill ' + cls + '">' + escapeHtml(c.reason) + "</span>" +
+          (c.cutoffLabel ? '<div class="id">Orders close ' + escapeHtml(c.cutoffLabel) + "</div>" : "") + "</td></tr>";
+      });
+      showsBody.innerHTML = showRows.length ? showRows.join("") : '<tr><td colspan="3" class="muted">No live dates yet.</td></tr>';
+    }
+  }
+
+  async function refreshShowMerch() {
+    try {
+      smData = await apiJson("/api/admin/show-merch");
+      renderShowMerch();
+      smSetStatus("");
+    } catch (err) {
+      smSetStatus(err.message || String(err), true);
+    }
+  }
+
+  var smSaveBtn = document.getElementById("sm_save");
+  if (smSaveBtn) {
+    smSaveBtn.addEventListener("click", async function () {
+      var productIds = Array.prototype.slice.call(document.querySelectorAll("[data-sm-product]"))
+        .filter(function (el) { return el.checked; })
+        .map(function (el) { return el.getAttribute("data-sm-product"); });
+      var body = {
+        productIds: productIds,
+        shippingCountries: document.getElementById("sm_countries").value,
+        excludedRegions: document.getElementById("sm_excluded").value,
+        shipsAfterDate: document.getElementById("sm_ships_after").value,
+        dispatchEstimate: document.getElementById("sm_dispatch").value,
+        missedPickupPolicy: document.getElementById("sm_missed").value,
+      };
+      smSaveBtn.disabled = true;
+      smSetStatus("Saving…");
+      try {
+        // The fields refill with what the server kept, so a code it rejected is visible.
+        smData = await apiJson("/api/admin/show-merch", { method: "PUT", body: body });
+        renderShowMerch();
+        smSetStatus("Saved.");
+      } catch (err) {
+        smSetStatus(err.message || String(err), true);
+      } finally {
+        smSaveBtn.disabled = false;
+      }
+    });
+  }
+
+  var smReloadBtn = document.getElementById("sm_reload");
+  if (smReloadBtn) smReloadBtn.addEventListener("click", function () { void refreshShowMerch(); });
 
   // ---------- Vault ----------
   var vaultRows = [];
@@ -1930,144 +2242,256 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     }
   }
 
+  // ---------- Orders: all / pickup / shipping ----------
+  var orderQueue = "all";
+  var orderShowId = "";
+
+  var PICKUP_STATUS_OPTIONS = [["awaiting", "Awaiting pickup"], ["picked_up", "Picked up"], ["missed", "Missed"]];
+  var SHIPPING_STATUS_OPTIONS = [["awaiting", "Awaiting shipment"], ["shipped", "Shipped"]];
+
+  function statusSelect(attr, label, options, current) {
+    return '<select ' + attr + ' aria-label="' + label + '">' + options.map(function (o) {
+      return '<option value="' + o[0] + '"' + (o[0] === current ? " selected" : "") + ">" + o[1] + "</option>";
+    }).join("") + "</select>";
+  }
+
+  function lineMethod(item) {
+    return item.fulfillment && item.fulfillment.method === "pickup" ? "pickup" : "ship";
+  }
+
+  function orderChips(order) {
+    var chips = [];
+    var items = Array.isArray(order.items) ? order.items : [];
+    var pickupLine = items.find(function (item) { return lineMethod(item) === "pickup"; });
+    if (pickupLine) {
+      var show = (pickupLine.fulfillment && pickupLine.fulfillment.show) || {};
+      chips.push('<span class="fulfill-chip pickup">Pickup' + (show.name ? " &middot; " + escapeHtml(show.name) : "") + "</span>");
+    }
+    if (items.some(function (item) { return lineMethod(item) === "ship"; })) {
+      var showMerchShip = items.find(function (item) { return lineMethod(item) === "ship" && item.fulfillment && item.fulfillment.showMerch; });
+      chips.push('<span class="fulfill-chip ship">' + (showMerchShip && showMerchShip.fulfillment.shipsAfter
+        ? "Ships after " + escapeHtml(showMerchShip.fulfillment.shipsAfter)
+        : "Ships") + "</span>");
+    }
+    return chips.join("");
+  }
+
+  function fulfillmentControls(order) {
+    var status = order.status || {};
+    var items = Array.isArray(order.items) ? order.items : [];
+    var rows = [];
+    var pickupLine = items.find(function (item) { return lineMethod(item) === "pickup"; });
+    if (pickupLine) {
+      var show = (pickupLine.fulfillment && pickupLine.fulfillment.show) || {};
+      rows.push('<div class="order-fulfillment__row">' +
+        '<div><div class="order-label">Pick up at</div><div class="order-value">' +
+          escapeHtml(show.name || "Show") + "<br/>" + escapeHtml([show.date, show.location].filter(Boolean).join(" · ")) +
+          (pickupLine.fulfillment.bonus ? '<br/><span class="muted">+ ' + escapeHtml(pickupLine.fulfillment.bonus) + "</span>" : "") +
+        "</div></div>" +
+        "<div><label>Pickup status</label>" + statusSelect("data-pickup-status", "Pickup status", PICKUP_STATUS_OPTIONS, status.pickupStatus) + "</div>" +
+      "</div>");
+    }
+    if (items.some(function (item) { return lineMethod(item) === "ship"; })) {
+      rows.push('<div class="order-fulfillment__row">' +
+        "<div><label>Shipping status</label>" + statusSelect("data-ship-status", "Shipping status", SHIPPING_STATUS_OPTIONS, status.shippingStatus) + "</div>" +
+        '<div><label>Carrier</label><input data-carrier value="' + escapeHtml(status.carrier || "") + '" /></div>' +
+        '<div><label>Tracking number</label><input data-tracking value="' + escapeHtml(status.trackingNumber || "") + '" /></div>' +
+        '<div><button class="btn small" type="button" data-save-shipping>Save shipping</button></div>' +
+      "</div>");
+    }
+    return '<div class="order-fulfillment" data-order-id="' + escapeHtml(order.orderId || "") + '">' + rows.join("") +
+      '<div class="form-note" data-fulfillment-note></div></div>';
+  }
+
+  function syncQueueControls(data) {
+    var counts = data.counts || {};
+    document.querySelectorAll("[data-queue]").forEach(function (btn) {
+      var queue = btn.getAttribute("data-queue");
+      btn.setAttribute("aria-pressed", queue === orderQueue ? "true" : "false");
+      var base = queue === "all" ? "All" : queue === "pickup" ? "Pickup" : "Shipping";
+      btn.textContent = base + (Number.isFinite(Number(counts[queue])) ? " (" + counts[queue] + ")" : "");
+    });
+    var select = document.getElementById("queueShow");
+    if (select) {
+      var shows = Array.isArray(data.pickupShows) ? data.pickupShows : [];
+      select.innerHTML = '<option value="">All shows</option>' + shows.map(function (show) {
+        return '<option value="' + escapeHtml(show.id) + '"' + (show.id === orderShowId ? " selected" : "") + ">" +
+          escapeHtml(show.name + " (" + show.date + ")") + "</option>";
+      }).join("");
+      select.hidden = orderQueue !== "pickup";
+    }
+  }
+
   async function refreshSales() {
     try {
-      const data = await apiJson("/api/admin/sales?limit=200");
+      const query = "?fulfillment=" + encodeURIComponent(orderQueue) + (orderShowId ? "&showId=" + encodeURIComponent(orderShowId) : "");
+      const data = await apiJson("/api/admin/orders" + query);
       const totals = data.totals || { count: 0, items: 0, grossCents: 0 };
       const orders = Array.isArray(data.orders) ? data.orders : [];
-      const rows = Array.isArray(data.sales) ? data.sales : [];
+      syncQueueControls(data);
 
-      if (!orders.length && !rows.length) {
-        salesWrap.innerHTML = '<div class="muted">No sales yet.</div>';
+      if (!orders.length) {
+        salesWrap.innerHTML = '<div class="muted">' + (orderQueue === "pickup" ? "No pickup orders yet." : orderQueue === "ship" ? "No shipping orders yet." : "No sales yet.") + "</div>";
         return;
       }
 
-      if (orders.length) {
-        let html = '<div class="order-list">';
-        for (const order of orders) {
-          const customerLines = [];
-          if (order.customerName) customerLines.push(escapeHtml(order.customerName));
-          if (order.customerEmail) customerLines.push(escapeHtml(order.customerEmail));
-          let customerHtml = customerLines.join("<br/>");
-          if (order.userId) {
-            const accountHtml = '<span class="order-account">Account ID: ' + escapeHtml(order.userId) + "</span>";
-            customerHtml = customerHtml ? customerHtml + "<br/>" + accountHtml : accountHtml;
-          }
-          if (!customerHtml) customerHtml = "—";
-
-          const addressHtml = formatOrderAddress(order.shippingAddress);
-
-          const headerMeta = [];
-          const dateText = formatDateTime(order.ts);
-          if (dateText) headerMeta.push('<div class="order-meta">' + escapeHtml(dateText) + "</div>");
-          const itemsCount = Number.isFinite(Number(order.totalItems)) ? Number(order.totalItems) : 0;
-          headerMeta.push('<div class="order-meta">Items: ' + escapeHtml(String(itemsCount)) + "</div>");
-          if (order.paymentRef) {
-            headerMeta.push('<div class="order-meta">Payment: ' + escapeHtml(order.paymentRef) + "</div>");
-          }
-
-          const itemRows = Array.isArray(order.items) ? order.items : [];
-          let itemsTable = '<div class="muted">No line items.</div>';
-          if (itemRows.length) {
-            const rowsHtml = itemRows
-              .map((item) => {
-                const title = item.productTitle || item.productId || "Item";
-                const qtyText = Number.isFinite(Number(item.qty)) ? Number(item.qty) : 0;
-                const each = formatMoney(item.priceCents);
-                const subtotal = formatMoney(item.lineTotalCents ?? (Number(item.priceCents) || 0) * qtyText);
-                const productId = item.productId ? '<div class="order-item-id">' + escapeHtml(item.productId) + "</div>" : "";
-                return (
-                  "<tr>" +
-                  "<td><div>" +
-                  escapeHtml(title) +
-                  "</div>" +
-                  productId +
-                  "</td>" +
-                  '<td style="text-align:center;">' +
-                  escapeHtml(String(qtyText)) +
-                  "</td>" +
-                  '<td style="text-align:right;">' +
-                  escapeHtml(each) +
-                  "</td>" +
-                  '<td style="text-align:right;">' +
-                  escapeHtml(subtotal) +
-                  "</td>" +
-                  "</tr>"
-                );
-              })
-              .join("");
-            itemsTable =
-              '<div class="order-items"><table><thead><tr><th>Product</th><th>Qty</th><th>Each</th><th>Subtotal</th></tr></thead><tbody>' +
-              rowsHtml +
-              "</tbody></table></div>";
-          }
-
-          html +=
-            '<div class="order-card">' +
-            '<div class="order-header">' +
-            '<div><div class="order-id">Order ' +
-            escapeHtml(order.orderId || "") +
-            "</div>" +
-            headerMeta.join("") +
-            "</div>" +
-            '<div class="order-total">' +
-            escapeHtml(formatMoney(order.totalCents)) +
-            "</div>" +
-            "</div>" +
-            '<div class="order-grid">' +
-            '<div><div class="order-label">Customer</div><div class="order-value">' +
-            customerHtml +
-            "</div></div>" +
-            '<div><div class="order-label">Ship to</div><div class="order-value">' +
-            addressHtml +
-            "</div></div>" +
-            "</div>" +
-            itemsTable +
-            "</div>";
+      let html = '<div class="order-list">';
+      for (const order of orders) {
+        const customerLines = [];
+        if (order.customerName) customerLines.push(escapeHtml(order.customerName));
+        if (order.customerEmail) customerLines.push(escapeHtml(order.customerEmail));
+        let customerHtml = customerLines.join("<br/>");
+        if (order.userId) {
+          const accountHtml = '<span class="order-account">Account ID: ' + escapeHtml(order.userId) + "</span>";
+          customerHtml = customerHtml ? customerHtml + "<br/>" + accountHtml : accountHtml;
         }
-        html += "</div>";
-        html +=
-          '<div class="totals"><span>' +
-          escapeHtml(String(orders.length)) +
-          " orders / " +
-          escapeHtml(String(totals.items ?? 0)) +
-          " items</span><span>" +
-          escapeHtml(formatMoney(totals.grossCents)) +
-          "</span></div>";
-        salesWrap.innerHTML = html;
-        return;
-      }
+        if (!customerHtml) customerHtml = "—";
 
-      // Legacy fallback (no order grouping available)
-      let legacyHtml =
-        '<table><thead><tr><th>ID</th><th>Product</th><th>Qty</th><th>Price</th><th>When</th></tr></thead><tbody>';
-      for (const row of rows) {
-        legacyHtml +=
-          "<tr><td>" +
-          escapeHtml(row.id || "") +
-          "</td><td>" +
-          escapeHtml(row.productId || "") +
-          "</td><td>" +
-          escapeHtml(String(row.qty ?? 0)) +
-          "</td><td>" +
-          escapeHtml(formatMoney((row.priceCents ?? 0) * (row.qty ?? 0))) +
-          "</td><td>" +
-          escapeHtml(formatDateTime(row.ts || "")) +
-          "</td></tr>";
+        const itemRows = Array.isArray(order.items) ? order.items : [];
+        const hasShipLines = itemRows.some(function (item) { return lineMethod(item) === "ship"; });
+        const addressHtml = order.shippingAddress
+          ? formatOrderAddress(order.shippingAddress)
+          : hasShipLines ? "—" : '<span class="muted">None needed (pickup)</span>';
+
+        const headerMeta = [];
+        const dateText = formatDateTime(order.ts);
+        if (dateText) headerMeta.push('<div class="order-meta">' + escapeHtml(dateText) + "</div>");
+        const itemsCount = Number.isFinite(Number(order.totalItems)) ? Number(order.totalItems) : 0;
+        headerMeta.push('<div class="order-meta">Items: ' + escapeHtml(String(itemsCount)) + "</div>");
+        if (order.paymentRef) {
+          headerMeta.push('<div class="order-meta">Payment: ' + escapeHtml(order.paymentRef) + "</div>");
+        }
+        headerMeta.push("<div>" + orderChips(order) + "</div>");
+
+        let itemsTable = '<div class="muted">No line items.</div>';
+        if (itemRows.length) {
+          const rowsHtml = itemRows
+            .map((item) => {
+              const title = item.productTitle || item.productId || "Item";
+              const qtyText = Number.isFinite(Number(item.qty)) ? Number(item.qty) : 0;
+              const each = formatMoney(item.priceCents);
+              const subtotal = formatMoney(item.lineTotalCents ?? (Number(item.priceCents) || 0) * qtyText);
+              const productId = item.productId ? '<div class="order-item-id">' + escapeHtml(item.productId) + "</div>" : "";
+              return (
+                "<tr>" +
+                "<td><div>" + escapeHtml(title) + "</div>" + productId + "</td>" +
+                '<td style="text-align:center;">' + escapeHtml(item.size || "—") + "</td>" +
+                '<td style="text-align:center;">' + escapeHtml(String(qtyText)) + "</td>" +
+                "<td>" + (lineMethod(item) === "pickup" ? "Pickup" : "Ship") + "</td>" +
+                '<td style="text-align:right;">' + escapeHtml(each) + "</td>" +
+                '<td style="text-align:right;">' + escapeHtml(subtotal) + "</td>" +
+                "</tr>"
+              );
+            })
+            .join("");
+          itemsTable =
+            '<div class="order-items"><table><thead><tr><th>Product</th><th>Size</th><th>Qty</th><th>How</th><th>Each</th><th>Subtotal</th></tr></thead><tbody>' +
+            rowsHtml +
+            "</tbody></table></div>";
+        }
+
+        html +=
+          '<div class="order-card">' +
+          '<div class="order-header">' +
+          '<div><div class="order-id">Order ' + escapeHtml(order.orderId || "") + "</div>" + headerMeta.join("") + "</div>" +
+          '<div class="order-total">' + escapeHtml(formatMoney(order.totalCents)) + "</div>" +
+          "</div>" +
+          '<div class="order-grid">' +
+          '<div><div class="order-label">Customer</div><div class="order-value">' + customerHtml + "</div></div>" +
+          '<div><div class="order-label">Ship to</div><div class="order-value">' + addressHtml + "</div></div>" +
+          "</div>" +
+          itemsTable +
+          fulfillmentControls(order) +
+          "</div>";
       }
-      legacyHtml += "</tbody></table>";
-      legacyHtml +=
+      html += "</div>";
+      html +=
         '<div class="totals"><span>' +
-        escapeHtml(String(rows.length)) +
-        " lines / " +
+        escapeHtml(String(orders.length)) +
+        " orders shown</span><span>All sales: " +
         escapeHtml(String(totals.items ?? 0)) +
-        " items</span><span>" +
+        " items / " +
         escapeHtml(formatMoney(totals.grossCents)) +
         "</span></div>";
-      salesWrap.innerHTML = legacyHtml;
+      salesWrap.innerHTML = html;
     } catch (err) {
       salesWrap.innerHTML = '<div class="muted">' + escapeHtml(err.message || String(err)) + "</div>";
     }
+  }
+
+  async function saveOrderFulfillment(box, patch, control) {
+    var orderId = box.getAttribute("data-order-id");
+    var note = box.querySelector("[data-fulfillment-note]");
+    if (control) control.disabled = true;
+    if (note) { note.textContent = "Saving…"; note.style.color = ""; }
+    try {
+      await apiJson("/api/admin/orders/" + encodeURIComponent(orderId) + "/fulfillment", { method: "PATCH", body: patch });
+      if (note) note.textContent = "Saved.";
+    } catch (err) {
+      if (note) { note.textContent = err.message || String(err); note.style.color = "#e08585"; }
+    } finally {
+      if (control) control.disabled = false;
+    }
+  }
+
+  salesWrap.addEventListener("change", function (e) {
+    var el = e.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute("data-pickup-status")) return;
+    var box = el.closest(".order-fulfillment");
+    if (box) void saveOrderFulfillment(box, { pickupStatus: el.value }, el);
+  });
+
+  salesWrap.addEventListener("click", function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest("[data-save-shipping]") : null;
+    if (!btn) return;
+    var box = btn.closest(".order-fulfillment");
+    if (!box) return;
+    void saveOrderFulfillment(box, {
+      shippingStatus: box.querySelector("[data-ship-status]").value,
+      carrier: box.querySelector("[data-carrier]").value,
+      trackingNumber: box.querySelector("[data-tracking]").value,
+    }, btn);
+  });
+
+  document.querySelectorAll("[data-queue]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      orderQueue = btn.getAttribute("data-queue") || "all";
+      if (orderQueue !== "pickup") orderShowId = "";
+      void refreshSales();
+    });
+  });
+
+  var queueShowSelect = document.getElementById("queueShow");
+  if (queueShowSelect) {
+    queueShowSelect.addEventListener("change", function () {
+      orderShowId = queueShowSelect.value;
+      void refreshSales();
+    });
+  }
+
+  var exportPickupBtn = document.getElementById("btnExportPickup");
+  if (exportPickupBtn) {
+    exportPickupBtn.addEventListener("click", async function () {
+      try {
+        await downloadAdminFile(
+          "/api/admin/orders/export.csv?fulfillment=pickup" + (orderShowId ? "&showId=" + encodeURIComponent(orderShowId) : ""),
+          "pickup-list.csv",
+        );
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    });
+  }
+
+  var exportShippingBtn = document.getElementById("btnExportShipping");
+  if (exportShippingBtn) {
+    exportShippingBtn.addEventListener("click", async function () {
+      try {
+        await downloadAdminFile("/api/admin/orders/export.csv?fulfillment=ship", "shipping-queue.csv");
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    });
   }
 
   document.getElementById("preset50").addEventListener("click", () =>
