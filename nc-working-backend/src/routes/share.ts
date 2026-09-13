@@ -25,18 +25,29 @@ function escapeHtml(value: string): string {
 }
 
 /**
- * Tracking params to carry from this page into the shop: Meta's ad click id
- * and utm_* tags. Catalog ads and shop taps land here, but the Meta Pixel only
- * runs in the shop — without this the fbclid is gone one tap later and the
- * purchase can't be tied back to the ad that sold it.
+ * A link into the shop that keeps the visit's tracking params: Meta's ad click
+ * id and utm_* tags. Catalog ads and shop taps land on this page, so without
+ * them the fbclid is gone one tap later and a purchase can't be tied back to
+ * the ad that sold it.
  */
-function carriedParams(req: Request): string {
-  const out = new URLSearchParams();
+function shopHref(shop: string, req: Request, productId?: string): string {
+  const params = new URLSearchParams();
+  if (productId) params.set("p", productId);
   for (const [key, value] of Object.entries(req.query)) {
-    if (typeof value === "string" && /^(fbclid|utm_[a-z]+)$/i.test(key)) out.set(key, value);
+    if (typeof value === "string" && /^(fbclid|utm_[a-z]+)$/i.test(key)) params.set(key, value);
   }
-  const query = out.toString();
-  return query ? `&${query}` : "";
+  const query = params.toString();
+  return `${shop}/shop${query ? `?${query}` : ""}`;
+}
+
+/**
+ * The product shot at page size. Uploads are full-resolution PNG cutouts
+ * (1–1.5 MB each), too heavy for a page opened from an ad on a phone, so
+ * Cloudinary resizes and picks the format per browser; transparency survives.
+ */
+function pagePhotoUrl(url: string): string {
+  const match = /^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)(.+)$/i.exec(url);
+  return match ? `${match[1]}f_auto,q_auto,w_920/${match[2]}` : url;
 }
 
 function statusLabel(a: Availability): string {
@@ -44,6 +55,7 @@ function statusLabel(a: Availability): string {
     case "available": return "In stock";
     case "low": return `${a.qty} left`;
     case "soldout": return "Sold out";
+    case "ended": return "Sold out";
     case "scheduled": return "Drops soon";
     case "upcoming": return "Not yet released";
   }
@@ -98,6 +110,8 @@ shareRouter.get("/:id", (req, res) => {
   // shape. The product shots still carry the page itself. Regenerate the
   // asset with scripts/make-og-card.mjs.
   const ogImage = absoluteUrl(req, "/og-card.png");
+  // The page shows the piece itself; the mark stands in only when there's no photo.
+  const photo = images[0] ? pagePhotoUrl(images[0]) : ogImage;
   const canonical = `${trimSlash(process.env.BACKEND_ORIGIN) || `${req.protocol}://${req.get("host") ?? ""}`}/p/${encodeURIComponent(product.id)}`;
   const shareUrl = shop ? `${shop}/p/${encodeURIComponent(product.id)}` : canonical;
 
@@ -106,11 +120,14 @@ shareRouter.get("/:id", (req, res) => {
   const description =
     availability.state === "soldout"
       ? `${product.title} — sold out. Get told if it returns.`
-      : availability.state === "scheduled"
-        ? `${product.title} — ${price}. Drops ${whenLabel(availability.startsAt)}.`
-        : `${product.title} — ${price}. Limited drops, no restocks.`;
+      : availability.state === "ended"
+        ? `${product.title} — sold out. Limited drops, no restocks.`
+        : availability.state === "scheduled"
+          ? `${product.title} — ${price}. Drops ${whenLabel(availability.startsAt)}.`
+          : `${product.title} — ${price}. Limited drops, no restocks.`;
 
-  // Sold out and between-drops both offer the alert; the copy differs.
+  // Only a piece still inside its save window offers the alert: /api/save
+  // turns away anything older, so a long-sold-out piece just says so.
   const wantsAlert = availability.state === "soldout";
   const canShop = availability.state === "available" || availability.state === "low";
 
@@ -226,6 +243,7 @@ shareRouter.get("/:id", (req, res) => {
     font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:rgba(17,17,17,.55);
   }
   footer a:hover{color:#111}
+  footer nav{display:flex;gap:22px}
   @media (prefers-reduced-motion:reduce){ .btn{transition:none} }
 </style>
 <!-- Meta Pixel: Meta's base code, then the product viewed, matched to the
@@ -262,8 +280,8 @@ shareRouter.get("/:id", (req, res) => {
 
   <main>
     <div class="shot">
-      ${ogImage
-        ? `<img src="${escapeHtml(ogImage)}" alt="${title}" />`
+      ${photo
+        ? `<img src="${escapeHtml(photo)}" alt="${title}" />`
         : `<div class="shot--empty" role="img" aria-label="${title}"></div>`}
     </div>
 
@@ -276,7 +294,7 @@ shareRouter.get("/:id", (req, res) => {
 
       <div class="actions">
         ${canShop && shop
-          ? `<a class="btn btn--solid" href="${escapeHtml(`${shop}/shop?p=${encodeURIComponent(product.id)}${carriedParams(req)}`)}">Shop this</a>`
+          ? `<a class="btn btn--solid" href="${escapeHtml(shopHref(shop, req, product.id))}">Shop this</a>`
           : ""}
         <button class="btn" type="button" id="share">Share</button>
       </div>
@@ -290,15 +308,17 @@ shareRouter.get("/:id", (req, res) => {
            <p class="note" id="alertNote">One message if this comes back. Nothing else.</p>`
         : availability.state === "scheduled"
           ? `<p class="note">Drops <b><time datetime="${escapeHtml(availability.startsAt)}" data-when>${escapeHtml(whenLabel(availability.startsAt))}</time></b>. Save the link &mdash; this page turns into the buy page when it opens.</p>`
-          : availability.state === "upcoming"
-            ? `<p class="note">This piece isn&rsquo;t in the current drop. ${shop ? `<a href="${escapeHtml(shop)}/shop" style="text-decoration:underline;text-underline-offset:3px">See what&rsquo;s live</a>.` : ""}</p>`
+          : availability.state === "upcoming" || availability.state === "ended"
+            ? `<p class="note">${availability.state === "ended" ? "This piece has sold out." : "This piece isn&rsquo;t in the current drop."} ${shop ? `<a href="${escapeHtml(shopHref(shop, req))}" style="text-decoration:underline;text-underline-offset:3px">See what&rsquo;s live</a>.` : ""}</p>`
             : ""}
     </div>
   </main>
 
   <footer>
     <a href="${escapeHtml(shop || "/")}">no-connection.com</a>
-    ${shop ? `<a href="${escapeHtml(shop)}/shop">Shop</a>` : ""}
+    ${shop
+      ? `<nav><a href="${escapeHtml(shopHref(shop, req))}">Shop</a><a href="${escapeHtml(shop)}/privacy">Privacy</a></nav>`
+      : ""}
   </footer>
 
 <script>

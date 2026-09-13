@@ -5,6 +5,7 @@ import {
   getDisplayedRemaining,
   getRecentlyLiveProductIds,
   getVaultSaveWindowMs,
+  hasBeenReleased,
 } from "./inventory.js";
 
 /**
@@ -21,6 +22,8 @@ export type Availability =
   | { state: "available"; qty: number }
   | { state: "low"; qty: number }
   | { state: "soldout" }
+  /** Sold out in an earlier drop whose save window has closed: no alert sign-up. */
+  | { state: "ended" }
   /** In a drop that hasn't opened yet — the link works, the buying doesn't. */
   | { state: "scheduled"; startsAt: string }
   | { state: "upcoming"; startsAt: string | null };
@@ -63,5 +66,8 @@ export function availabilityOf(productId: string): Availability {
   // Between drops: an item that was just live is sold out rather than unreleased.
   const recent = new Set(getRecentlyLiveProductIds(getVaultSaveWindowMs()));
   if (recent.has(productId)) return { state: "soldout" };
+  // Past its save window it's still a piece that dropped and sold, not one
+  // that's never been released.
+  if (hasBeenReleased(productId)) return { state: "ended" };
   return { state: "upcoming", startsAt: drop?.startsAt ?? null };
 }

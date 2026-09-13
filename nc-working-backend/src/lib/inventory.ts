@@ -1256,6 +1256,21 @@ export function getDropHistory(limit = DROP_HISTORY_LIMIT): DropAnalytics[] {
   return dropHistory.slice(-Math.max(1, limit)).reverse();
 }
 
+/**
+ * Whether a product has ever gone live — long after its vault window closed.
+ * Any one of these is proof: a live timestamp still on record, stock in a past
+ * drop, or a sale. Lets public pages say "sold out" about a past piece instead
+ * of calling it unreleased.
+ */
+export function hasBeenReleased(productId: string): boolean {
+  if (lastLiveSeen[productId]) return true;
+  const inPastDrop = dropHistory.some((drop) =>
+    drop.products.some((p) => p.productId === productId && (p.initialQty > 0 || p.soldQty > 0)),
+  );
+  if (inPastDrop) return true;
+  return listSales(5000).some((sale) => sale.productId === productId);
+}
+
 export function setLiveInventory(productId: string, nextQty: number) {
   if (!currentDrop || currentDrop.status !== "live") return null;
   const sanitized = Math.max(0, Math.floor(Number(nextQty) || 0));
