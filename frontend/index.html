@@ -46,6 +46,29 @@
     <meta name="twitter:title" content="NO CONNECTION" />
     <meta name="twitter:description" content="Limited drops. No restocks. Shop NC." />
     <meta name="twitter:image" content="https://no-connection.com/og-card.png" />
+
+    <!-- Meta Pixel (dataset 2284389019019649). Meta's base code, in <head> as
+         Events Manager instructs, so the page view and fbevents.js start before
+         the app bundle arrives. Shopping events (ViewContent, AddToCart,
+         InitiateCheckout, Purchase) are sent from src/lib/metaPixel.ts; the /p/
+         share pages load the same ID (nc-working-backend/src/routes/share.ts).
+         Admin pages are left out so internal visits don't count. No <noscript>
+         beacon: nothing here works without JavaScript, so it would only count
+         crawlers. -->
+    <script>
+      if (location.pathname.indexOf("/admin") !== 0) {
+        !function(f,b,e,v,n,t,s)
+        {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+        if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+        n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];
+        s.parentNode.insertBefore(t,s)}(window, document,'script',
+        'https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', '2284389019019649');
+        fbq('track', 'PageView');
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

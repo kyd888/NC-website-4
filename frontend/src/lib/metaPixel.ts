@@ -4,21 +4,20 @@
  *
  * Sends the standard shopping events Commerce Manager matches against a
  * product catalog: ViewContent, AddToCart, InitiateCheckout and Purchase.
- * `content_ids` are this shop's product ids (e.g. "Tee-miss-her-black"), so
- * the items in the Meta catalog must use the SAME ids for events to match.
+ * `content_ids` are this shop's product ids (e.g. "Tee-miss-her-black"), the
+ * same ids the catalog feed publishes as g:id
+ * (nc-working-backend/src/routes/feeds.ts), which is how events match items.
  *
- * Page views: the pixel script tracks the initial PageView here and follows
- * client-side route changes itself, so routing code does not call it.
+ * Loading and page views: Meta's base code sits in index.html's <head> (init
+ * with the dataset ID, then PageView). The pixel script follows client-side
+ * route changes itself, so routing code does not track page views.
  *
  * Safety: tracking must never break browsing or checkout. Every call is
- * wrapped, and with no id set nothing loads and every call is a no-op.
+ * wrapped, and where the pixel isn't loaded (admin pages, blockers) every call
+ * is a no-op.
  */
 
-/** Dataset (Pixel) ID from Meta Events Manager. Public — it ships in page source. */
-export const META_PIXEL_ID = "";
-
 const CURRENCY = "USD";
-const SCRIPT_SRC = "https://connect.facebook.net/en_US/fbevents.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Fbq = ((...args: any[]) => void) & Record<string, any>;
@@ -26,7 +25,6 @@ type Fbq = ((...args: any[]) => void) & Record<string, any>;
 declare global {
   interface Window {
     fbq?: Fbq;
-    _fbq?: Fbq;
   }
 }
 
@@ -41,39 +39,6 @@ function send(...args: any[]) {
     if (typeof window !== "undefined" && typeof window.fbq === "function") window.fbq(...args);
   } catch {
     // Tracking is best-effort; never let it surface to the shopper.
-  }
-}
-
-/**
- * Loads the pixel once. Meta's standard base code, unminified: it installs a
- * queueing stub immediately so events fired before the script arrives are
- * kept, then loads fbevents.js asynchronously.
- */
-export function initMetaPixel(pixelId: string = META_PIXEL_ID) {
-  if (!pixelId || typeof window === "undefined" || window.fbq) return;
-  try {
-    const stub = function (this: unknown) {
-      // eslint-disable-next-line prefer-rest-params
-      const args = arguments;
-      if (stub.callMethod) stub.callMethod.apply(stub, args);
-      else stub.queue.push(args);
-    } as unknown as Fbq;
-    window.fbq = stub;
-    if (!window._fbq) window._fbq = stub;
-    stub.push = stub;
-    stub.loaded = true;
-    stub.version = "2.0";
-    stub.queue = [];
-
-    const script = document.createElement("script");
-    script.async = true;
-    script.src = SCRIPT_SRC;
-    document.head.appendChild(script);
-
-    stub("init", pixelId);
-    stub("track", "PageView");
-  } catch {
-    // A blocked or failed pixel must not affect the site.
   }
 }
 

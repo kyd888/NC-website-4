@@ -10,6 +10,14 @@ import {
 
 export const shareRouter = Router();
 
+/**
+ * Meta Pixel dataset — the same one the shop loads in frontend/index.html.
+ * Catalog items link to this page (routes/feeds.ts), so it records the visit
+ * and the product viewed, even when the product isn't buyable right now.
+ * Public: it ships in page source.
+ */
+const META_PIXEL_ID = "2284389019019649";
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
@@ -220,6 +228,27 @@ shareRouter.get("/:id", (req, res) => {
   footer a:hover{color:#111}
   @media (prefers-reduced-motion:reduce){ .btn{transition:none} }
 </style>
+<!-- Meta Pixel: Meta's base code, then the product viewed, matched to the
+     catalog by product id (the feed's g:id). -->
+<script>
+  !function(f,b,e,v,n,t,s)
+  {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+  n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;s=b.getElementsByTagName(e)[0];
+  s.parentNode.insertBefore(t,s)}(window, document,'script',
+  'https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', ${JSON.stringify(META_PIXEL_ID)});
+  fbq('track', 'PageView');
+  fbq('track', 'ViewContent', {
+    content_ids: [${JSON.stringify(product.id)}],
+    content_type: 'product',
+    content_name: ${JSON.stringify(product.title)},
+    value: ${(product.priceCents / 100).toFixed(2)},
+    currency: 'USD'
+  });
+</script>
 </head>
 <body>
   <div class="top">
