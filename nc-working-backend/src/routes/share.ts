@@ -185,8 +185,9 @@ shareRouter.get("/:id", (req, res) => {
     padding:calc(14px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 14px max(20px, env(safe-area-inset-left));
     max-width:1100px;width:100%;margin:0 auto;
   }
-  .mark{width:26px;height:auto;display:block}
-  .mark path{fill:#111}
+  /* The site's own logo file at the header's size (frontend .brand-logo), so
+     the share page can't drift from it the way a hand-drawn SVG did. */
+  .mark{height:26px;width:auto;display:block}
   .label{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.55}
   main{
     flex:1;width:100%;max-width:1100px;margin:0 auto;
@@ -271,9 +272,7 @@ shareRouter.get("/:id", (req, res) => {
 <body>
   <div class="top">
     <a href="${escapeHtml(shop || "/")}" aria-label="No Connection — home">
-      <svg class="mark" viewBox="0 0 120 44" aria-hidden="true">
-        <path d="M34 2 Q40 20 116 21.5 Q40 23 34 42 Q28 23 4 21.5 Q28 20 34 2 Z"/>
-      </svg>
+      <img class="mark" src="${escapeHtml(`${shop}/nc-star.png`)}" alt="" width="39" height="26" />
     </a>
     <span class="label">Limited drops &middot; No restocks</span>
   </div>

@@ -19,6 +19,20 @@ export type KydProject = {
   visual?: string;
 };
 
+export type ShowStatus = "confirmed" | "tentative" | "canceled";
+
+/** Merch pickup at a show. See lib/showMerch.ts for when it actually opens. */
+export type ShowMerchPickup = {
+  enabled: boolean;
+  /**
+   * When pickup orders close: a wall-clock time (YYYY-MM-DDTHH:mm) in the
+   * show's own timezone. Pickup stays closed until one is set.
+   */
+  cutoff?: string;
+  /** Where and how to collect. Shown to customers exactly as written. */
+  instructions?: string;
+};
+
 export type KydShow = {
   id: string;
   title: string;
@@ -30,6 +44,11 @@ export type KydShow = {
   tickets?: string;
   info?: string;
   archive?: string;
+  /** Only a confirmed show can offer merch pickup. Unset means not confirmed. */
+  status?: ShowStatus;
+  /** IANA timezone the show happens in, e.g. "America/Chicago". */
+  timezone?: string;
+  merchPickup?: ShowMerchPickup;
 };
 
 export type KydVisual = {
@@ -292,6 +311,33 @@ function stringList(value: unknown): string[] {
   return value.map((entry) => str(entry)).filter((entry) => entry.length > 0);
 }
 
+const SHOW_STATUSES = new Set<ShowStatus>(["confirmed", "tentative", "canceled"]);
+
+/** True for a timezone the runtime can compute with, e.g. "America/Chicago". */
+export function isValidTimeZone(value: string | undefined): value is string {
+  if (!value) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeMerchPickup(input: unknown): ShowMerchPickup | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const r = input as Record<string, unknown>;
+  // datetime-local inputs may add seconds; the cutoff is kept to the minute.
+  const cutoff = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:\d{2})?$/.exec(str(r.cutoff))?.[1];
+  const instructions = str(r.instructions).slice(0, 1000);
+  const out: ShowMerchPickup = { enabled: r.enabled === true };
+  if (cutoff) out.cutoff = cutoff;
+  if (instructions) out.instructions = instructions;
+  // Nothing set at all: leave the field off, so plain shows stay plain.
+  if (!out.enabled && !out.cutoff && !out.instructions) return undefined;
+  return out;
+}
+
 /** A slug/id safe for a URL. Project slugs show up as /kyd/<slug>. */
 function slugify(value: string, fallback: string): string {
   const base = (value || fallback)
@@ -349,6 +395,8 @@ export function sanitizeContent(input: unknown): KydContent {
       const date = str(r.date);
       // A show without a date can't be sorted into upcoming or past.
       if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      const status = str(r.status) as ShowStatus;
+      const timezone = str(r.timezone);
       return {
         id: uniqueSlug(showIds, str(r.id), title, `show-${i + 1}`),
         title,
@@ -359,6 +407,9 @@ export function sanitizeContent(input: unknown): KydContent {
         tickets: optional(r.tickets),
         info: optional(r.info),
         archive: optional(r.archive),
+        status: SHOW_STATUSES.has(status) ? status : undefined,
+        timezone: isValidTimeZone(timezone) ? timezone : undefined,
+        merchPickup: sanitizeMerchPickup(r.merchPickup),
       };
     })
     .filter((s): s is KydShow => s !== null);

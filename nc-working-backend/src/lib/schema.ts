@@ -71,4 +71,18 @@ ALTER TABLE catalog ADD COLUMN IF NOT EXISTS images jsonb NOT NULL DEFAULT '[]':
 
 -- Added after sales shipped, so CREATE TABLE IF NOT EXISTS won't apply it.
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS size text;
+
+-- Show merch: how each line reaches the customer (pickup at a show, or ship),
+-- saved at purchase. Null on older rows, which shipped.
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS fulfillment jsonb;
+
+-- Pickup and shipping progress per order, updated from the admin.
+CREATE TABLE IF NOT EXISTS order_fulfillment (
+  order_id text PRIMARY KEY,
+  pickup_status text NOT NULL DEFAULT 'awaiting',
+  shipping_status text NOT NULL DEFAULT 'awaiting',
+  carrier text,
+  tracking_number text,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 `;

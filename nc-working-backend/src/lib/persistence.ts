@@ -4,6 +4,8 @@ import { loadSalesFromDb } from "./sales.js";
 import { loadUsersFromDb } from "./users.js";
 import { loadVaultFromDb } from "./vault.js";
 import { loadKydContent } from "./siteContent.js";
+import { loadShowMerchSettings } from "./showMerch.js";
+import { loadOrderFulfillment } from "./orderFulfillment.js";
 import { schemaSql } from "./schema.js";
 
 const CONNECT_ATTEMPTS = Math.max(1, Number.parseInt(process.env.DB_CONNECT_ATTEMPTS || "5", 10) || 5);
@@ -68,6 +70,8 @@ export async function initializePersistentStores() {
   // KYD content falls back to disk, so it loads with or without a database.
   await loadKydContent();
   if (!dbEnabled) {
+    await loadShowMerchSettings();
+    await loadOrderFulfillment();
     // Without a database everything lives in DATA_DIR. On a host with an
     // ephemeral filesystem (Render, unless that path is a mounted disk) each
     // restart starts from nothing: no catalog, no live drop, so the shop shows
@@ -86,4 +90,6 @@ export async function initializePersistentStores() {
   await loadSalesFromDb();
   await loadInventoryFromDb();
   await loadVaultFromDb();
+  await loadShowMerchSettings();
+  await loadOrderFulfillment();
 }

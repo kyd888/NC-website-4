@@ -19,9 +19,24 @@ import {
   getVaultSaveWindowMs,
 } from "../lib/inventory.js";
 import { recordSale } from "../lib/sales.js";
-import { sendPurchaseNotificationEmail, sendReceiptEmail, sendCartAbandonmentEmail } from "../lib/mailer.js";
+import {
+  sendPurchaseNotificationEmail,
+  sendReceiptEmail,
+  sendCartAbandonmentEmail,
+  type ReceiptFulfillment,
+} from "../lib/mailer.js";
 import { noteCartAdd } from "../lib/cartAlerts.js";
-import type { CatalogItem } from "../lib/types.js";
+import type { CatalogItem, FulfillmentMethod, SaleFulfillment, ShowSnapshot } from "../lib/types.js";
+import {
+  PICKUP_BONUS,
+  dateLabel,
+  getShowMerchSettings,
+  planFulfillment,
+  publicShowMerch,
+  validateShippingAddress,
+  type FulfillmentPlan,
+  type ShippingAddress,
+} from "../lib/showMerch.js";
 import { getAuthContext } from "../lib/auth.js";
 import { getKydContent } from "../lib/siteContent.js";
 import { sizesForProduct, normalizeSize } from "../lib/sizing.js";
@@ -42,33 +57,16 @@ const optionalString = z
     return trimmed.length > 0 ? trimmed : undefined;
   });
 
-const checkoutCustomerSchema = z
+// Name and email. The address is checked separately, and only when something
+// in the order ships: a pickup-only order never asks for one.
+const checkoutContactSchema = z
   .object({
     name: optionalString,
     email: z.string().trim().min(1).email(),
-    address: z.object({
-      line1: z.string().trim().min(1),
-      line2: optionalString,
-      city: z.string().trim().min(1),
-      state: z.string().trim().min(1),
-      postalCode: z.string().trim().min(1),
-      country: z.string().trim().min(2).max(2).optional(),
-    }),
   })
-  .transform((value) => ({
-    name: value.name,
-    email: value.email.trim(),
-    address: {
-      line1: value.address.line1.trim(),
-      line2: value.address.line2,
-      city: value.address.city.trim(),
-      state: value.address.state.trim(),
-      postalCode: value.address.postalCode.trim(),
-      country: ((value.address.country ?? "US") || "US").trim().toUpperCase(),
-    },
-  }));
+  .transform((value) => ({ name: value.name, email: value.email.trim() }));
 
-type CheckoutCustomer = z.infer<typeof checkoutCustomerSchema>;
+type CheckoutContact = z.infer<typeof checkoutContactSchema>;
 
 const SESSION_COOKIE = "nc_session";
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -108,12 +106,26 @@ function scheduleAbandonmentCheck(sessionId: string, email: string, getCart: () 
 const SAVE_WINDOW_MS = getVaultSaveWindowMs();
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+// Local testing only: STRIPE_API_BASE points the client at a Stripe mock so
+// checkout can be exercised end to end without real keys. Never set in production.
+const stripeApiBase = process.env.STRIPE_API_BASE ? new URL(process.env.STRIPE_API_BASE) : null;
 const stripe =
   typeof stripeSecretKey === "string" && stripeSecretKey.length > 0
-    ? new Stripe(stripeSecretKey)
+    ? new Stripe(
+        stripeSecretKey,
+        stripeApiBase
+          ? {
+              host: stripeApiBase.hostname,
+              port: Number(stripeApiBase.port) || (stripeApiBase.protocol === "https:" ? 443 : 80),
+              protocol: stripeApiBase.protocol === "https:" ? "https" : "http",
+            }
+          : undefined,
+      )
     : null;
 if (!stripe) {
   console.warn("[stripe] STRIPE_SECRET_KEY is missing; payment endpoints disabled.");
+} else if (stripeApiBase) {
+  console.warn(`[stripe] Using a Stripe mock at ${stripeApiBase.origin} (STRIPE_API_BASE). Test use only.`);
 } else {
   console.log("[stripe] Stripe client configured");
 }
@@ -210,6 +222,155 @@ function toAbsoluteUrl(input: string | undefined, baseUrl: string): string | und
   const normalizedPath = input.startsWith("/") ? input : `/${input}`;
   return normalizedBase ? `${normalizedBase}${normalizedPath}` : input;
 }
+
+// ---------- Checkout helpers ----------
+
+/** Sizes are picked in the bag: { productId: ["M", "L"] }, one per unit, all valid. */
+function checkSizes(
+  lines: CartLine[],
+  submitted: unknown,
+): { ok: true; chosen: Map<string, string[]> } | { ok: false; error: string; productId: string; sizes: string[] } {
+  const submittedSizes = (submitted ?? {}) as Record<string, unknown>;
+  const chosen = new Map<string, string[]>();
+  for (const line of lines) {
+    const options = sizesForProduct(line.product);
+    if (!options.length) continue;
+    const raw = submittedSizes[line.product.id];
+    const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+    const normalized = list
+      .map((entry) => normalizeSize(line.product, entry))
+      .filter((entry): entry is string => entry !== null);
+    if (normalized.length !== line.qty) {
+      return { ok: false, error: `Choose a size for each ${line.product.title}`, productId: line.product.id, sizes: options };
+    }
+    chosen.set(line.product.id, normalized);
+  }
+  return { ok: true, chosen };
+}
+
+/**
+ * What was validated on the server right before payment, saved on the Stripe
+ * PaymentIntent. Confirm reads it back instead of trusting the browser again,
+ * and never re-checks eligibility: once paid, an order keeps the fulfillment
+ * it was paid under even if the show's settings change a second later.
+ */
+type PreparedCheckout = {
+  method: FulfillmentMethod | null;
+  showMerchIds: string[];
+  show?: ShowSnapshot;
+  address?: ShippingAddress;
+  contact?: { name?: string; email?: string };
+  shipsAfter?: string;
+  dispatchEstimate?: string;
+};
+
+// Stripe metadata values cap at 500 characters, so every stored field is bounded.
+const clip = (value: string | undefined, max: number) => (value ? value.slice(0, max) : value);
+
+function preparedMetadata(plan: FulfillmentPlan, contact: CheckoutContact, address: ShippingAddress | undefined) {
+  const settings = getShowMerchSettings();
+  const show = plan.show
+    ? {
+        id: clip(plan.show.id, 80),
+        name: clip(plan.show.name, 120),
+        date: plan.show.date,
+        location: clip(plan.show.location, 160),
+        timezone: plan.show.timezone,
+      }
+    : null;
+  const ship = address
+    ? {
+        line1: clip(address.line1, 100),
+        line2: clip(address.line2, 100),
+        city: clip(address.city, 60),
+        state: clip(address.state, 20),
+        postalCode: clip(address.postalCode, 20),
+        country: address.country,
+      }
+    : null;
+  const showMerchShips = plan.method === "ship";
+  return {
+    nc_fulfillment: plan.method ?? "none",
+    nc_show_merch_ids: clip(plan.showMerchIds.join(","), 500) ?? "",
+    nc_show: show ? JSON.stringify(show) : "",
+    nc_ship: ship ? JSON.stringify(ship) : "",
+    nc_contact: JSON.stringify({ name: clip(contact.name, 120) ?? "", email: clip(contact.email, 200) }),
+    nc_ships_after: showMerchShips ? settings.shipsAfterDate : "",
+    nc_dispatch: showMerchShips ? clip(settings.dispatchEstimate, 300) ?? "" : "",
+    nc_prepared_at: new Date().toISOString(),
+  };
+}
+
+function parseJson<T>(raw: string | undefined): T | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function readPreparedCheckout(metadata: Record<string, string> | undefined | null): PreparedCheckout | null {
+  const method = metadata?.nc_fulfillment;
+  if (!method) return null; // Paid through a checkout that never ran prepare (an older browser tab).
+  return {
+    method: method === "pickup" || method === "ship" ? method : null,
+    showMerchIds: (metadata?.nc_show_merch_ids ?? "").split(",").filter(Boolean),
+    show: parseJson<ShowSnapshot>(metadata?.nc_show),
+    address: parseJson<ShippingAddress>(metadata?.nc_ship),
+    contact: parseJson<{ name?: string; email?: string }>(metadata?.nc_contact),
+    shipsAfter: metadata?.nc_ships_after || undefined,
+    dispatchEstimate: metadata?.nc_dispatch || undefined,
+  };
+}
+
+function preparedLineFulfillment(productId: string, prepared: PreparedCheckout | null): SaleFulfillment {
+  if (!prepared?.method || !prepared.showMerchIds.includes(productId)) return { method: "ship" };
+  if (prepared.method === "pickup") {
+    return { method: "pickup", showMerch: true, show: prepared.show, bonus: PICKUP_BONUS };
+  }
+  return { method: "ship", showMerch: true, shipsAfter: prepared.shipsAfter, dispatchEstimate: prepared.dispatchEstimate };
+}
+
+/** The details a customer sees on the confirmation page and in the receipt. */
+function describePrepared(prepared: PreparedCheckout | null, lines: CartLine[]): ReceiptFulfillment {
+  const method = prepared?.method ?? null;
+  const otherItemsShip = lines.some((line) => !prepared?.showMerchIds.includes(line.product.id));
+  if (method === "pickup") {
+    const liveShow = prepared?.show ? getKydContent().shows.find((s) => s.id === prepared.show?.id) : undefined;
+    return {
+      method,
+      show: prepared?.show
+        ? { name: prepared.show.name, dateLabel: dateLabel(prepared.show.date), location: prepared.show.location }
+        : undefined,
+      pickupInstructions: liveShow?.merchPickup?.instructions,
+      missedPickupPolicy: getShowMerchSettings().missedPickupPolicy || undefined,
+      bonus: PICKUP_BONUS,
+      otherItemsShip,
+    };
+  }
+  if (method === "ship") {
+    return {
+      method,
+      shipsAfterLabel: prepared?.shipsAfter ? dateLabel(prepared.shipsAfter) : undefined,
+      dispatchEstimate: prepared?.dispatchEstimate,
+      otherItemsShip,
+    };
+  }
+  return { method: null, otherItemsShip: true };
+}
+
+/** A fulfillment problem in the shape the shop reads: a message, plus a code to act on. */
+function sendPlanFailure(res: Response, failure: { status: number; code: string; error: string }) {
+  return res.status(failure.status).json({ error: failure.error, code: failure.code });
+}
+
+// Everything the shop needs to show pickup and shipping options. Eligibility is
+// computed here, and checked again on the server right before payment.
+catalogRouter.get("/show-merch", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json(publicShowMerch());
+});
 
 // KYD page content — live dates, music, visuals, booking.
 catalogRouter.get("/kyd", (_req, res) => {
@@ -572,6 +733,11 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
     return res.status(400).json({ error: "Cart is empty" });
   }
 
+  // Show merch needs an explicit pickup-or-ship choice before checkout starts.
+  // The amount doesn't depend on it: standard shipping is already in the price.
+  const planned = planFulfillment(summary.lines.map((line) => line.product.id), req.body?.fulfillment);
+  if (!planned.ok) return sendPlanFailure(res, planned);
+
   try {
     const intent = await stripe.paymentIntents.create({
       amount: summary.grossCents,
@@ -588,11 +754,104 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
       clientSecret: intent.client_secret,
       paymentIntentId: intent.id,
       amount: summary.grossCents,
+      needsAddress: planned.plan.needsAddress,
     });
   } catch (error) {
     console.error("[stripe] createIntent error", error);
     res.status(500).json({ error: "Unable to initiate payment" });
   }
+});
+
+// Runs right before the card is charged. Re-checks the fulfillment choice,
+// pickup eligibility, contact details, address and sizes on the server, then
+// saves the result on the PaymentIntent for confirm to use. If pickup closed
+// while the customer was filling in the form, it says so and changes nothing:
+// the customer chooses shipping and enters an address themselves.
+catalogRouter.post("/checkout/prepare", async (req, res) => {
+  if (!stripe) {
+    return res.status(500).json({ error: "Stripe is not configured" });
+  }
+
+  const { session } = ensureSession(req, res);
+  const entries = getActiveCartEntries(session);
+  if (!entries.length) {
+    return res.status(400).json({ error: "Cart is empty" });
+  }
+
+  const drop = getCurrentDrop();
+  if (!drop || drop.status !== "live") {
+    releaseCart(session.cart);
+    session.cart = {};
+    return res.status(409).json({ error: "Drop closed" });
+  }
+
+  const summary = summarizeCart(entries);
+  if ("error" in summary) {
+    releaseCart(session.cart);
+    session.cart = {};
+    return res.status(400).json({ error: summary.error });
+  }
+
+  if (!summary.lines.length) {
+    return res.status(400).json({ error: "Cart is empty" });
+  }
+
+  const paymentIntentId = typeof req.body?.paymentIntentId === "string" ? req.body.paymentIntentId : "";
+  if (!paymentIntentId) {
+    return res.status(400).json({ error: "Payment verification missing" });
+  }
+
+  const planned = planFulfillment(summary.lines.map((line) => line.product.id), req.body?.fulfillment);
+  if (!planned.ok) return sendPlanFailure(res, planned);
+  const { plan } = planned;
+
+  const contact = checkoutContactSchema.safeParse(req.body?.customer ?? {});
+  if (!contact.success) {
+    return res.status(400).json({ error: "Enter your name and a valid email address.", code: "CONTACT_INVALID" });
+  }
+  if (!contact.data.name) {
+    return res.status(400).json({ error: "Name is required.", code: "CONTACT_INVALID" });
+  }
+
+  let address: ShippingAddress | undefined;
+  if (plan.needsAddress) {
+    const checked = validateShippingAddress(req.body?.customer?.address, plan.showMerchShips);
+    if (!checked.ok) {
+      return res.status(400).json({ error: checked.error, code: "ADDRESS_INVALID" });
+    }
+    address = checked.address;
+  }
+
+  // Sizes used to be checked only after payment; a missing one now stops
+  // checkout before the card is charged.
+  const sizes = checkSizes(summary.lines, req.body?.sizes);
+  if (!sizes.ok) {
+    return res.status(400).json({
+      error: sizes.error,
+      code: "SIZE_REQUIRED",
+      productId: sizes.productId,
+      sizes: sizes.sizes,
+    });
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    if (intent.status === "succeeded" || intent.status === "canceled") {
+      return res.status(409).json({ error: "This checkout already finished. Start again from your bag.", code: "INTENT_DONE" });
+    }
+    // The amount was fixed when checkout opened; a different bag needs a new one.
+    if (intent.amount !== summary.grossCents) {
+      return res.status(409).json({ error: "Your bag changed. Close checkout and start again.", code: "CART_CHANGED" });
+    }
+    await stripe.paymentIntents.update(paymentIntentId, {
+      metadata: preparedMetadata(plan, contact.data, address),
+    });
+  } catch (error) {
+    console.error("[stripe] prepare error", error);
+    return res.status(502).json({ error: "Unable to prepare payment. Try again." });
+  }
+
+  res.json({ ok: true, method: plan.method, needsAddress: plan.needsAddress });
 });
 
 catalogRouter.post("/checkout/confirm", async (req, res) => {
@@ -624,15 +883,9 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
   const paymentIntentId =
     typeof req.body?.paymentIntentId === "string" ? req.body.paymentIntentId : null;
 
-  const customerResult = checkoutCustomerSchema.safeParse(req.body?.customer ?? {});
-  if (!customerResult.success) {
-    return res.status(400).json({ error: "Invalid customer details" });
-  }
-  const customer = customerResult.data;
-  const auth = getAuthContext(req);
-  const userId = auth?.user?.id;
-  const customerEmail = customer.email ?? auth?.user?.email;
-
+  // What the server validated right before payment. Eligibility is not checked
+  // again here: the customer has paid for the fulfillment they chose.
+  let prepared: PreparedCheckout | null = null;
   if (stripe) {
     if (!paymentIntentId) {
       return res.status(400).json({ error: "Payment verification missing" });
@@ -645,39 +898,58 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       if ((intent.amount_received ?? 0) < summary.grossCents) {
         return res.status(400).json({ error: "Payment amount mismatch" });
       }
+      prepared = readPreparedCheckout(intent.metadata);
     } catch (error) {
       console.error("[stripe] retrieveIntent error", error);
       return res.status(400).json({ error: "Unable to verify payment" });
     }
   }
 
-  // Sizes are picked at checkout: { productId: ["M", "L"] }, one per unit.
-  const submittedSizes = (req.body?.sizes ?? {}) as Record<string, unknown>;
-  const chosen = new Map<string, string[]>();
-  for (const line of summary.lines) {
-    const options = sizesForProduct(line.product);
-    if (!options.length) continue;
-    const raw = submittedSizes[line.product.id];
-    const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw];
-    const normalized = list
-      .map((entry) => normalizeSize(line.product, entry))
-      .filter((entry): entry is string => entry !== null);
-    // One size per unit, all valid — otherwise there is no way to pick and ship.
-    if (normalized.length !== line.qty) {
-      return res.status(400).json({
-        error: `Choose a size for each ${line.product.title}`,
-        productId: line.product.id,
-        sizes: options,
-      });
-    }
-    chosen.set(line.product.id, normalized);
+  const submittedContact = checkoutContactSchema.safeParse(req.body?.customer ?? {});
+  const contact: CheckoutContact | null = prepared?.contact?.email
+    ? { name: prepared.contact.name || undefined, email: prepared.contact.email }
+    : submittedContact.success
+    ? submittedContact.data
+    : null;
+  if (!contact) {
+    return res.status(400).json({ error: "Invalid customer details" });
   }
+
+  const lineFulfillments = new Map(
+    summary.lines.map((line) => [line.product.id, preparedLineFulfillment(line.product.id, prepared)]),
+  );
+  const needsAddress = [...lineFulfillments.values()].some((f) => f.method === "ship");
+
+  let address: ShippingAddress | undefined;
+  if (needsAddress) {
+    if (prepared?.address) {
+      address = prepared.address;
+    } else {
+      // A checkout that never ran prepare: the shop's original address rules.
+      const checked = validateShippingAddress(req.body?.customer?.address, false);
+      if (!checked.ok) {
+        return res.status(400).json({ error: "Invalid customer details" });
+      }
+      address = checked.address;
+    }
+  }
+
+  const auth = getAuthContext(req);
+  const userId = auth?.user?.id;
+  const customerEmail = contact.email ?? auth?.user?.email;
+
+  const sizes = checkSizes(summary.lines, req.body?.sizes);
+  if (!sizes.ok) {
+    return res.status(400).json({ error: sizes.error, productId: sizes.productId, sizes: sizes.sizes });
+  }
+  const chosen = sizes.chosen;
 
   const orderId = paymentIntentId ?? `order_${randomUUID()}`;
   const assetBase = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "";
   // A line with mixed sizes becomes one item per size, so the order reads as
   // something you can actually pick and pack.
   const orderItems = summary.lines.flatMap((line) => {
+    const fulfillment = lineFulfillments.get(line.product.id) ?? { method: "ship" as const };
     const base = {
       productId: line.product.id,
       title: line.product.title,
@@ -685,13 +957,15 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       imageUrl: line.product.imageUrl
         ? toAbsoluteUrl(line.product.imageUrl, assetBase)
         : undefined,
+      fulfillment,
+      method: fulfillment.method,
     };
-    const sizes = chosen.get(line.product.id);
-    if (!sizes) {
+    const lineSizes = chosen.get(line.product.id);
+    if (!lineSizes) {
       return [{ ...base, qty: line.qty, lineTotalCents: line.product.priceCents * line.qty, size: undefined as string | undefined }];
     }
     const counts = new Map<string, number>();
-    for (const size of sizes) counts.set(size, (counts.get(size) ?? 0) + 1);
+    for (const size of lineSizes) counts.set(size, (counts.get(size) ?? 0) + 1);
     return [...counts.entries()].map(([size, qty]) => ({
       ...base,
       qty,
@@ -711,43 +985,49 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       ua: req.get("user-agent") ?? undefined,
       ref: paymentIntentId ?? undefined,
       userId,
-      customerName: customer.name,
+      customerName: contact.name,
       customerEmail: customerEmail,
-      shippingAddress: customer.address,
+      shippingAddress: address,
       orderId,
       dropId: drop.id,
+      fulfillment: item.fulfillment,
     });
   }
 
   if (userId) {
     try {
       await updateUser(userId, {
-        name: customer.name ?? auth?.user?.name,
-        defaultShipping: customer.address,
+        name: contact.name ?? auth?.user?.name,
+        // A pickup-only order has no address; the saved one stays as it was.
+        ...(address ? { defaultShipping: address } : {}),
       });
     } catch (error) {
       console.error("[account] Failed to update user profile after checkout", error);
     }
   }
 
+  const fulfillment = describePrepared(prepared, summary.lines);
+
   await sendReceiptEmail({
     orderId,
     totalCents: summary.grossCents,
-    customerName: customer.name,
+    customerName: contact.name,
     customerEmail: customerEmail,
-    shippingAddress: customer.address,
+    shippingAddress: address,
     items: orderItems,
     paymentRef: paymentIntentId ?? undefined,
+    fulfillment,
   });
   void sendPurchaseNotificationEmail({
     orderId,
     totalCents: summary.grossCents,
-    customerName: customer.name,
+    customerName: contact.name,
     customerEmail: customerEmail,
-    shippingAddress: customer.address,
+    shippingAddress: address,
     items: orderItems,
     paymentRef: paymentIntentId ?? undefined,
     orderedAt: new Date().toISOString(),
+    fulfillment,
   })
     .then((sent) => {
       if (sent) console.log(`[mailer] Purchase notification sent for ${orderId}`);
@@ -772,6 +1052,9 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       grossCents: summary.grossCents,
       items: summary.totalItems,
     },
+    fulfillment,
+    customer: { name: contact.name ?? null, email: customerEmail ?? null },
+    shippingAddress: address ?? null,
   });
 });
 

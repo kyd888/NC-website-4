@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { dbEnabled, dbQuery, logDbError } from "./db.js";
+import type { FulfillmentMethod, SaleFulfillment, ShowSnapshot } from "./types.js";
 
 export type Sale = {
   id: string;
@@ -27,6 +28,8 @@ export type Sale = {
   };
   orderId?: string;
   lineTotalCents?: number;
+  /** How this line reaches the customer. Absent on orders from before it was recorded — those shipped. */
+  fulfillment?: SaleFulfillment;
 };
 
 let sales: Sale[] = [];
@@ -55,7 +58,7 @@ function summarizeOrderItems(items: OrderLineItem[]) {
   return items
     .map((item) => {
       const title = item.productTitle?.trim() || item.productId;
-      return `${title} x${item.qty}`;
+      return `${title}${item.size ? ` (${item.size})` : ""} x${item.qty}`;
     })
     .join("; ");
 }
@@ -86,6 +89,10 @@ function writeOrdersCsv() {
       "payment_ref",
       "drop_id",
       "user_id",
+      // Appended so existing columns keep their positions.
+      "fulfillment",
+      "pickup_show",
+      "pickup_show_date",
     ];
 
     let runningRevenueCents = 0;
@@ -109,6 +116,9 @@ function writeOrdersCsv() {
         order.paymentRef ?? "",
         order.dropId ?? "",
         order.userId ?? "",
+        order.fulfillment.methods.join(" + "),
+        order.fulfillment.pickupShow?.name ?? "",
+        order.fulfillment.pickupShow?.date ?? "",
       ]
         .map(escapeCsv)
         .join(",");
@@ -131,6 +141,9 @@ function writeOrdersCsv() {
         summary.items,
         formatUsd(summary.grossCents),
         formatUsd(summary.grossCents),
+        "",
+        "",
+        "",
         "",
         "",
         "",
@@ -158,6 +171,33 @@ function sanitizeShippingAddress(input: unknown): Sale["shippingAddress"] | unde
     postalCode: typeof value.postalCode === "string" ? value.postalCode.trim() : undefined,
     country: typeof value.country === "string" ? value.country.trim().toUpperCase() : undefined,
   };
+}
+
+function sanitizeShow(input: unknown): ShowSnapshot | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (typeof value.id !== "string" || !value.id) return undefined;
+  return {
+    id: value.id,
+    name: typeof value.name === "string" ? value.name : "",
+    date: typeof value.date === "string" ? value.date : "",
+    location: typeof value.location === "string" ? value.location : "",
+    timezone: typeof value.timezone === "string" ? value.timezone : undefined,
+  };
+}
+
+function sanitizeFulfillment(input: unknown): SaleFulfillment | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const value = input as Record<string, unknown>;
+  if (value.method !== "pickup" && value.method !== "ship") return undefined;
+  const out: SaleFulfillment = { method: value.method };
+  if (value.showMerch === true) out.showMerch = true;
+  const show = sanitizeShow(value.show);
+  if (show) out.show = show;
+  if (typeof value.bonus === "string" && value.bonus) out.bonus = value.bonus;
+  if (typeof value.shipsAfter === "string" && value.shipsAfter) out.shipsAfter = value.shipsAfter;
+  if (typeof value.dispatchEstimate === "string" && value.dispatchEstimate) out.dispatchEstimate = value.dispatchEstimate;
+  return out;
 }
 
 function sanitizeSale(input: unknown): Sale | null {
@@ -188,6 +228,10 @@ function sanitizeSale(input: unknown): Sale | null {
     shippingAddress: sanitizeShippingAddress(value.shippingAddress),
     orderId: typeof value.orderId === "string" ? value.orderId : undefined,
     lineTotalCents,
+    // Size used to be dropped here, so every order lost its sizes on the next
+    // restart. Pickup lists and packing depend on them.
+    size: typeof value.size === "string" && value.size ? value.size : undefined,
+    fulfillment: sanitizeFulfillment(value.fulfillment),
   };
 }
 
@@ -243,6 +287,7 @@ function rowToSale(value: any): Sale | null {
     orderId: value.order_id ?? value.orderId,
     lineTotalCents: value.line_total_cents ?? value.lineTotalCents,
     size: value.size ?? undefined,
+    fulfillment: value.fulfillment ?? undefined,
   });
 }
 
@@ -256,7 +301,7 @@ export async function loadSalesFromDb() {
     const result = await dbQuery(
       `SELECT id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
         customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents,
-        size
+        size, fulfillment
        FROM sales
        ORDER BY ts ASC
        LIMIT $1`,
@@ -275,9 +320,9 @@ export async function upsertSaleToDb(sale: Sale) {
     `INSERT INTO sales (
       id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
       customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents,
-      size
+      size, fulfillment
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17::jsonb)
     ON CONFLICT (id) DO UPDATE SET
       ts = EXCLUDED.ts,
       product_id = EXCLUDED.product_id,
@@ -293,7 +338,8 @@ export async function upsertSaleToDb(sale: Sale) {
       shipping_address = EXCLUDED.shipping_address,
       order_id = EXCLUDED.order_id,
       line_total_cents = EXCLUDED.line_total_cents,
-      size = EXCLUDED.size`,
+      size = EXCLUDED.size,
+      fulfillment = EXCLUDED.fulfillment`,
     [
       sale.id,
       sale.ts,
@@ -311,6 +357,7 @@ export async function upsertSaleToDb(sale: Sale) {
       sale.orderId ?? null,
       sale.lineTotalCents ?? sale.qty * sale.priceCents,
       sale.size ?? null,
+      jsonParam(sale.fulfillment ?? null),
     ],
   );
 }
@@ -342,6 +389,7 @@ export async function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: 
     lineTotalCents: s.lineTotalCents ?? s.priceCents * s.qty,
     dropId: s.dropId,
     size: s.size,
+    fulfillment: s.fulfillment,
   };
   sales.push(row);
   if (sales.length > MAX_SALES) sales = sales.slice(-MAX_SALES);
@@ -364,6 +412,15 @@ export type OrderLineItem = {
   qty: number;
   priceCents: number;
   lineTotalCents: number;
+  size?: string;
+  /** Lines recorded before fulfillment existed read as shipped. */
+  fulfillment: SaleFulfillment;
+};
+
+export type OrderFulfillmentSummary = {
+  /** Every method in the order — a mixed cart can have both. */
+  methods: FulfillmentMethod[];
+  pickupShow?: ShowSnapshot;
 };
 
 export type OrderSummary = {
@@ -378,7 +435,10 @@ export type OrderSummary = {
   totalCents: number;
   totalItems: number;
   items: OrderLineItem[];
+  fulfillment: OrderFulfillmentSummary;
 };
+
+const LEGACY_FULFILLMENT: SaleFulfillment = { method: "ship" };
 
 export function groupSalesByOrder(rows: Sale[]): OrderSummary[] {
   const orders: OrderSummary[] = [];
@@ -401,6 +461,7 @@ export function groupSalesByOrder(rows: Sale[]): OrderSummary[] {
         totalCents: 0,
         totalItems: 0,
         items: [],
+        fulfillment: { methods: [] },
       };
       orders.push(order);
       index.set(key, orders.length - 1);
@@ -415,6 +476,7 @@ export function groupSalesByOrder(rows: Sale[]): OrderSummary[] {
     }
 
     const lineTotal = sale.lineTotalCents ?? sale.priceCents * sale.qty;
+    const fulfillment = sale.fulfillment ?? LEGACY_FULFILLMENT;
     order.totalCents += lineTotal;
     order.totalItems += sale.qty;
     order.items.push({
@@ -423,7 +485,13 @@ export function groupSalesByOrder(rows: Sale[]): OrderSummary[] {
       qty: sale.qty,
       priceCents: sale.priceCents,
       lineTotalCents: lineTotal,
+      size: sale.size,
+      fulfillment,
     });
+    if (!order.fulfillment.methods.includes(fulfillment.method)) order.fulfillment.methods.push(fulfillment.method);
+    if (fulfillment.method === "pickup" && fulfillment.show && !order.fulfillment.pickupShow) {
+      order.fulfillment.pickupShow = fulfillment.show;
+    }
   }
 
   return orders;

@@ -83,14 +83,24 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 });
 
-import { getSalesCsvPath, groupSalesByOrder, listSales, summarizeSales } from "../lib/sales.js";
+import { getSalesCsvPath, groupSalesByOrder, listSales, summarizeSales, type OrderSummary } from "../lib/sales.js";
 import {
   cartNotificationRecipient,
+  condenseOrderId,
   orderNotificationRecipient,
   sendCartActivityEmail,
   sendPurchaseNotificationEmail,
   sendVaultReleaseEmail,
 } from "../lib/mailer.js";
+import {
+  dateLabel,
+  getShowMerchSettings,
+  pickupAvailability,
+  publicShowMerch,
+  saveShowMerchSettings,
+  showMerchReadiness,
+} from "../lib/showMerch.js";
+import { getOrderFulfillment, updateOrderFulfillment } from "../lib/orderFulfillment.js";
 
 export const adminRouter = Router();
 
@@ -456,6 +466,196 @@ adminRouter.get("/sales/export.csv", requireKey, (_req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.sendFile(csvPath);
+});
+
+/** ========= Show merch ========= **/
+function showMerchAdminPayload() {
+  const products = listCatalog();
+  const now = new Date();
+  return {
+    ok: true,
+    settings: getShowMerchSettings(),
+    products: products.map((p) => ({ id: p.id, title: p.title, priceCents: p.priceCents, enabled: p.enabled !== false })),
+    readiness: showMerchReadiness(new Map(products.map((p) => [p.id, p.title])), now),
+    // Every show with the reason it is or isn't open for pickup.
+    shows: pickupAvailability(now).checks,
+    // Exactly what the shop shows customers right now.
+    customerView: publicShowMerch(now),
+  };
+}
+
+adminRouter.get("/show-merch", requireKey, (_req, res) => {
+  res.json(showMerchAdminPayload());
+});
+
+adminRouter.put("/show-merch", requireKey, async (req, res) => {
+  try {
+    await saveShowMerchSettings(req.body ?? {});
+    res.json(showMerchAdminPayload());
+  } catch (error) {
+    console.error("[admin] failed to save show merch settings", error);
+    res.status(500).json({ error: "Unable to save show merch settings" });
+  }
+});
+
+/** ========= Orders by fulfillment ========= **/
+type Queue = "all" | "pickup" | "ship";
+
+function parseQueue(value: unknown): Queue {
+  return value === "pickup" || value === "ship" ? value : "all";
+}
+
+function lineInQueue(line: OrderSummary["items"][number], queue: Queue, showId: string) {
+  if (queue === "all") return true;
+  if (line.fulfillment.method !== queue) return false;
+  return queue !== "pickup" || !showId || line.fulfillment.show?.id === showId;
+}
+
+function ordersForQueue(queue: Queue, showId: string, lineLimit: number) {
+  return groupSalesByOrder(listSales(lineLimit))
+    .filter((order) => order.items.some((line) => lineInQueue(line, queue, showId)))
+    .map((order) => ({ ...order, status: getOrderFulfillment(order.orderId) }));
+}
+
+adminRouter.get("/orders", requireKey, (req, res) => {
+  const queue = parseQueue(req.query.fulfillment);
+  const showId = typeof req.query.showId === "string" ? req.query.showId : "";
+  const all = groupSalesByOrder(listSales(1000));
+  const orders = ordersForQueue(queue, showId, 1000);
+
+  // The shows that pickup orders were placed for, for the admin's filter.
+  const pickupShows = new Map<string, { id: string; name: string; date: string; location: string }>();
+  for (const order of all) {
+    for (const line of order.items) {
+      const show = line.fulfillment.method === "pickup" ? line.fulfillment.show : undefined;
+      if (show && !pickupShows.has(show.id)) pickupShows.set(show.id, { id: show.id, name: show.name, date: show.date, location: show.location });
+    }
+  }
+
+  res.json({
+    ok: true,
+    queue,
+    showId,
+    orders,
+    counts: {
+      all: all.length,
+      pickup: all.filter((o) => o.fulfillment.methods.includes("pickup")).length,
+      ship: all.filter((o) => o.fulfillment.methods.includes("ship")).length,
+    },
+    pickupShows: [...pickupShows.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    totals: summarizeSales(listSales(1000)),
+  });
+});
+
+// Pickup progress, shipping progress and tracking. Only touches the status
+// record; what the customer bought and chose stays exactly as it was paid.
+adminRouter.patch("/orders/:orderId/fulfillment", requireKey, async (req, res) => {
+  const orderId = req.params.orderId;
+  const exists = listSales(5000).some((sale) => (sale.orderId ?? sale.id) === orderId);
+  if (!exists) return res.status(404).json({ error: "Order not found" });
+  try {
+    const result = await updateOrderFulfillment(orderId, req.body ?? {});
+    if ("error" in result) return res.status(400).json({ error: result.error });
+    res.json({ ok: true, status: result });
+  } catch (error) {
+    console.error("[admin] failed to update order fulfillment", error);
+    res.status(500).json({ error: "Unable to update order" });
+  }
+});
+
+function csvCell(value: unknown) {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvRows(header: string[], rows: unknown[][]) {
+  return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+const PICKUP_STATUS_LABEL: Record<string, string> = { awaiting: "Awaiting pickup", picked_up: "Picked up", missed: "Missed" };
+const SHIPPING_STATUS_LABEL: Record<string, string> = { awaiting: "Awaiting shipment", shipped: "Shipped" };
+
+// One row per item and size, so the list works at the merch table or the packing bench.
+adminRouter.get("/orders/export.csv", requireKey, (req, res) => {
+  const queue = parseQueue(req.query.fulfillment);
+  const showId = typeof req.query.showId === "string" ? req.query.showId : "";
+  const orders = ordersForQueue(queue === "all" ? "pickup" : queue, showId, 5000);
+  const stamp = new Date().toISOString().slice(0, 10);
+  let csv: string;
+  let name: string;
+
+  if (queue === "ship") {
+    name = `shipping-queue-${stamp}.csv`;
+    const rows = orders
+      .sort((a, b) => a.ts.localeCompare(b.ts))
+      .flatMap((order) =>
+        order.items
+          .filter((line) => lineInQueue(line, "ship", ""))
+          .map((line) => [
+            order.orderId,
+            condenseOrderId(order.orderId),
+            order.ts,
+            order.customerName ?? "",
+            order.customerEmail ?? "",
+            order.shippingAddress?.line1 ?? "",
+            order.shippingAddress?.line2 ?? "",
+            order.shippingAddress?.city ?? "",
+            order.shippingAddress?.state ?? "",
+            order.shippingAddress?.postalCode ?? "",
+            order.shippingAddress?.country ?? "",
+            line.productTitle ?? line.productId,
+            line.size ?? "",
+            line.qty,
+            line.fulfillment.showMerch ? "yes" : "",
+            line.fulfillment.shipsAfter ? dateLabel(line.fulfillment.shipsAfter) : "",
+            SHIPPING_STATUS_LABEL[order.status.shippingStatus] ?? order.status.shippingStatus,
+            order.status.carrier ?? "",
+            order.status.trackingNumber ?? "",
+          ]),
+      );
+    csv = csvRows(
+      [
+        "order_number", "order_label", "ordered_at", "customer_name", "customer_email",
+        "ship_line_1", "ship_line_2", "ship_city", "ship_state", "ship_postal_code", "ship_country",
+        "item", "size", "quantity", "show_merch", "ships_after", "shipping_status", "carrier", "tracking_number",
+      ],
+      rows,
+    );
+  } else {
+    name = `pickup-list-${showId || "all-shows"}-${stamp}.csv`;
+    const rows = orders
+      .sort((a, b) => (a.customerName ?? "").localeCompare(b.customerName ?? "", "en", { sensitivity: "base" }))
+      .flatMap((order) =>
+        order.items
+          .filter((line) => lineInQueue(line, "pickup", showId))
+          .map((line) => [
+            order.orderId,
+            condenseOrderId(order.orderId),
+            order.customerName ?? "",
+            order.customerEmail ?? "",
+            line.fulfillment.show?.name ?? "",
+            line.fulfillment.show?.date ?? "",
+            line.fulfillment.show?.location ?? "",
+            line.productTitle ?? line.productId,
+            line.size ?? "",
+            line.qty,
+            line.fulfillment.bonus ?? "",
+            PICKUP_STATUS_LABEL[order.status.pickupStatus] ?? order.status.pickupStatus,
+            order.ts,
+          ]),
+      );
+    csv = csvRows(
+      [
+        "order_number", "order_label", "customer_name", "customer_email", "show", "show_date", "show_location",
+        "item", "size", "quantity", "pickup_bonus", "pickup_status", "ordered_at",
+      ],
+      rows,
+    );
+  }
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${name.replace(/[^\w.-]/g, "-")}"`);
+  res.send(csv);
 });
 
 /** ========= Predictions (same JSON shape as /api/predict) ========= **/
