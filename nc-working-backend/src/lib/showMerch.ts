@@ -203,6 +203,11 @@ export function sanitizeSetup(input: unknown, existing?: ShowMerchSetup): ShowMe
 
 function sanitizeStore(input: unknown): ShowMerchSetup[] {
   const r = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  // The first release stored one flat settings object. Keep what was entered as
+  // an unpublished draft instead of dropping it; it sells nothing until reviewed.
+  if (!Array.isArray(r.setups) && ["productIds", "shippingCountries", "shipsAfterDate", "dispatchEstimate", "missedPickupPolicy"].some((key) => key in r)) {
+    return [sanitizeSetup({ ...r, id: "setup-imported", name: "Imported from the first show merch settings", pickupBonus: DEFAULT_PICKUP_BONUS, published: false })];
+  }
   const raw = Array.isArray(r.setups) ? r.setups : [];
   const out: ShowMerchSetup[] = [];
   for (const entry of raw) {
