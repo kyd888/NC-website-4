@@ -13,6 +13,7 @@ import KydProject from "./pages/kyd/KydProject";
 import KydLive from "./pages/kyd/KydLive";
 import KydVisuals from "./pages/kyd/KydVisuals";
 import KydInfo from "./pages/kyd/KydInfo";
+import Privacy from "./pages/Privacy";
 
 /**
  * Safety net for /p/:id. Netlify proxies that path to the backend, which serves
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
   { path: "/kyd/visuals", element: <KydVisuals /> },
   { path: "/kyd/info", element: <KydInfo /> },
   { path: "/kyd/:slug", element: <KydProject /> },
+  { path: "/privacy", element: <Privacy /> },
   { path: "/admin", element: <AdminApp /> },
   { path: "*", element: <Navigate to="/" replace /> },
 ]);

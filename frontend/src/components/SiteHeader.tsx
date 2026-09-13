@@ -190,6 +190,8 @@ const SiteHeader = forwardRef<HTMLElement, Props>(function SiteHeader(
 
             <div className="nav-menu__foot">
               {accountControl ?? <span />}
+              {/* The menu is the one thing every page has, the shop included. */}
+              <Link to="/privacy">Privacy</Link>
               {cartControl("", () => setOpen(false))}
             </div>
           </div>,

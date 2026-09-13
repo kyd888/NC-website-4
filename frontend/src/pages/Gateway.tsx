@@ -11,7 +11,7 @@ const DOORS: Record<Door, { to: string; title: string; sub: string }> = {
 /**
  * Opening screen. Two doors, nothing else.
  * Each door is one big tappable panel; the door you touch stays solid while
- * the other recedes. Events / Booking sit quietly at the bottom.
+ * the other recedes. Events / Booking / Privacy sit quietly at the bottom.
  */
 export default function Gateway() {
   const door = (key: Door) => {
@@ -38,6 +38,7 @@ export default function Gateway() {
       <nav className="gateway__bottom" aria-label="Utility">
         <Link to="/events">Events</Link>
         <Link to="/kyd/info">Booking</Link>
+        <Link to="/privacy">Privacy</Link>
       </nav>
     </div>
   );

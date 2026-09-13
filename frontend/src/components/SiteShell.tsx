@@ -33,6 +33,7 @@ export default function SiteShell({ section, crumb, children }: Props) {
           <Link to="/events">Events</Link>
           <Link to="/kyd">KYD</Link>
           <Link to="/kyd/info">Booking</Link>
+          <Link to="/privacy">Privacy</Link>
         </nav>
         <span>{new Date().getFullYear()}</span>
       </footer>
