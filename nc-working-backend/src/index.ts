@@ -11,6 +11,7 @@ import { accountRouter } from "./routes/account.js";
 import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
 import { shareRouter } from "./routes/share.js";
+import { feedsRouter } from "./routes/feeds.js";
 import {
   seedInventory,
   registerVaultSavesGetter,
@@ -140,6 +141,8 @@ app.use("/admin", adminUiRouter);
 // Shareable per-product pages. Server-rendered so crawlers get real OG tags —
 // the SPA fallback on Netlify can only ever serve one generic card.
 app.use("/p", shareRouter);
+// Product catalog feeds that other platforms pull on a schedule (Meta Commerce).
+app.use("/feeds", feedsRouter);
 
 // Render's own deploy check. It must answer 200 whenever the process is
 // alive — a stricter test here would fail deploys — so it says nothing about

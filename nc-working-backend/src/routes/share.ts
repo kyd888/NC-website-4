@@ -1,26 +1,14 @@
 import { Router, type Request } from "express";
+import { getProduct, listCatalog } from "../lib/inventory.js";
 import {
-  getProduct,
-  listCatalog,
-  getCurrentDrop,
-  getAllRemaining,
-  getDisplayedRemaining,
-  getRecentlyLiveProductIds,
-  getVaultSaveWindowMs,
-} from "../lib/inventory.js";
+  absoluteUrl,
+  availabilityOf,
+  frontendOrigin,
+  trimSlash,
+  type Availability,
+} from "../lib/storefront.js";
 
 export const shareRouter = Router();
-
-/** Below this, the page names the number instead of just saying "in stock". */
-const LOW_STOCK_AT = 5;
-
-type Availability =
-  | { state: "available"; qty: number }
-  | { state: "low"; qty: number }
-  | { state: "soldout" }
-  /** In a drop that hasn't opened yet — the link works, the buying doesn't. */
-  | { state: "scheduled"; startsAt: string }
-  | { state: "upcoming"; startsAt: string | null };
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) =>
@@ -28,45 +16,19 @@ function escapeHtml(value: string): string {
   );
 }
 
-function trimSlash(value: string | undefined | null): string {
-  return (value ?? "").trim().replace(/\/+$/, "");
-}
-
-/** Where the shop lives, so "Shop this" leaves the API host. */
-function frontendOrigin(): string {
-  return trimSlash(process.env.FRONTEND_ORIGIN) || trimSlash(process.env.FRONTEND_ORIGIN_2) || "";
-}
-
-/** Crawlers need an absolute og:image; uploads are stored as site-relative paths. */
-function absoluteUrl(req: Request, url: string | undefined): string {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return url;
-  const base =
-    trimSlash(process.env.BACKEND_ORIGIN) ||
-    `${req.protocol}://${req.get("host") ?? ""}`;
-  return `${base}${url.startsWith("/") ? "" : "/"}${url}`;
-}
-
-function availabilityOf(productId: string): Availability {
-  const drop = getCurrentDrop();
-  // Same source the shop reads, so the two never contradict each other.
-  const qty = getDisplayedRemaining()[productId] ?? 0;
-
-  if (drop?.status === "live") {
-    if (qty <= 0) return { state: "soldout" };
-    return qty <= LOW_STOCK_AT ? { state: "low", qty } : { state: "available", qty };
+/**
+ * Tracking params to carry from this page into the shop: Meta's ad click id
+ * and utm_* tags. Catalog ads and shop taps land here, but the Meta Pixel only
+ * runs in the shop — without this the fbclid is gone one tap later and the
+ * purchase can't be tied back to the ad that sold it.
+ */
+function carriedParams(req: Request): string {
+  const out = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query)) {
+    if (typeof value === "string" && /^(fbclid|utm_[a-z]+)$/i.test(key)) out.set(key, value);
   }
-
-  // Scheduled drop this product is part of: say when, so the link is worth
-  // sharing before the drop opens.
-  if (drop?.status === "scheduled" && drop.startsAt && productId in getAllRemaining()) {
-    return { state: "scheduled", startsAt: drop.startsAt };
-  }
-
-  // Between drops: an item that was just live is sold out rather than unreleased.
-  const recent = new Set(getRecentlyLiveProductIds(getVaultSaveWindowMs()));
-  if (recent.has(productId)) return { state: "soldout" };
-  return { state: "upcoming", startsAt: drop?.startsAt ?? null };
+  const query = out.toString();
+  return query ? `&${query}` : "";
 }
 
 function statusLabel(a: Availability): string {
@@ -285,7 +247,7 @@ shareRouter.get("/:id", (req, res) => {
 
       <div class="actions">
         ${canShop && shop
-          ? `<a class="btn btn--solid" href="${escapeHtml(shop)}/shop?p=${encodeURIComponent(product.id)}">Shop this</a>`
+          ? `<a class="btn btn--solid" href="${escapeHtml(`${shop}/shop?p=${encodeURIComponent(product.id)}${carriedParams(req)}`)}">Shop this</a>`
           : ""}
         <button class="btn" type="button" id="share">Share</button>
       </div>

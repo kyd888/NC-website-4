@@ -35,6 +35,15 @@
   status = 200
   force = true
 
+# Product catalog feed that Meta Commerce Manager re-fetches on a schedule. The
+# backend builds it from the live catalog and stock; proxied so the feed URL
+# stays on the site's own domain. Also above the /* catch-all.
+[[redirects]]
+  from = "/feeds/*"
+  to = "https://nc-website-4.onrender.com/feeds/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
