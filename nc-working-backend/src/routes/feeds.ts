@@ -40,13 +40,21 @@ function escapeXml(value: string): string {
 }
 
 /**
- * Meta reliably takes JPEG and PNG. Cloudinary re-encodes on delivery when the
- * URL's extension changes, so a HEIC or WebP upload reaches Meta as a JPEG.
+ * How catalog photos are delivered: flattened onto white, padded to a square.
+ * Product shots are transparent PNG cutouts, which Meta can render on black (a
+ * black tee on black), and it crops tall shots to fill square placements.
+ * Commas are percent-encoded because Meta may split image links on commas;
+ * Cloudinary serves the encoded form byte-for-byte the same.
+ */
+const META_IMAGE_TRANSFORM = "b_white%2Cc_pad%2Car_1:1";
+
+/**
+ * Cloudinary renders the transform from the URL alone, and the .jpg extension
+ * makes any upload (PNG, HEIC, WebP) arrive as a JPEG, which Meta always takes.
  */
 function metaImageUrl(url: string): string {
-  const match = /^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/[^?#]+)\.([a-z0-9]+)$/i.exec(url);
-  if (!match || /^(jpe?g|png)$/i.test(match[2])) return url;
-  return `${match[1]}.jpg`;
+  const match = /^(https:\/\/res\.cloudinary\.com\/[^/]+\/image\/upload\/)([^?#]+)\.[a-z0-9]+$/i.exec(url);
+  return match ? `${match[1]}${META_IMAGE_TRANSFORM}/${match[2]}.jpg` : url;
 }
 
 feedsRouter.get("/meta-catalog.xml", (req, res) => {
