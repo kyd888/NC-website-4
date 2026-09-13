@@ -1,7 +1,17 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { loadStripe } from "@stripe/stripe-js";
 import SiteHeader from "./components/SiteHeader";
+import FulfillmentPicker from "./components/FulfillmentPicker";
+import {
+  addressInShippingRegion,
+  choiceProblem,
+  chosenShow,
+  fetchShowMerch,
+  type ConfirmedFulfillment,
+  type FulfillmentChoice,
+  type ShowMerchOffer,
+} from "./lib/showMerch";
 import { Elements, useStripe, useElements, CardElement, PaymentRequestButtonElement } from "@stripe/react-stripe-js";
 import { useDrop } from "./hooks/useDrop";
 import {
@@ -77,7 +87,18 @@ type OrderConfirmation = {
   totalItems: number;
   customer: CheckoutCustomer;
   paymentRef?: string;
+  /** Show merch pickup or shipping, as recorded on the paid order. */
+  fulfillment?: ConfirmedFulfillment;
 };
+
+/** The server's answer when it re-checks checkout right before payment. */
+type PrepareResult = { ok: boolean; error?: string; code?: string };
+
+// Server codes that mean the pickup/shipping choice needs the customer's attention.
+const FULFILLMENT_CODES = new Set(["FULFILLMENT_REQUIRED", "PICKUP_UNAVAILABLE", "SHOW_REQUIRED", "SHIPPING_UNAVAILABLE"]);
+
+// Wallet sheets need a shipping option; the price already covers it, so it costs nothing.
+const SHIPPING_INCLUDED = { id: "included", label: "Standard shipping", detail: "Included in the price", amount: 0 };
 
 type SaveSheetState = {
   productId: string;
@@ -246,6 +267,11 @@ function App() {
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [orderConfirmation, setOrderConfirmation] = useState<OrderConfirmation | null>(null);
+  // Show merch: the current offer, the customer's own choice, and anything the
+  // server said about that choice (e.g. pickup closed while they were checking out).
+  const [showMerch, setShowMerch] = useState<ShowMerchOffer | null>(null);
+  const [fulfillment, setFulfillment] = useState<FulfillmentChoice>({ method: null, showId: null });
+  const [fulfillmentNotice, setFulfillmentNotice] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState(Date.now());
 
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
@@ -674,6 +700,61 @@ function App() {
   const itemsTotal = cartDetails.reduce((acc, item) => acc + item.qty, 0);
   const priceTotalCents = cartDetails.reduce((acc, item) => acc + item.lineTotal, 0);
 
+  // ---- Show merch: pickup at a show, or ship after it ----
+  // Refreshed whenever the bag or checkout opens, so a cutoff that passed while
+  // someone was browsing is already reflected there.
+  const refreshShowMerch = useCallback(async () => {
+    const offer = await fetchShowMerch(BACKEND_URL);
+    if (offer) setShowMerch(offer);
+    return offer;
+  }, []);
+  useEffect(() => {
+    void refreshShowMerch();
+  }, [refreshShowMerch]);
+  useEffect(() => {
+    if (cartOpen || paymentModalOpen) void refreshShowMerch();
+  }, [cartOpen, paymentModalOpen, refreshShowMerch]);
+
+  // Only show merch lines get the choice; anything else in the bag ships as it always has.
+  const showMerchIds = showMerch?.productIds ?? [];
+  const showMerchLines = cartDetails.filter((item) => showMerchIds.includes(item.id));
+  const hasShowMerch = showMerchLines.length > 0;
+  const hasOtherItems = cartDetails.some((item) => !showMerchIds.includes(item.id));
+  const fulfillmentProblem = hasShowMerch ? choiceProblem(showMerch, fulfillment) : null;
+  // An address is needed unless every item is picked up at a show.
+  const needsAddress = !hasShowMerch || fulfillment.method !== "pickup" || hasOtherItems;
+  const pickedShow = chosenShow(showMerch, fulfillment);
+  const showMerchPrices = Array.from(new Set(showMerchLines.map((item) => item.priceCents)));
+  const showMerchPriceLabel =
+    showMerchPrices.length === 1
+      ? formatCurrency(showMerchPrices[0])
+      : formatCurrency(showMerchLines.reduce((acc, item) => acc + item.lineTotal, 0));
+  const showMerchLineLabel = !hasShowMerch
+    ? null
+    : fulfillment.method === "pickup"
+    ? pickedShow
+      ? `Pickup · ${pickedShow.name}`
+      : "Pickup at a show"
+    : fulfillment.method === "ship"
+    ? showMerch?.shipping.shipsAfterLabel
+      ? `Ships after ${showMerch.shipping.shipsAfterLabel}`
+      : "Ships after the show"
+    : "Choose pickup or shipping below";
+
+  // Sent with create-intent and prepare. Read through a ref inside async payment callbacks.
+  const fulfillmentPayload = hasShowMerch
+    ? { method: fulfillment.method, showId: fulfillment.method === "pickup" ? pickedShow?.id ?? fulfillment.showId : null }
+    : undefined;
+  const fulfillmentPayloadRef = useRef(fulfillmentPayload);
+  useEffect(() => {
+    fulfillmentPayloadRef.current = fulfillmentPayload;
+  });
+
+  const changeFulfillment = (next: FulfillmentChoice) => {
+    setFulfillment(next);
+    setFulfillmentNotice(null);
+  };
+
   // Meta Commerce: the cart as Pixel lines. Read BEFORE the cart is cleared on
   // a confirmed order, or Purchase would go out with no products. It runs inside
   // checkout's own try blocks, so it must never throw — a tracking hiccup there
@@ -862,15 +943,25 @@ function App() {
       showToast("Checkout unavailable", 2000);
       return;
     }
+    if (fulfillmentProblem) {
+      showToast(fulfillmentProblem, 2600);
+      return;
+    }
     setCheckoutLoading(true);
     setPaymentError(null);
     try {
       const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fulfillment: fulfillmentPayloadRef.current }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.clientSecret) {
-        showToast(json.error ?? "Unable to start checkout", 2000);
+        if (FULFILLMENT_CODES.has(json.code)) {
+          setFulfillmentNotice(json.error);
+          void refreshShowMerch();
+        }
+        showToast(json.error ?? "Unable to start checkout", 2600);
         return;
       }
       setPaymentIntentState({
@@ -885,6 +976,35 @@ function App() {
       showToast("Checkout error", 2000);
     } finally {
       setCheckoutLoading(false);
+    }
+  }
+
+  // Right before the card is charged, the server re-checks the pickup/shipping
+  // choice, pickup eligibility, contact details, address and sizes. Nothing is
+  // charged unless it agrees. If pickup closed meanwhile, the customer is told
+  // and chooses shipping themselves.
+  async function prepareCheckout(paymentIntentId: string, customer: CheckoutCustomer): Promise<PrepareResult> {
+    try {
+      const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/prepare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentIntentId,
+          fulfillment: fulfillmentPayloadRef.current,
+          customer,
+          sizes: sizesPayloadRef.current,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) return { ok: true };
+      const error = json.error ?? "Unable to prepare payment. Nothing was charged.";
+      if (FULFILLMENT_CODES.has(json.code)) {
+        setFulfillmentNotice(error);
+        void refreshShowMerch();
+      }
+      return { ok: false, error, code: json.code };
+    } catch {
+      return { ok: false, error: "Network error. Nothing was charged; try again." };
     }
   }
 
@@ -908,9 +1028,13 @@ function App() {
         orderId: String(json.orderId ?? paymentIntentId ?? ""),
         totalCents: Number(json?.totals?.grossCents ?? paymentIntentState?.amount ?? 0),
         totalItems: Number(json?.totals?.items ?? itemsTotal ?? 0),
-        customer,
+        // The address the order was recorded with; none for a pickup-only order.
+        customer: { ...customer, address: json.shippingAddress ?? undefined },
         paymentRef: paymentIntentId ?? undefined,
+        fulfillment: json.fulfillment ?? undefined,
       };
+      setFulfillment({ method: null, showId: null });
+      setFulfillmentNotice(null);
       setOrderConfirmation(confirmed);
       trackPurchase(confirmed.orderId, purchasedLines, confirmed.totalCents);
       showToast("Order confirmed", 2000);
@@ -1317,7 +1441,7 @@ function App() {
             />
             <motion.div
               key="cart-sheet"
-              className="cart-sheet"
+              className={`cart-sheet${hasShowMerch ? " cart-sheet--tall" : ""}`}
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -1341,6 +1465,11 @@ function App() {
                       <div className="cart-line__meta">
                         {item.qty} {MULTIPLY} {formatCurrency(item.priceCents)}
                       </div>
+                      {showMerchIds.includes(item.id) && showMerchLineLabel ? (
+                        <div className={`cart-line__fulfill${fulfillment.method ? "" : " is-pending"}`}>{showMerchLineLabel}</div>
+                      ) : hasShowMerch ? (
+                        <div className="cart-line__fulfill">Ships to your address</div>
+                      ) : null}
                       {item.holdSecondsRemaining != null && item.holdSecondsRemaining > 0 && (
                         <div className="cart-line__hold">
                           Hold {formatHoldCountdown(item.holdSecondsRemaining)}
@@ -1400,36 +1529,61 @@ function App() {
                     <div className="cart-line__total">{formatCurrency(item.lineTotal)}</div>
                   </div>
                 ))}
+                {hasShowMerch && showMerch ? (
+                  <FulfillmentPicker
+                    offer={showMerch}
+                    choice={fulfillment}
+                    onChange={changeFulfillment}
+                    priceLabel={showMerchPriceLabel}
+                    hasOtherItems={hasOtherItems}
+                    notice={fulfillmentNotice}
+                    idPrefix="bag"
+                  />
+                ) : null}
               </div>
               <div className="cart-sheet__footer">
                 <div className="cart-sheet__summary">
                   <span>Total</span>
                   <strong>{formatCurrency(priceTotalCents)}</strong>
                 </div>
-                <CartPaymentRequestButton
-                  amountCents={priceTotalCents}
-                  sizes={sizesPayload}
-                  onCheckoutStart={() => trackInitiateCheckout(pixelLines(), priceTotalCents)}
-                  onOrderComplete={(confirmation) => {
-                    const purchasedLines = pixelLines();
-                    setCart([]);
-                    setCartOpen(false);
-                    setOrderConfirmation(confirmation);
-                    trackPurchase(confirmation.orderId, purchasedLines, confirmation.totalCents);
-                    showToast("Order confirmed", 2000);
-                  }}
-                  onError={(msg) => showToast(msg, 3000)}
-                />
+                {/* The wallet sheet charges straight from the bag, so it waits
+                    for sizes and the pickup/shipping choice like Checkout does. */}
+                {!missingSizeFor && !fulfillmentProblem ? (
+                  <CartPaymentRequestButton
+                    amountCents={priceTotalCents}
+                    sizes={sizesPayload}
+                    needsAddress={needsAddress}
+                    showMerch={showMerch}
+                    showMerchShips={hasShowMerch && fulfillment.method === "ship"}
+                    getFulfillment={() => fulfillmentPayloadRef.current}
+                    onPrepare={prepareCheckout}
+                    onCheckoutStart={() => trackInitiateCheckout(pixelLines(), priceTotalCents)}
+                    onOrderComplete={(confirmation) => {
+                      const purchasedLines = pixelLines();
+                      setCart([]);
+                      setCartOpen(false);
+                      setFulfillment({ method: null, showId: null });
+                      setFulfillmentNotice(null);
+                      setOrderConfirmation(confirmation);
+                      trackPurchase(confirmation.orderId, purchasedLines, confirmation.totalCents);
+                      showToast("Order confirmed", 2000);
+                    }}
+                    onError={(msg) => showToast(msg, 3000)}
+                  />
+                ) : null}
                 {missingSizeFor && (
                   <div className="cart-sheet__note">
                     Choose a size for {missingSizeFor.title} to check out.
                   </div>
                 )}
+                {!missingSizeFor && fulfillmentProblem && !fulfillmentNotice ? (
+                  <div className="cart-sheet__note">{fulfillmentProblem}</div>
+                ) : null}
                 <button
                   type="button"
                   className="cart-sheet__checkout"
                   onClick={beginCheckout}
-                  disabled={checkoutLoading || Boolean(missingSizeFor)}
+                  disabled={checkoutLoading || Boolean(missingSizeFor) || Boolean(fulfillmentProblem)}
                 >
                   {checkoutLoading ? "Preparing..." : "Checkout"}
                 </button>
@@ -1449,6 +1603,17 @@ function App() {
         processing={paymentProcessing}
         error={paymentError}
         accountUser={account.user}
+        checkout={{
+          showMerch: hasShowMerch ? showMerch : null,
+          fulfillment,
+          onFulfillmentChange: changeFulfillment,
+          notice: fulfillmentNotice,
+          problem: fulfillmentProblem,
+          needsAddress,
+          hasOtherItems,
+          priceLabel: showMerchPriceLabel,
+          onPrepare: prepareCheckout,
+        }}
       />
       <OrderConfirmationSheet
         open={!!orderConfirmation}
@@ -1562,6 +1727,72 @@ type OrderConfirmationProps = {
   onRequestClose: () => void;
 };
 
+/** Pickup or shipping details for a paid order, straight from what the server recorded. */
+function ConfirmationFulfillment({ confirmation }: { confirmation: OrderConfirmation }) {
+  const f = confirmation.fulfillment;
+  const address = confirmation.customer.address;
+  const row = (label: string, value: React.ReactNode, key?: string) => (
+    <div className="order-confirm-row" key={key ?? label}>
+      <span className="order-confirm-label">{label}</span>
+      <span className="order-confirm-value">{value}</span>
+    </div>
+  );
+  const addressRow = (label: string) => (
+    <div className="order-confirm-row">
+      <span className="order-confirm-label">{label}</span>
+      <span className="order-confirm-value" dangerouslySetInnerHTML={{ __html: formatAddress(address) }} />
+    </div>
+  );
+
+  if (f?.method === "pickup") {
+    return (
+      <>
+        {row(
+          "Pick up at",
+          f.show ? (
+            <>
+              {f.show.name}
+              <br />
+              {f.show.dateLabel}
+              <br />
+              {f.show.location}
+            </>
+          ) : (
+            "The show"
+          ),
+        )}
+        {row("Bring", "This order confirmation: show this screen or your receipt email.")}
+        {f.bonus ? row("Pickup bonus", f.bonus) : null}
+        {f.pickupInstructions ? row("Instructions", f.pickupInstructions) : null}
+        {f.missedPickupPolicy ? row("Can’t make it?", f.missedPickupPolicy) : null}
+        {f.otherItemsShip && address ? addressRow("Other items ship to") : null}
+      </>
+    );
+  }
+
+  if (f?.method === "ship") {
+    return (
+      <>
+        {row(
+          "Ships",
+          <>
+            {f.shipsAfterLabel ? `After ${f.shipsAfterLabel}` : "After the show"}
+            {f.dispatchEstimate ? (
+              <>
+                <br />
+                {f.dispatchEstimate}
+              </>
+            ) : null}
+          </>,
+        )}
+        {addressRow("Ship to")}
+      </>
+    );
+  }
+
+  return addressRow("Ship to");
+}
+
 function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderConfirmationProps) {
   return (
     <AnimatePresence>
@@ -1611,13 +1842,7 @@ function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderCon
                 <span className="order-confirm-label">Items</span>
                 <span className="order-confirm-value">{confirmation.totalItems}</span>
               </div>
-              <div className="order-confirm-row">
-                <span className="order-confirm-label">Ship to</span>
-                <span
-                  className="order-confirm-value"
-                  dangerouslySetInnerHTML={{ __html: formatAddress(confirmation.customer.address) }}
-                />
-              </div>
+              <ConfirmationFulfillment confirmation={confirmation} />
             </div>
           </motion.div>
         </>
@@ -2187,12 +2412,24 @@ function formatAddress(address?: CheckoutCustomer["address"]) {
 function CartPaymentRequestButton({
   amountCents,
   sizes,
+  needsAddress,
+  showMerch,
+  showMerchShips,
+  getFulfillment,
+  onPrepare,
   onCheckoutStart,
   onOrderComplete,
   onError,
 }: {
   amountCents: number;
   sizes: Record<string, string[]>;
+  /** Ask the wallet for a shipping address — false only when everything is picked up. */
+  needsAddress: boolean;
+  showMerch: ShowMerchOffer | null;
+  /** Show merch is being shipped, so the address must be inside the shipping region. */
+  showMerchShips: boolean;
+  getFulfillment: () => unknown;
+  onPrepare: (paymentIntentId: string, customer: CheckoutCustomer) => Promise<PrepareResult>;
   /** Fired once a wallet payment has a payment intent (Meta InitiateCheckout). */
   onCheckoutStart?: () => void;
   onOrderComplete: (confirmation: OrderConfirmation) => void;
@@ -2201,24 +2438,38 @@ function CartPaymentRequestButton({
   const stripe = useStripe();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const paymentRequestRef = useRef<any>(null);
+  const requestsShippingRef = useRef<boolean | null>(null);
   const [prAvailable, setPrAvailable] = useState(false);
+  // Bumped whenever the payment request is rebuilt, so handlers and the button re-attach to it.
+  const [prVersion, setPrVersion] = useState(0);
   const onOrderCompleteRef = useRef(onOrderComplete);
   const onErrorRef = useRef(onError);
   const onCheckoutStartRef = useRef(onCheckoutStart);
+  const onPrepareRef = useRef(onPrepare);
+  const getFulfillmentRef = useRef(getFulfillment);
+  const showMerchRef = useRef(showMerch);
+  const showMerchShipsRef = useRef(showMerchShips);
   useEffect(() => { onCheckoutStartRef.current = onCheckoutStart; });
+  useEffect(() => { onPrepareRef.current = onPrepare; });
+  useEffect(() => { getFulfillmentRef.current = getFulfillment; });
+  useEffect(() => { showMerchRef.current = showMerch; });
+  useEffect(() => { showMerchShipsRef.current = showMerchShips; });
   const sizesPayloadRef = useRef(sizes);
   useEffect(() => { sizesPayloadRef.current = sizes; }, [sizes]);
   useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
   useEffect(() => { onErrorRef.current = onError; });
 
-  // Create or update the payment request whenever the cart total changes
+  // Create the payment request, or update its total. Whether it asks for a
+  // shipping address is fixed when it's created, so switching between pickup
+  // and shipping builds a new one.
   useEffect(() => {
     if (!stripe || amountCents <= 0) {
       setPrAvailable(false);
       paymentRequestRef.current = null;
+      requestsShippingRef.current = null;
       return;
     }
-    if (paymentRequestRef.current) {
+    if (paymentRequestRef.current && requestsShippingRef.current === needsAddress) {
       paymentRequestRef.current.update({ total: { label: "NC Order", amount: amountCents } });
       return;
     }
@@ -2228,30 +2479,46 @@ function CartPaymentRequestButton({
       total: { label: "NC Order", amount: amountCents },
       requestPayerName: true,
       requestPayerEmail: true,
-      requestShipping: true,
-      shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }],
+      requestShipping: needsAddress,
+      // The price already includes standard shipping, so the only option costs nothing.
+      ...(needsAddress ? { shippingOptions: [SHIPPING_INCLUDED] } : {}),
     });
     paymentRequestRef.current = pr;
+    requestsShippingRef.current = needsAddress;
+    setPrAvailable(false);
+    setPrVersion((v) => v + 1);
     pr.canMakePayment().then((result) => {
-      if (result) setPrAvailable(true);
+      if (result && paymentRequestRef.current === pr) setPrAvailable(true);
     });
-  }, [stripe, amountCents]);
+  }, [stripe, amountCents, needsAddress]);
 
   // Attach payment handlers once the request is ready
   useEffect(() => {
     const pr = paymentRequestRef.current;
     if (!pr || !stripe || !prAvailable) return;
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handleShippingChange = (event: any) => {
-      event.updateWith({ status: "success", shippingOptions: [{ id: "free", label: "Standard shipping", detail: "", amount: 0 }] });
+      const offer = showMerchRef.current;
+      const address = event.shippingAddress ?? {};
+      if (showMerchShipsRef.current && offer && !addressInShippingRegion(offer, address.country ?? "", address.region ?? "")) {
+        event.updateWith({ status: "invalid_shipping_address" });
+        return;
+      }
+      event.updateWith({ status: "success", shippingOptions: [SHIPPING_INCLUDED] });
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handlePaymentMethod = async (event: any) => {
       // Create the payment intent on demand
       let clientSecret: string;
       let paymentIntentId: string;
       try {
-        const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, { method: "POST" });
+        const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fulfillment: getFulfillmentRef.current() }),
+        });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.clientSecret) {
           event.complete("fail");
@@ -2265,6 +2532,28 @@ function CartPaymentRequestButton({
       } catch {
         event.complete("fail");
         onErrorRef.current("Checkout error");
+        return;
+      }
+
+      const shipping = event.shippingAddress;
+      const customer: CheckoutCustomer = {
+        name: event.payerName ?? "",
+        email: event.payerEmail ?? "",
+        address: shipping ? {
+          line1: shipping.addressLine?.[0] ?? "",
+          line2: shipping.addressLine?.[1],
+          city: shipping.city ?? "",
+          state: shipping.region ?? "",
+          postalCode: shipping.postalCode ?? "",
+          country: shipping.country ?? "US",
+        } : undefined,
+      };
+
+      // Same server check as the card form, before the wallet payment is confirmed.
+      const prepared = await onPrepareRef.current(paymentIntentId, customer);
+      if (!prepared.ok) {
+        event.complete("fail");
+        onErrorRef.current(prepared.error ?? "Unable to prepare payment. Nothing was charged.");
         return;
       }
 
@@ -2282,19 +2571,6 @@ function CartPaymentRequestButton({
       event.complete("success");
 
       // Confirm order with backend
-      const shipping = event.shippingAddress;
-      const customer: CheckoutCustomer = {
-        name: event.payerName ?? "",
-        email: event.payerEmail ?? "",
-        address: shipping ? {
-          line1: shipping.addressLine?.[0] ?? "",
-          line2: shipping.addressLine?.[1],
-          city: shipping.city ?? "",
-          state: shipping.region ?? "",
-          postalCode: shipping.postalCode ?? "",
-          country: shipping.country ?? "US",
-        } : undefined,
-      };
       try {
         const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/confirm`, {
           method: "POST",
@@ -2307,8 +2583,9 @@ function CartPaymentRequestButton({
           orderId: String(json.orderId ?? paymentIntentId),
           totalCents: Number(json?.totals?.grossCents ?? 0),
           totalItems: Number(json?.totals?.items ?? 0),
-          customer,
+          customer: { ...customer, address: json.shippingAddress ?? undefined },
           paymentRef: paymentIntentId,
+          fulfillment: json.fulfillment ?? undefined,
         });
       } catch {
         onErrorRef.current("Order confirmation failed");
@@ -2321,19 +2598,35 @@ function CartPaymentRequestButton({
       pr.off("shippingaddresschange", handleShippingChange);
       pr.off("paymentmethod", handlePaymentMethod);
     };
-  }, [prAvailable, stripe]);
+  }, [prAvailable, stripe, prVersion]);
 
   if (!prAvailable || !paymentRequestRef.current) return null;
 
   return (
     <div className="cart-pr-button">
       <PaymentRequestButtonElement
+        key={prVersion}
         options={{ paymentRequest: paymentRequestRef.current, style: { paymentRequestButton: { height: "52px" } } }}
       />
       <div className="payment-divider"><span>or</span></div>
     </div>
   );
 }
+
+/** Show merch choice and the pre-payment check, handed from the shop into checkout. */
+type CheckoutFulfillmentProps = {
+  /** The offer, when the bag has show merch. */
+  showMerch: ShowMerchOffer | null;
+  fulfillment: FulfillmentChoice;
+  onFulfillmentChange: (choice: FulfillmentChoice) => void;
+  notice: string | null;
+  /** Why paying isn't possible with the current choice, if anything. */
+  problem: string | null;
+  needsAddress: boolean;
+  hasOtherItems: boolean;
+  priceLabel: string;
+  onPrepare: (paymentIntentId: string, customer: CheckoutCustomer) => Promise<PrepareResult>;
+};
 
 type PaymentModalProps = {
   open: boolean;
@@ -2343,6 +2636,7 @@ type PaymentModalProps = {
   processing: boolean;
   error?: string | null;
   accountUser?: AccountUser | null;
+  checkout: CheckoutFulfillmentProps;
 };
 
 function PaymentModal({
@@ -2353,6 +2647,7 @@ function PaymentModal({
   processing,
   error,
   accountUser,
+  checkout,
 }: PaymentModalProps) {
   return (
     <AnimatePresence>
@@ -2396,6 +2691,7 @@ function PaymentModal({
                   processing={processing}
                   errorMessage={error}
                   accountUser={accountUser}
+                  checkout={checkout}
                 />
               </Elements>
             ) : (
@@ -2422,6 +2718,7 @@ type StripePaymentFormProps = {
   processing: boolean;
   errorMessage?: string | null;
   accountUser?: AccountUser | null;
+  checkout: CheckoutFulfillmentProps;
 };
 
 function StripePaymentForm({
@@ -2433,6 +2730,7 @@ function StripePaymentForm({
   processing,
   errorMessage,
   accountUser,
+  checkout,
 }: StripePaymentFormProps) {
   const stripe = useStripe();
   const elements = useElements();
@@ -2446,6 +2744,10 @@ function StripePaymentForm({
   const [country, setCountry] = useState("US");
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  // Changing pickup/shipping here flips the address fields on or off immediately.
+  const { needsAddress } = checkout;
+  const pickupWithOtherItems =
+    Boolean(checkout.showMerch) && checkout.fulfillment.method === "pickup" && checkout.hasOtherItems;
 
   useEffect(() => {
     if (!accountUser) return;
@@ -2472,6 +2774,12 @@ function StripePaymentForm({
       return;
     }
 
+    if (checkout.problem) {
+      // The picker already shows a server notice; otherwise say what's missing.
+      setLocalError(checkout.notice ? null : checkout.problem);
+      return;
+    }
+
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();
     const trimmedLine1 = addressLine1.trim();
@@ -2490,26 +2798,58 @@ function StripePaymentForm({
       setLocalError("Enter a valid email address");
       return;
     }
-    if (!trimmedLine1 || !trimmedCity || !trimmedState || !trimmedPostal) {
-      setLocalError("Complete the shipping address");
-      return;
-    }
-    if (trimmedCountry.length !== 2) {
-      setLocalError("Use the 2-letter country code (e.g. US)");
-      return;
+    if (needsAddress) {
+      if (!trimmedLine1 || !trimmedCity || !trimmedState || !trimmedPostal) {
+        setLocalError("Complete the shipping address");
+        return;
+      }
+      if (trimmedCountry.length !== 2) {
+        setLocalError("Use the 2-letter country code (e.g. US)");
+        return;
+      }
     }
 
     setSubmitting(true);
     setLocalError(null);
 
-    const shippingAddress = {
-      line1: trimmedLine1,
-      line2: trimmedLine2 || undefined,
-      city: trimmedCity,
-      state: trimmedState,
-      postal_code: trimmedPostal,
-      country: trimmedCountry,
+    const customer: CheckoutCustomer = {
+      name: trimmedName,
+      email: trimmedEmail,
+      address: needsAddress
+        ? {
+            line1: trimmedLine1,
+            line2: trimmedLine2 || undefined,
+            city: trimmedCity,
+            state: trimmedState,
+            postalCode: trimmedPostal,
+            country: trimmedCountry,
+          }
+        : undefined,
     };
+
+    // The server checks everything again before the card is touched.
+    const prepared = await checkout.onPrepare(paymentIntentId, customer);
+    if (!prepared.ok) {
+      // Pickup/shipping problems appear on the picker; everything else appears here.
+      setLocalError(
+        prepared.code && FULFILLMENT_CODES.has(prepared.code)
+          ? null
+          : prepared.error ?? "Unable to prepare payment. Nothing was charged.",
+      );
+      setSubmitting(false);
+      return;
+    }
+
+    const stripeAddress = customer.address
+      ? {
+          line1: customer.address.line1,
+          line2: customer.address.line2,
+          city: customer.address.city,
+          state: customer.address.state,
+          postal_code: customer.address.postalCode,
+          country: customer.address.country,
+        }
+      : undefined;
 
     const result = await stripe.confirmCardPayment(clientSecret, {
       receipt_email: trimmedEmail,
@@ -2518,13 +2858,11 @@ function StripePaymentForm({
         billing_details: {
           name: trimmedName,
           email: trimmedEmail,
-          address: shippingAddress,
+          ...(stripeAddress ? { address: stripeAddress } : {}),
         },
       },
-      shipping: {
-        name: trimmedName,
-        address: shippingAddress,
-      },
+      // Pickup-only orders have nothing to ship, so no shipping details go to Stripe.
+      ...(stripeAddress ? { shipping: { name: trimmedName, address: stripeAddress } } : {}),
     });
 
     if (result.error) {
@@ -2540,19 +2878,6 @@ function StripePaymentForm({
       return;
     }
 
-    const customer: CheckoutCustomer = {
-      name: trimmedName,
-      email: trimmedEmail,
-      address: {
-        line1: shippingAddress.line1,
-        line2: shippingAddress.line2,
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        postalCode: shippingAddress.postal_code,
-        country: shippingAddress.country,
-      },
-    };
-
     const ok = await onComplete(intent.id, customer);
     if (!ok) {
       setLocalError("Unable to finalize order. Please try again.");
@@ -2565,8 +2890,25 @@ function StripePaymentForm({
 
   return (
     <form className="payment-form" onSubmit={handleSubmit}>
+      {checkout.showMerch ? (
+        <FulfillmentPicker
+          offer={checkout.showMerch}
+          choice={checkout.fulfillment}
+          onChange={(choice) => {
+            setLocalError(null);
+            checkout.onFulfillmentChange(choice);
+          }}
+          priceLabel={checkout.priceLabel}
+          hasOtherItems={checkout.hasOtherItems}
+          notice={checkout.notice}
+          idPrefix="checkout"
+          detailed
+        />
+      ) : null}
       {(localError || errorMessage) && (
-        <div className="payment-error">{localError || errorMessage}</div>
+        <div className="payment-error" role="alert">
+          {localError || errorMessage}
+        </div>
       )}
       <div className="payment-row">
         <label htmlFor="checkout-name">Full name</label>
@@ -2588,67 +2930,76 @@ function StripePaymentForm({
           autoComplete="email"
         />
       </div>
-      <div className="payment-row">
-        <label htmlFor="checkout-address1">Address line 1</label>
-        <input
-          id="checkout-address1"
-          placeholder="123 Market St"
-          value={addressLine1}
-          onChange={(event) => setAddressLine1(event.target.value)}
-          autoComplete="address-line1"
-        />
-      </div>
-      <div className="payment-row">
-        <label htmlFor="checkout-address2">Address line 2 (optional)</label>
-        <input
-          id="checkout-address2"
-          placeholder="Apt, suite, etc."
-          value={addressLine2}
-          onChange={(event) => setAddressLine2(event.target.value)}
-          autoComplete="address-line2"
-        />
-      </div>
-      <div className="payment-row">
-        <label htmlFor="checkout-city">City</label>
-        <input
-          id="checkout-city"
-          placeholder="City"
-          value={city}
-          onChange={(event) => setCity(event.target.value)}
-          autoComplete="address-level2"
-        />
-      </div>
-      <div className="payment-row">
-        <label htmlFor="checkout-state">State / Province</label>
-        <input
-          id="checkout-state"
-          placeholder="State"
-          value={stateProvince}
-          onChange={(event) => setStateProvince(event.target.value.toUpperCase())}
-          autoComplete="address-level1"
-        />
-      </div>
-      <div className="payment-row">
-        <label htmlFor="checkout-postal">Postal code</label>
-        <input
-          id="checkout-postal"
-          placeholder="Postal code"
-          value={postalCode}
-          onChange={(event) => setPostalCode(event.target.value)}
-          autoComplete="postal-code"
-          inputMode="text"
-        />
-      </div>
-      <div className="payment-row">
-        <label htmlFor="checkout-country">Country</label>
-        <input
-          id="checkout-country"
-          placeholder="US"
-          value={country}
-          onChange={(event) => setCountry(event.target.value.toUpperCase())}
-          autoComplete="country"
-        />
-      </div>
+      {needsAddress ? (
+        <>
+          {pickupWithOtherItems ? (
+            <p className="payment-note">The other items in your bag ship to this address.</p>
+          ) : null}
+          <div className="payment-row">
+            <label htmlFor="checkout-address1">Address line 1</label>
+            <input
+              id="checkout-address1"
+              placeholder="123 Market St"
+              value={addressLine1}
+              onChange={(event) => setAddressLine1(event.target.value)}
+              autoComplete="address-line1"
+            />
+          </div>
+          <div className="payment-row">
+            <label htmlFor="checkout-address2">Address line 2 (optional)</label>
+            <input
+              id="checkout-address2"
+              placeholder="Apt, suite, etc."
+              value={addressLine2}
+              onChange={(event) => setAddressLine2(event.target.value)}
+              autoComplete="address-line2"
+            />
+          </div>
+          <div className="payment-row">
+            <label htmlFor="checkout-city">City</label>
+            <input
+              id="checkout-city"
+              placeholder="City"
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
+              autoComplete="address-level2"
+            />
+          </div>
+          <div className="payment-row">
+            <label htmlFor="checkout-state">State / Province</label>
+            <input
+              id="checkout-state"
+              placeholder="State"
+              value={stateProvince}
+              onChange={(event) => setStateProvince(event.target.value.toUpperCase())}
+              autoComplete="address-level1"
+            />
+          </div>
+          <div className="payment-row">
+            <label htmlFor="checkout-postal">Postal code</label>
+            <input
+              id="checkout-postal"
+              placeholder="Postal code"
+              value={postalCode}
+              onChange={(event) => setPostalCode(event.target.value)}
+              autoComplete="postal-code"
+              inputMode="text"
+            />
+          </div>
+          <div className="payment-row">
+            <label htmlFor="checkout-country">Country</label>
+            <input
+              id="checkout-country"
+              placeholder="US"
+              value={country}
+              onChange={(event) => setCountry(event.target.value.toUpperCase())}
+              autoComplete="country"
+            />
+          </div>
+        </>
+      ) : (
+        <p className="payment-note">Pickup order: no shipping address needed.</p>
+      )}
       <div className="payment-row">
         <label>Card details</label>
         <div className="stripe-card">
@@ -2667,6 +3018,7 @@ function StripePaymentForm({
           />
         </div>
       </div>
+      {checkout.problem && !checkout.notice ? <p className="payment-note payment-note--warn">{checkout.problem}</p> : null}
       <div className="payment-actions">
         <button
           type="button"
@@ -2679,7 +3031,7 @@ function StripePaymentForm({
         <button
           type="submit"
           className="payment-submit"
-          disabled={disabled}
+          disabled={disabled || Boolean(checkout.problem)}
         >
           {payLabel}
         </button>

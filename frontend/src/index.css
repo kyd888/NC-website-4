@@ -1196,3 +1196,51 @@ input,select,textarea{font-size:16px}
 }
 .cart-sheet__checkout:disabled{opacity:.4;cursor:not-allowed}
 @media (prefers-reduced-motion:reduce){.size-pick__option{transition:none}}
+
+/* ---------- Show merch: pick up at a show, or ship after it ---------- */
+/* With show merch the bag uses the screen height it has: header and Checkout
+   stay put, and the items and the choice scroll between them. */
+.cart-sheet--tall{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px)}
+.cart-sheet--tall .cart-sheet__body{flex:1 1 auto;min-height:0;max-height:none}
+.cart-line__fulfill{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#111}
+.cart-line__fulfill.is-pending{color:#a32b1f}
+
+.fulfill{border:0;margin:0;padding:0;min-width:0;display:grid;gap:10px}
+.fulfill__legend{padding:0;margin-bottom:2px;font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#111}
+.fulfill__legend--small{font-size:10px;color:rgba(17,17,17,.6)}
+.fulfill__sub{margin:0;font-size:12px;line-height:1.45;color:rgba(17,17,17,.6)}
+.fulfill__notice{margin:0;padding:10px 12px;border-radius:12px;background:#fee2e2;color:#991b1b;font-size:13px;line-height:1.45}
+.fulfill__option{
+  display:flex;gap:12px;align-items:flex-start;padding:14px;min-height:44px;
+  border:1.5px solid rgba(0,0,0,.14);border-radius:14px;background:#fff;cursor:pointer;
+  transition:border-color .15s ease,background .15s ease;
+}
+.fulfill__option:hover{border-color:rgba(0,0,0,.35)}
+.fulfill__option.is-on{border-color:#111;background:#fafaf8}
+/* Unavailable: still listed and still readable, clearly not selectable. */
+.fulfill__option.is-disabled{cursor:not-allowed;background:#f4f4f2;border-style:dashed;border-color:rgba(0,0,0,.16)}
+.fulfill__option.is-disabled:hover{border-color:rgba(0,0,0,.16)}
+.fulfill__option.is-disabled .fulfill__title,
+.fulfill__option.is-disabled .fulfill__price{color:rgba(17,17,17,.42)}
+.fulfill__option.is-disabled input{opacity:.45}
+.fulfill__option input{margin:2px 0 0;width:18px;height:18px;flex:none;accent-color:#111;cursor:inherit}
+.fulfill__option:focus-within{outline:2px solid #111;outline-offset:2px}
+.fulfill__body{display:grid;gap:6px;min-width:0;flex:1}
+.fulfill__head{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.fulfill__title{font-size:14px;font-weight:600;color:#111;line-height:1.3}
+.fulfill__price{font-size:14px;font-weight:600;color:#111;white-space:nowrap}
+.fulfill__detail{display:grid;gap:3px;font-size:12px;line-height:1.45;color:rgba(17,17,17,.7)}
+.fulfill__show{display:grid;gap:1px;color:#111;font-weight:600;font-size:12px}
+.fulfill__show > span{font-weight:400;color:rgba(17,17,17,.7)}
+.fulfill__shows{border:0;margin:0 0 0 30px;padding:0;min-width:0;display:grid;gap:8px}
+.fulfill__show-option{
+  display:flex;gap:10px;align-items:flex-start;padding:10px 12px;min-height:44px;
+  border:1px solid rgba(0,0,0,.14);border-radius:12px;cursor:pointer;background:#fff;
+}
+.fulfill__show-option.is-on{border-color:#111}
+.fulfill__show-option:focus-within{outline:2px solid #111;outline-offset:2px}
+.fulfill__show-option input{margin:2px 0 0;width:16px;height:16px;flex:none;accent-color:#111}
+.fulfill__detail strong{font-weight:600;color:#111}
+.payment-note{margin:0;font-size:12px;color:#6b7280;line-height:1.5}
+.payment-note--warn{color:#a32b1f}
+@media (prefers-reduced-motion:reduce){.fulfill__option{transition:none}}
