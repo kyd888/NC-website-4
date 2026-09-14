@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { AnimatePresence, motion } from "framer-motion";
 import { loadStripe } from "@stripe/stripe-js";
 import SiteHeader from "./components/SiteHeader";
-import FulfillmentPicker from "./components/FulfillmentPicker";
+import FulfillmentPicker, { describeChoice } from "./components/FulfillmentPicker";
+import { emails as siteEmails } from "./data/site";
 import {
   addressInShippingRegion,
   choiceProblem,
@@ -34,6 +35,9 @@ import {
 // The shop the visitor last saw, replayed while the API wakes up.
 const CATALOG_CACHE_KEY = "catalog";
 
+type SizeGuide = { note?: string; rows: Array<{ size: string; chest: string; length: string }> };
+type PrintPlacement = "front" | "front_back" | "";
+
 type BackendProduct = {
   id: string;
   title: string;
@@ -41,10 +45,19 @@ type BackendProduct = {
   imageUrl?: string;
   /** Primary first — front, back, detail. Falls back to imageUrl alone. */
   images?: string[];
+  /** Label per image URL: "Front", "Back (blank)", "Artwork close-up". */
+  imageLabels?: Record<string, string>;
   tags?: string[] | string;
   /** Sizes this product needs picking from. Empty means no size at all. */
   sizes?: string[];
   remaining?: number;
+  description?: string;
+  printPlacement?: PrintPlacement;
+  garment?: string;
+  sizeGuide?: SizeGuide | null;
+  inventoryMode?: "stocked" | "made_to_order";
+  /** Part of the live drop right now (the only thing that matters for made-to-order stock). */
+  inDrop?: boolean;
 };
 
 type ProductCard = {
@@ -55,12 +68,29 @@ type ProductCard = {
   img: string;
   /** Every shot for this product, primary first. Never empty. */
   images: string[];
+  imageLabels: Record<string, string>;
   bg: string;
   tags: string[];
   /** Empty for anything that doesn't need a size. */
   sizes: string[];
+  description: string;
+  printPlacement: PrintPlacement;
+  garment: string;
+  sizeGuide: SizeGuide | null;
+  madeToOrder: boolean;
+  inDrop: boolean;
   order: number;
 };
+
+/** "Front print · blank back · Standard black tee" — what makes one shirt different from the other. */
+function productDescriptor(p: Pick<ProductCard, "printPlacement" | "garment">): string {
+  return [
+    p.printPlacement === "front_back" ? "Front + back print" : p.printPlacement === "front" ? "Front print · blank back" : "",
+    p.garment,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 type PaymentIntentState = {
   clientSecret: string;
@@ -81,12 +111,27 @@ type CheckoutCustomer = {
   };
 };
 
+type ConfirmedItem = {
+  productId: string;
+  title: string;
+  size: string | null;
+  qty: number;
+  imageUrl: string | null;
+  detail: string | null;
+  method: "pickup" | "ship";
+  lineTotalCents: number;
+};
+
 type OrderConfirmation = {
   orderId: string;
+  /** The short number the customer quotes: "NC-A1B2C3". */
+  orderNumber: string;
   totalCents: number;
+  itemsCents: number;
+  shippingFeeCents: number;
   totalItems: number;
+  items: ConfirmedItem[];
   customer: CheckoutCustomer;
-  paymentRef?: string;
   /** Show merch pickup or shipping, as recorded on the paid order. */
   fulfillment?: ConfirmedFulfillment;
 };
@@ -97,8 +142,16 @@ type PrepareResult = { ok: boolean; error?: string; code?: string };
 // Server codes that mean the pickup/shipping choice needs the customer's attention.
 const FULFILLMENT_CODES = new Set(["FULFILLMENT_REQUIRED", "PICKUP_UNAVAILABLE", "SHOW_REQUIRED", "SHIPPING_UNAVAILABLE"]);
 
-// Wallet sheets need a shipping option; the price already covers it, so it costs nothing.
-const SHIPPING_INCLUDED = { id: "included", label: "Standard shipping", detail: "Included in the price", amount: 0 };
+// Wallet sheets need a shipping option. It costs nothing when shipping is in
+// the price; otherwise it carries the delivery fee already in the total.
+const shippingOption = (feeCents: number) =>
+  feeCents > 0
+    ? { id: "standard", label: "Standard shipping", detail: "Delivery", amount: feeCents }
+    : { id: "included", label: "Standard shipping", detail: "Included in the price", amount: 0 };
+/** Where "Questions?" goes on the confirmation. */
+const supportEmail = siteEmails.orders;
+/** Sizes picked in the bag survive a reload of the tab. */
+const SIZE_STORAGE_KEY = "nc_sizes";
 
 type SaveSheetState = {
   productId: string;
@@ -145,11 +198,15 @@ const toCartList = (map?: BackendCartSnapshot | null): CartItem[] => {
     .map(([id, value]) => {
       let qty = 0;
       let holdMs: number | null = null;
+      // The server sends null for a made-to-order line: nothing is held, so nothing expires.
+      let noHold = false;
       if (typeof value === "number") {
         qty = value;
       } else if (value && typeof value === "object") {
         qty = Number.isFinite(value.qty) ? Number(value.qty) : qty;
-        if (Number.isFinite(value.holdMsRemaining)) {
+        if (value.holdMsRemaining === null) {
+          noHold = true;
+        } else if (Number.isFinite(value.holdMsRemaining)) {
           holdMs = Number(value.holdMsRemaining);
         } else if (Number.isFinite(value.holdSecondsRemaining)) {
           holdMs = Number(value.holdSecondsRemaining) * 1000;
@@ -159,8 +216,7 @@ const toCartList = (map?: BackendCartSnapshot | null): CartItem[] => {
       }
       qty = Math.max(0, Math.floor(qty));
       if (!qty) return null;
-      const holdExpiresAt =
-        holdMs != null ? now + Math.max(0, holdMs) : now + CART_HOLD_MS;
+      const holdExpiresAt = noHold ? null : holdMs != null ? now + Math.max(0, holdMs) : now + CART_HOLD_MS;
       return { id, qty, holdExpiresAt };
     })
     .filter((item): item is CartItem => item !== null);
@@ -254,7 +310,22 @@ function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   // Sizes are picked in the bag, one per unit: { "tee-black": ["M", "L"] }.
-  const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>({});
+  const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>(() => {
+    try {
+      const raw = window.sessionStorage.getItem(SIZE_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, string[]>) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(SIZE_STORAGE_KEY, JSON.stringify(sizeChoices));
+    } catch {
+      /* storage blocked: the choice still lives in memory */
+    }
+  }, [sizeChoices]);
   const [toast, setToast] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [saveSheet, setSaveSheet] = useState<SaveSheetState | null>(null);
@@ -437,12 +508,19 @@ function App() {
           const img = ov.img || gallery[0] || normalizeImage(product.imageUrl) || "/placeholder.png";
           // An override replaces the primary shot but keeps the rest of the gallery.
           const images = [img, ...gallery.filter((url) => url !== img)];
+          // Labels are keyed by the URL as the server sent it; look them up by the normalized one too.
+          const imageLabels: Record<string, string> = {};
+          for (const [url, label] of Object.entries(product.imageLabels ?? {})) {
+            const key = normalizeImage(url);
+            if (key && label) imageLabels[key] = label;
+          }
           return {
             id: product.id,
             title: product.title,
             priceCents: product.priceCents,
             img,
             images,
+            imageLabels,
             bg: ov.bg || PAGE_BG,
             sizes: Array.isArray(product.sizes) ? product.sizes : [],
             tags: Array.isArray(product.tags)
@@ -450,6 +528,12 @@ function App() {
               : typeof product.tags === "string"
               ? product.tags.split(",").map((tag) => tag.trim()).filter(Boolean)
               : [],
+            description: product.description ?? "",
+            printPlacement: product.printPlacement ?? "",
+            garment: product.garment ?? "",
+            sizeGuide: product.sizeGuide && Array.isArray(product.sizeGuide.rows) && product.sizeGuide.rows.length ? product.sizeGuide : null,
+            madeToOrder: product.inventoryMode === "made_to_order",
+            inDrop: product.inDrop === true,
             order: index,
           };
         });
@@ -489,10 +573,8 @@ function App() {
 
   const visibleCatalog = useMemo(() => {
     const sorted = [...catalog].sort((a, b) => {
-      const remainingA = remainingById[a.id] ?? 0;
-      const remainingB = remainingById[b.id] ?? 0;
-      const inStockA = remainingA > 0 ? 1 : 0;
-      const inStockB = remainingB > 0 ? 1 : 0;
+      const inStockA = a.madeToOrder ? (a.inDrop ? 1 : 0) : (remainingById[a.id] ?? 0) > 0 ? 1 : 0;
+      const inStockB = b.madeToOrder ? (b.inDrop ? 1 : 0) : (remainingById[b.id] ?? 0) > 0 ? 1 : 0;
       if (inStockA !== inStockB) {
         return inStockB - inStockA;
       }
@@ -593,10 +675,18 @@ function App() {
     return visibleCatalog.find((item) => item.id === activeId) ?? fallback;
   }, [visibleCatalog, activeId]);
 
+  // A made-to-order product never runs out; it's on sale whenever it's in the live drop.
+  const purchasable = useCallback(
+    (product: ProductCard) => (product.madeToOrder ? product.inDrop : (remainingById[product.id] ?? 0) > 0),
+    [remainingById],
+  );
+
   const totalRemaining = useMemo(() => {
     const entries = Object.entries(remainingById) as Array<[string, number]>;
-    return entries.reduce((acc, [, qty]) => acc + qty, 0);
-  }, [remainingById]);
+    const units = entries.reduce((acc, [, qty]) => acc + qty, 0);
+    const madeToOrder = catalog.filter((p) => p.madeToOrder && p.inDrop).length;
+    return units + madeToOrder;
+  }, [remainingById, catalog]);
 
   const scheduledStartMs = useMemo(() => {
     if (!drop?.startsAt) return null;
@@ -613,8 +703,8 @@ function App() {
   const isLive = dropState === "live";
   const showLandingScreen = !isLive;
   const countdownComplete = scheduledStartMs != null && scheduledStartMs <= nowTick;
-  const canAdd = Boolean(active && isLive && activeRemaining > 0);
-  const showSave = Boolean(active && (!isLive || activeRemaining <= 0));
+  const canAdd = Boolean(active && isLive && purchasable(active));
+  const showSave = Boolean(active && (!isLive || !purchasable(active)));
   const isSaved = active ? Boolean(savedIds[active.id]) : false;
   const primaryBusy = active ? saveBusy === active.id : false;
   const primaryDisabled = !active
@@ -658,6 +748,10 @@ function App() {
         return {
           ...item,
           title: product?.title ?? item.id,
+          img: product?.img ?? "",
+          descriptor: product ? productDescriptor(product) : "",
+          sizeGuide: product?.sizeGuide ?? null,
+          madeToOrder: product?.madeToOrder ?? false,
           priceCents,
           lineTotal: priceCents * item.qty,
           available: remainingById[item.id] ?? 0,
@@ -720,15 +814,16 @@ function App() {
   const showMerchLines = cartDetails.filter((item) => showMerchIds.includes(item.id));
   const hasShowMerch = showMerchLines.length > 0;
   const hasOtherItems = cartDetails.some((item) => !showMerchIds.includes(item.id));
-  const fulfillmentProblem = hasShowMerch ? choiceProblem(showMerch, fulfillment) : null;
+  const titleOf = useCallback((id: string) => catalog.find((p) => p.id === id)?.title ?? id, [catalog]);
+  const cartShowMerchIds = showMerchLines.map((item) => item.id);
+  const fulfillmentProblem = hasShowMerch ? choiceProblem(showMerch, fulfillment, cartShowMerchIds, titleOf) : null;
   // An address is needed unless every item is picked up at a show.
   const needsAddress = !hasShowMerch || fulfillment.method !== "pickup" || hasOtherItems;
   const pickedShow = chosenShow(showMerch, fulfillment);
-  const showMerchPrices = Array.from(new Set(showMerchLines.map((item) => item.priceCents)));
-  const showMerchPriceLabel =
-    showMerchPrices.length === 1
-      ? formatCurrency(showMerchPrices[0])
-      : formatCurrency(showMerchLines.reduce((acc, item) => acc + item.lineTotal, 0));
+  // Delivery adds a fee only when the offer says shipping isn't in the price.
+  const deliveryFeeCents =
+    hasShowMerch && fulfillment.method === "ship" && showMerch && !showMerch.shipping.included ? showMerch.shipping.feeCents : 0;
+  const payableTotalCents = priceTotalCents + deliveryFeeCents;
   const showMerchLineLabel = !hasShowMerch
     ? null
     : fulfillment.method === "pickup"
@@ -739,7 +834,7 @@ function App() {
     ? showMerch?.shipping.shipsAfterLabel
       ? `Ships after ${showMerch.shipping.shipsAfterLabel}`
       : "Ships after the show"
-    : "Choose pickup or shipping below";
+    : "Pickup or shipping: choose below";
 
   // Sent with create-intent and prepare. Read through a ref inside async payment callbacks.
   const fulfillmentPayload = hasShowMerch
@@ -967,9 +1062,9 @@ function App() {
       setPaymentIntentState({
         clientSecret: json.clientSecret,
         paymentIntentId: json.paymentIntentId,
-        amount: Number(json.amount) || priceTotalCents,
+        amount: Number(json.amount) || payableTotalCents,
       });
-      trackInitiateCheckout(pixelLines(), Number(json.amount) || priceTotalCents);
+      trackInitiateCheckout(pixelLines(), Number(json.amount) || payableTotalCents);
       setCartOpen(false);
       setPaymentModalOpen(true);
     } catch {
@@ -1024,15 +1119,7 @@ function App() {
       setCart([]);
       setPaymentIntentState(null);
       setPaymentModalOpen(false);
-      const confirmed: OrderConfirmation = {
-        orderId: String(json.orderId ?? paymentIntentId ?? ""),
-        totalCents: Number(json?.totals?.grossCents ?? paymentIntentState?.amount ?? 0),
-        totalItems: Number(json?.totals?.items ?? itemsTotal ?? 0),
-        // The address the order was recorded with; none for a pickup-only order.
-        customer: { ...customer, address: json.shippingAddress ?? undefined },
-        paymentRef: paymentIntentId ?? undefined,
-        fulfillment: json.fulfillment ?? undefined,
-      };
+      const confirmed: OrderConfirmation = confirmationFromResponse(json, paymentIntentId, customer, paymentIntentState?.amount ?? 0, itemsTotal);
       setFulfillment({ method: null, showId: null });
       setFulfillmentNotice(null);
       setOrderConfirmation(confirmed);
@@ -1145,7 +1232,7 @@ function App() {
               {isLive && totalRemaining > 0 && (
                 <>
                   <span className="sep" />
-                  <span className="pill">Remaining: {Math.max(0, activeRemaining)}</span>
+                  <span className="pill">{active?.madeToOrder ? "Made to order" : `Remaining: ${Math.max(0, activeRemaining)}`}</span>
                 </>
               )}
             </div>
@@ -1189,14 +1276,14 @@ function App() {
       )}
 
       {visibleCatalog.map((product) => {
-        const rem = remainingById[product.id] ?? 0;
-        const pCanAdd = Boolean(isLive && rem > 0);
-        const pShowSave = Boolean(!isLive || rem <= 0);
+        const pCanAdd = Boolean(isLive && purchasable(product));
+        const pShowSave = Boolean(!isLive || !purchasable(product));
         const pIsSaved = Boolean(savedIds[product.id]);
         const pBusy = saveBusy === product.id;
         const pDisabled = pCanAdd ? false : pShowSave ? (pBusy || pIsSaved) : true;
         const pLabel = pCanAdd ? "Add" : pShowSave ? (pBusy ? "Saving..." : pIsSaved ? "Saved" : "Save") : "Locked";
         const pClass = pCanAdd ? "live" : pShowSave ? "save" : "";
+        const descriptor = productDescriptor(product);
 
         return (
           <section
@@ -1212,15 +1299,18 @@ function App() {
               data-pid={product.id}
               className="media"
             >
-              <ProductGallery images={product.images} title={product.title} />
+              <ProductGallery images={product.images} labels={product.imageLabels} title={product.title} />
             </div>
             <div className="section-info">
               <div className="section-info__text">
                 <div className="title">{product.title}</div>
                 <div className="price">{formatCurrency(product.priceCents)}</div>
-                {product.tags.length > 0 && (
+                {descriptor ? (
+                  <div className="tagline tagline--print">{descriptor}</div>
+                ) : product.tags.length > 0 ? (
                   <div className="tagline">{product.tags.join(" · ")}</div>
-                )}
+                ) : null}
+                {product.madeToOrder ? <div className="tagline tagline--mto">Made to order</div> : null}
               </div>
               <div className={`meta-actions${itemsTotal > 0 ? " has-bag" : ""}`}>
                 <div className="meta-primary">
@@ -1275,9 +1365,12 @@ function App() {
               </AnimatePresence>
             </div>
             <div className="price">{formatCurrency(active.priceCents)}</div>
-            {active.tags.length > 0 && (
+            {productDescriptor(active) ? (
+              <div className="tagline tagline--print">{productDescriptor(active)}</div>
+            ) : active.tags.length > 0 ? (
               <div className="tagline">{active.tags.join(" · ")}</div>
-            )}
+            ) : null}
+            {active.madeToOrder ? <div className="tagline tagline--mto">Made to order</div> : null}
           </div>
 
           <div className={`meta-actions${itemsTotal > 0 ? " has-bag" : ""}`}>
@@ -1441,11 +1534,13 @@ function App() {
             />
             <motion.div
               key="cart-sheet"
-              className={`cart-sheet${hasShowMerch ? " cart-sheet--tall" : ""}`}
+              className="cart-sheet"
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 260, damping: 26 }}
+              role="dialog"
+              aria-label="Bag"
             >
               <div className="cart-sheet__header">
                 <span>Bag</span>
@@ -1460,26 +1555,26 @@ function App() {
               <div className="cart-sheet__body">
                 {cartDetails.map((item) => (
                   <div className="cart-line" key={item.id}>
+                    <div className="cart-line__thumb" aria-hidden="true">
+                      {item.img ? <img src={item.img} alt="" loading="lazy" /> : null}
+                    </div>
                     <div className="cart-line__info">
-                      <div className="cart-line__title">{item.title}</div>
-                      <div className="cart-line__meta">
-                        {item.qty} {MULTIPLY} {formatCurrency(item.priceCents)}
-                      </div>
-                      {showMerchIds.includes(item.id) && showMerchLineLabel ? (
-                        <div className={`cart-line__fulfill${fulfillment.method ? "" : " is-pending"}`}>{showMerchLineLabel}</div>
-                      ) : hasShowMerch ? (
-                        <div className="cart-line__fulfill">Ships to your address</div>
-                      ) : null}
-                      {item.holdSecondsRemaining != null && item.holdSecondsRemaining > 0 && (
-                        <div className="cart-line__hold">
-                          Hold {formatHoldCountdown(item.holdSecondsRemaining)}
+                      <div className="cart-line__top">
+                        <div>
+                          <div className="cart-line__title">{item.title}</div>
+                          {item.descriptor ? <div className="cart-line__desc">{item.descriptor}</div> : null}
                         </div>
-                      )}
+                        <div className="cart-line__price">
+                          {formatCurrency(item.priceCents)}
+                          {item.qty > 1 ? <span> each</span> : null}
+                        </div>
+                      </div>
                       {item.sizes.length > 0 &&
                         item.picked.map((chosenSize, unit) => (
                           <div className="size-pick" key={`${item.id}-${unit}`}>
                             <span className="size-pick__label">
                               {item.qty > 1 ? `Size — item ${unit + 1}` : "Size"}
+                              {chosenSize ? <strong> {chosenSize}</strong> : null}
                             </span>
                             <div
                               className="size-pick__options"
@@ -1498,35 +1593,48 @@ function App() {
                                   {size}
                                 </button>
                               ))}
+                              {unit === 0 && item.sizeGuide ? <SizeGuideToggle guide={item.sizeGuide} title={item.title} /> : null}
                             </div>
                           </div>
                         ))}
-                      <div className="cart-line__controls">
+                      <div className="cart-line__row">
+                        <div className="cart-line__controls">
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(item.id, 1)}
+                            aria-label={`Remove one ${item.title}`}
+                          >
+                            -
+                          </button>
+                          <span className="cart-line__qty">{item.qty}</span>
+                          <button
+                            type="button"
+                            onClick={() => addToCart(item.id)}
+                            aria-label={`Add one ${item.title}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                        {item.madeToOrder ? (
+                          <span className="cart-line__hold">Made to order</span>
+                        ) : item.holdSecondsRemaining != null && item.holdSecondsRemaining > 0 ? (
+                          <span className="cart-line__hold">Hold {formatHoldCountdown(item.holdSecondsRemaining)}</span>
+                        ) : null}
                         <button
                           type="button"
-                          onClick={() => removeFromCart(item.id, 1)}
-                          aria-label={`Remove one ${item.title}`}
+                          className="cart-line__remove"
+                          onClick={() => removeFromCart(item.id, item.qty, "Removed from bag")}
+                          aria-label={`Remove ${item.title} from bag`}
                         >
-                          -
-                        </button>
-                        <span className="cart-line__qty">{item.qty}</span>
-                        <button
-                          type="button"
-                          onClick={() => addToCart(item.id)}
-                          aria-label={`Add one ${item.title}`}
-                        >
-                          +
+                          Remove
                         </button>
                       </div>
-                      <button
-                        type="button"
-                        className="cart-line__remove"
-                        onClick={() => removeFromCart(item.id, item.qty, "Removed from cart")}
-                      >
-                        Remove
-                      </button>
+                      {showMerchIds.includes(item.id) && showMerchLineLabel ? (
+                        <div className={`cart-line__fulfill${fulfillment.method ? "" : " is-pending"}`}>{showMerchLineLabel}</div>
+                      ) : hasShowMerch ? (
+                        <div className="cart-line__fulfill">Ships separately to your address</div>
+                      ) : null}
                     </div>
-                    <div className="cart-line__total">{formatCurrency(item.lineTotal)}</div>
                   </div>
                 ))}
                 {hasShowMerch && showMerch ? (
@@ -1534,30 +1642,39 @@ function App() {
                     offer={showMerch}
                     choice={fulfillment}
                     onChange={changeFulfillment}
-                    priceLabel={showMerchPriceLabel}
+                    cartShowMerchIds={cartShowMerchIds}
+                    titleOf={titleOf}
                     hasOtherItems={hasOtherItems}
                     notice={fulfillmentNotice}
                     idPrefix="bag"
+                    formatCurrency={formatCurrency}
                   />
                 ) : null}
               </div>
               <div className="cart-sheet__footer">
+                {deliveryFeeCents > 0 ? (
+                  <div className="cart-sheet__lines">
+                    <div className="cart-sheet__line"><span>Items</span><span>{formatCurrency(priceTotalCents)}</span></div>
+                    <div className="cart-sheet__line"><span>Delivery</span><span>{formatCurrency(deliveryFeeCents)}</span></div>
+                  </div>
+                ) : null}
                 <div className="cart-sheet__summary">
                   <span>Total</span>
-                  <strong>{formatCurrency(priceTotalCents)}</strong>
+                  <strong>{formatCurrency(payableTotalCents)}</strong>
                 </div>
                 {/* The wallet sheet charges straight from the bag, so it waits
                     for sizes and the pickup/shipping choice like Checkout does. */}
                 {!missingSizeFor && !fulfillmentProblem ? (
                   <CartPaymentRequestButton
-                    amountCents={priceTotalCents}
+                    amountCents={payableTotalCents}
+                    deliveryFeeCents={deliveryFeeCents}
                     sizes={sizesPayload}
                     needsAddress={needsAddress}
                     showMerch={showMerch}
                     showMerchShips={hasShowMerch && fulfillment.method === "ship"}
                     getFulfillment={() => fulfillmentPayloadRef.current}
                     onPrepare={prepareCheckout}
-                    onCheckoutStart={() => trackInitiateCheckout(pixelLines(), priceTotalCents)}
+                    onCheckoutStart={() => trackInitiateCheckout(pixelLines(), payableTotalCents)}
                     onOrderComplete={(confirmation) => {
                       const purchasedLines = pixelLines();
                       setCart([]);
@@ -1571,13 +1688,12 @@ function App() {
                     onError={(msg) => showToast(msg, 3000)}
                   />
                 ) : null}
-                {missingSizeFor && (
-                  <div className="cart-sheet__note">
+                {missingSizeFor ? (
+                  <div className="cart-sheet__note" aria-live="polite">
                     Choose a size for {missingSizeFor.title} to check out.
                   </div>
-                )}
-                {!missingSizeFor && fulfillmentProblem && !fulfillmentNotice ? (
-                  <div className="cart-sheet__note">{fulfillmentProblem}</div>
+                ) : fulfillmentProblem && !fulfillmentNotice ? (
+                  <div className="cart-sheet__note" aria-live="polite">{fulfillmentProblem}</div>
                 ) : null}
                 <button
                   type="button"
@@ -1585,7 +1701,7 @@ function App() {
                   onClick={beginCheckout}
                   disabled={checkoutLoading || Boolean(missingSizeFor) || Boolean(fulfillmentProblem)}
                 >
-                  {checkoutLoading ? "Preparing..." : "Checkout"}
+                  {checkoutLoading ? "Preparing..." : `Checkout · ${formatCurrency(payableTotalCents)}`}
                 </button>
               </div>
             </motion.div>
@@ -1611,7 +1727,10 @@ function App() {
           problem: fulfillmentProblem,
           needsAddress,
           hasOtherItems,
-          priceLabel: showMerchPriceLabel,
+          cartShowMerchIds,
+          titleOf,
+          itemsCents: priceTotalCents,
+          deliveryFeeCents,
           onPrepare: prepareCheckout,
         }}
       />
@@ -1731,41 +1850,55 @@ type OrderConfirmationProps = {
 function ConfirmationFulfillment({ confirmation }: { confirmation: OrderConfirmation }) {
   const f = confirmation.fulfillment;
   const address = confirmation.customer.address;
-  const row = (label: string, value: React.ReactNode, key?: string) => (
-    <div className="order-confirm-row" key={key ?? label}>
-      <span className="order-confirm-label">{label}</span>
-      <span className="order-confirm-value">{value}</span>
-    </div>
-  );
-  const addressRow = (label: string) => (
-    <div className="order-confirm-row">
-      <span className="order-confirm-label">{label}</span>
-      <span className="order-confirm-value" dangerouslySetInnerHTML={{ __html: formatAddress(address) }} />
-    </div>
-  );
+  const addressLines = address
+    ? [address.line1, address.line2, [address.city, address.state, address.postalCode].filter(Boolean).join(", "), address.country]
+        .map((part) => (part ?? "").trim())
+        .filter(Boolean)
+    : [];
+  const addressBlock = (label: string) =>
+    addressLines.length ? (
+      <div className="order-confirm-card">
+        <div className="order-confirm-card__label">{label}</div>
+        <div className="order-confirm-card__body">
+          {addressLines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      </div>
+    ) : null;
 
   if (f?.method === "pickup") {
     return (
       <>
-        {row(
-          "Pick up at",
-          f.show ? (
-            <>
-              {f.show.name}
-              <br />
-              {f.show.dateLabel}
-              <br />
-              {f.show.location}
-            </>
-          ) : (
-            "The show"
-          ),
-        )}
-        {row("Bring", "This order confirmation: show this screen or your receipt email.")}
-        {f.bonus ? row("Pickup bonus", f.bonus) : null}
-        {f.pickupInstructions ? row("Instructions", f.pickupInstructions) : null}
-        {f.missedPickupPolicy ? row("Can’t make it?", f.missedPickupPolicy) : null}
-        {f.otherItemsShip && address ? addressRow("Other items ship to") : null}
+        <div className="order-confirm-card order-confirm-card--pickup">
+          <div className="order-confirm-card__label">Show pickup</div>
+          <div className="order-confirm-card__body">
+            {f.show ? (
+              <>
+                <strong>{f.show.name}</strong>
+                <div>{f.show.dateLabel}</div>
+                <div>{f.show.location}</div>
+              </>
+            ) : (
+              <strong>At the show</strong>
+            )}
+            {f.pickupHours ? <div>Pickup: {f.pickupHours}</div> : null}
+            <div>Bring this confirmation or your receipt email, and your order number {confirmation.orderNumber}.</div>
+            {f.bonus ? <div className="order-confirm-card__bonus">{f.bonus} included</div> : null}
+            {f.pickupInstructions || f.missedPickupPolicy ? (
+              <details className="order-confirm-more">
+                <summary>More about pickup</summary>
+                {f.pickupInstructions ? <p>{f.pickupInstructions}</p> : null}
+                {f.missedPickupPolicy ? (
+                  <p>
+                    <strong>If you can’t make it:</strong> {f.missedPickupPolicy}
+                  </p>
+                ) : null}
+              </details>
+            ) : null}
+          </div>
+        </div>
+        {f.otherItemsShip ? addressBlock("Other items ship to") : null}
       </>
     );
   }
@@ -1773,27 +1906,26 @@ function ConfirmationFulfillment({ confirmation }: { confirmation: OrderConfirma
   if (f?.method === "ship") {
     return (
       <>
-        {row(
-          "Ships",
-          <>
-            {f.shipsAfterLabel ? `After ${f.shipsAfterLabel}` : "After the show"}
-            {f.dispatchEstimate ? (
-              <>
-                <br />
-                {f.dispatchEstimate}
-              </>
-            ) : null}
-          </>,
-        )}
-        {addressRow("Ship to")}
+        <div className="order-confirm-card">
+          <div className="order-confirm-card__label">Ships after the show</div>
+          <div className="order-confirm-card__body">
+            <strong>{f.shipsAfterLabel ? `After ${f.shipsAfterLabel}` : "After the show"}</strong>
+            {f.dispatchEstimate ? <div>{f.dispatchEstimate}</div> : null}
+            <div>We’ll email you when it ships.</div>
+          </div>
+        </div>
+        {addressBlock("Ship to")}
       </>
     );
   }
 
-  return addressRow("Ship to");
+  return addressBlock("Ship to");
 }
 
 function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderConfirmationProps) {
+  const supportHref = confirmation
+    ? `mailto:${supportEmail}?subject=${encodeURIComponent(`Order ${confirmation.orderNumber}`)}`
+    : `mailto:${supportEmail}`;
   return (
     <AnimatePresence>
       {open && confirmation ? (
@@ -1813,36 +1945,51 @@ function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderCon
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            role="dialog"
+            aria-labelledby="order-confirm-title"
           >
             <div className="order-confirm-header">
               <div>
-                <h3>Order confirmed</h3>
-                <p>We just sent a receipt to {confirmation.customer.email ?? "your inbox"}.</p>
+                <h3 id="order-confirm-title">Thanks — order confirmed</h3>
+                <p>
+                  Order <span className="order-confirm-number">{confirmation.orderNumber}</span>
+                  {confirmation.customer.email ? ` · receipt sent to ${confirmation.customer.email}` : ""}
+                </p>
               </div>
               <button type="button" className="order-confirm-close" onClick={onRequestClose}>
                 Close
               </button>
             </div>
             <div className="order-confirm-body">
-              <div className="order-confirm-row">
-                <span className="order-confirm-label">Order ID</span>
-                <span className="order-confirm-value">{confirmation.orderId}</span>
-              </div>
-              {confirmation.paymentRef ? (
-                <div className="order-confirm-row">
-                  <span className="order-confirm-label">Payment Ref</span>
-                  <span className="order-confirm-value">{confirmation.paymentRef}</span>
-                </div>
-              ) : null}
-              <div className="order-confirm-row order-confirm-total">
-                <span className="order-confirm-label">Total</span>
-                <span className="order-confirm-value">{formatCurrency(confirmation.totalCents)}</span>
-              </div>
-              <div className="order-confirm-row">
-                <span className="order-confirm-label">Items</span>
-                <span className="order-confirm-value">{confirmation.totalItems}</span>
+              <div className="order-confirm-items">
+                {confirmation.items.map((item, i) => (
+                  <div className="order-confirm-item" key={`${item.productId}-${item.size ?? ""}-${i}`}>
+                    <div className="order-confirm-item__thumb" aria-hidden="true">
+                      {item.imageUrl ? <img src={item.imageUrl} alt="" /> : null}
+                    </div>
+                    <div className="order-confirm-item__text">
+                      <div className="order-confirm-item__title">{item.title}</div>
+                      <div className="order-confirm-item__meta">
+                        {[item.size ? `Size ${item.size}` : "", `× ${item.qty}`, item.detail ?? ""].filter(Boolean).join(" · ")}
+                      </div>
+                    </div>
+                    <div className="order-confirm-item__price">{formatCurrency(item.lineTotalCents)}</div>
+                  </div>
+                ))}
               </div>
               <ConfirmationFulfillment confirmation={confirmation} />
+              <div className="order-confirm-row order-confirm-total">
+                <span className="order-confirm-label">Total paid</span>
+                <span className="order-confirm-value">
+                  {formatCurrency(confirmation.totalCents)}
+                  {confirmation.shippingFeeCents > 0 ? (
+                    <span className="order-confirm-total__note"> incl. {formatCurrency(confirmation.shippingFeeCents)} delivery</span>
+                  ) : null}
+                </span>
+              </div>
+              <a className="order-confirm-support" href={supportHref}>
+                Questions? Email {supportEmail}
+              </a>
             </div>
           </motion.div>
         </>
@@ -1851,6 +1998,47 @@ function OrderConfirmationSheet({ open, confirmation, onRequestClose }: OrderCon
   );
 }
 
+/** The blank's measurements, beside the size buttons. Closed until asked for. */
+function SizeGuideToggle({ guide, title }: { guide: SizeGuide; title: string }) {
+  const [open, setOpen] = useState(false);
+  const id = `size-guide-${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  return (
+    <span className="size-guide">
+      <button
+        type="button"
+        className="size-guide__toggle"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((v) => !v)}
+      >
+        Size guide
+      </button>
+      {open ? (
+        <span className="size-guide__panel" id={id} role="region" aria-label={`Size guide for ${title}`}>
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Size</th>
+                <th scope="col">Chest</th>
+                <th scope="col">Length</th>
+              </tr>
+            </thead>
+            <tbody>
+              {guide.rows.map((row) => (
+                <tr key={row.size}>
+                  <th scope="row">{row.size}</th>
+                  <td>{row.chest || "—"}</td>
+                  <td>{row.length || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {guide.note ? <span className="size-guide__note">{guide.note}</span> : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 /**
  * Product shots. One image behaves exactly as before; with more, tapping the
  * image (or the dots) steps through front / back / detail. Swipe works on
@@ -1887,7 +2075,7 @@ function ShareButton({ productId, title }: { productId: string; title: string })
   );
 }
 
-function ProductGallery({ images, title }: { images: string[]; title: string }) {
+function ProductGallery({ images, labels, title }: { images: string[]; labels: Record<string, string>; title: string }) {
   const [index, setIndex] = useState(0);
   const touchX = useRef<number | null>(null);
 
@@ -1897,15 +2085,17 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
   }, [images.join("|")]);
 
   if (images.length <= 1) {
-    return <img src={images[0] ?? "/placeholder.png"} alt={title} loading="lazy" />;
+    return <img src={images[0] ?? "/placeholder.png"} alt={labels[images[0]] ? `${title} — ${labels[images[0]]}` : title} loading="lazy" />;
   }
 
   const step = (delta: number) =>
     setIndex((i) => (i + delta + images.length) % images.length);
+  const labelOf = (src: string, i: number) => labels[src] || `View ${i + 1}`;
+  const hasLabels = images.some((src) => Boolean(labels[src]));
 
   return (
     <div
-      className="shots"
+      className={`shots${hasLabels ? " shots--labeled" : ""}`}
       onTouchStart={(e) => {
         touchX.current = e.touches[0]?.clientX ?? null;
       }}
@@ -1921,7 +2111,7 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
         <img
           key={src}
           src={src}
-          alt={i === 0 ? title : `${title} — view ${i + 1}`}
+          alt={`${title} — ${labelOf(src, i)}`}
           loading={i === 0 ? "eager" : "lazy"}
           className={i === index ? "is-current" : undefined}
           aria-hidden={i === index ? undefined : true}
@@ -1935,17 +2125,20 @@ function ProductGallery({ images, title }: { images: string[]; title: string }) 
         onClick={() => step(1)}
       />
 
-      <div className="shots__dots" role="tablist" aria-label={`${title} views`}>
+      {/* Labeled views ("Front", "Back", "Artwork") when the product names them; plain dots otherwise. */}
+      <div className={`shots__dots${hasLabels ? " shots__dots--labeled" : ""}`} role="tablist" aria-label={`${title} views`}>
         {images.map((src, i) => (
           <button
             key={src}
             type="button"
             role="tab"
             aria-selected={i === index}
-            aria-label={`View ${i + 1} of ${images.length}`}
+            aria-label={`${labelOf(src, i)} (${i + 1} of ${images.length})`}
             className={i === index ? "is-on" : undefined}
             onClick={() => setIndex(i)}
-          />
+          >
+            {hasLabels ? labelOf(src, i) : null}
+          </button>
         ))}
       </div>
     </div>
@@ -2137,7 +2330,7 @@ function AccountSheet({
           <div className="account-order" key={order.orderId}>
             <div className="account-order-header">
               <div>
-                <div className="account-order-id">Order {order.orderId}</div>
+                <div className="account-order-id">Order {order.orderNumber ?? order.orderId}</div>
                 <div className="account-order-ts">{new Date(order.ts).toLocaleString()}</div>
               </div>
               <div className="account-order-total">{formatCurrency(order.totalCents)}</div>
@@ -2377,6 +2570,31 @@ function AccountSheet({
   );
 }
 
+/** The confirmation sheet's data from the server's confirm response. */
+function confirmationFromResponse(
+  json: Record<string, unknown>,
+  paymentIntentId: string,
+  customer: CheckoutCustomer,
+  fallbackTotal: number,
+  fallbackItems: number,
+): OrderConfirmation {
+  const totals = (json?.totals ?? {}) as Record<string, unknown>;
+  const rawItems = Array.isArray(json?.items) ? (json.items as ConfirmedItem[]) : [];
+  const orderId = String(json?.orderId ?? paymentIntentId ?? "");
+  return {
+    orderId,
+    orderNumber: String(json?.orderNumber ?? `NC-${orderId.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase()}`),
+    totalCents: Number(totals.grossCents ?? fallbackTotal ?? 0),
+    itemsCents: Number(totals.itemsCents ?? totals.grossCents ?? fallbackTotal ?? 0),
+    shippingFeeCents: Number(totals.shippingFeeCents ?? 0),
+    totalItems: Number(totals.items ?? fallbackItems ?? 0),
+    items: rawItems,
+    // The address the order was recorded with; none for a pickup-only order.
+    customer: { ...customer, address: (json?.shippingAddress as CheckoutCustomer["address"]) ?? undefined },
+    fulfillment: (json?.fulfillment as ConfirmedFulfillment | undefined) ?? undefined,
+  };
+}
+
 function formatAccountAddress(address: AccountShippingAddress) {
   const parts = [
     address.line1,
@@ -2390,27 +2608,11 @@ function formatAccountAddress(address: AccountShippingAddress) {
   return parts.join("\n");
 }
 
-function formatAddress(address?: CheckoutCustomer["address"]) {
-  if (!address) return "-";
-  const parts = [
-    address.line1,
-    address.line2,
-    [address.city, address.state, address.postalCode].filter(Boolean).join(", ").trim(),
-    address.country,
-  ]
-    .map((part) => (typeof part === "string" ? part.trim() : ""))
-    .filter((part) => part.length > 0);
-  if (!parts.length) return "--";
-  return parts
-    .map((part) =>
-      part.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch)),
-    )
-    .join("<br/>");
-}
 
 
 function CartPaymentRequestButton({
   amountCents,
+  deliveryFeeCents,
   sizes,
   needsAddress,
   showMerch,
@@ -2422,6 +2624,8 @@ function CartPaymentRequestButton({
   onError,
 }: {
   amountCents: number;
+  /** Delivery fee inside amountCents, when shipping isn't in the price. */
+  deliveryFeeCents: number;
   sizes: Record<string, string[]>;
   /** Ask the wallet for a shipping address — false only when everything is picked up. */
   needsAddress: boolean;
@@ -2449,6 +2653,8 @@ function CartPaymentRequestButton({
   const getFulfillmentRef = useRef(getFulfillment);
   const showMerchRef = useRef(showMerch);
   const showMerchShipsRef = useRef(showMerchShips);
+  const deliveryFeeRef = useRef(deliveryFeeCents);
+  useEffect(() => { deliveryFeeRef.current = deliveryFeeCents; });
   useEffect(() => { onCheckoutStartRef.current = onCheckoutStart; });
   useEffect(() => { onPrepareRef.current = onPrepare; });
   useEffect(() => { getFulfillmentRef.current = getFulfillment; });
@@ -2470,7 +2676,10 @@ function CartPaymentRequestButton({
       return;
     }
     if (paymentRequestRef.current && requestsShippingRef.current === needsAddress) {
-      paymentRequestRef.current.update({ total: { label: "NC Order", amount: amountCents } });
+      paymentRequestRef.current.update({
+        total: { label: "NC Order", amount: amountCents },
+        ...(needsAddress ? { shippingOptions: [shippingOption(deliveryFeeCents)] } : {}),
+      });
       return;
     }
     const pr = stripe.paymentRequest({
@@ -2480,8 +2689,7 @@ function CartPaymentRequestButton({
       requestPayerName: true,
       requestPayerEmail: true,
       requestShipping: needsAddress,
-      // The price already includes standard shipping, so the only option costs nothing.
-      ...(needsAddress ? { shippingOptions: [SHIPPING_INCLUDED] } : {}),
+      ...(needsAddress ? { shippingOptions: [shippingOption(deliveryFeeCents)] } : {}),
     });
     paymentRequestRef.current = pr;
     requestsShippingRef.current = needsAddress;
@@ -2490,7 +2698,7 @@ function CartPaymentRequestButton({
     pr.canMakePayment().then((result) => {
       if (result && paymentRequestRef.current === pr) setPrAvailable(true);
     });
-  }, [stripe, amountCents, needsAddress]);
+  }, [stripe, amountCents, needsAddress, deliveryFeeCents]);
 
   // Attach payment handlers once the request is ready
   useEffect(() => {
@@ -2505,7 +2713,7 @@ function CartPaymentRequestButton({
         event.updateWith({ status: "invalid_shipping_address" });
         return;
       }
-      event.updateWith({ status: "success", shippingOptions: [SHIPPING_INCLUDED] });
+      event.updateWith({ status: "success", shippingOptions: [shippingOption(deliveryFeeRef.current)] });
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2579,14 +2787,7 @@ function CartPaymentRequestButton({
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.ok) { onErrorRef.current(json.error ?? "Checkout failed"); return; }
-        onOrderCompleteRef.current({
-          orderId: String(json.orderId ?? paymentIntentId),
-          totalCents: Number(json?.totals?.grossCents ?? 0),
-          totalItems: Number(json?.totals?.items ?? 0),
-          customer: { ...customer, address: json.shippingAddress ?? undefined },
-          paymentRef: paymentIntentId,
-          fulfillment: json.fulfillment ?? undefined,
-        });
+        onOrderCompleteRef.current(confirmationFromResponse(json, paymentIntentId, customer, 0, 0));
       } catch {
         onErrorRef.current("Order confirmation failed");
       }
@@ -2624,7 +2825,11 @@ type CheckoutFulfillmentProps = {
   problem: string | null;
   needsAddress: boolean;
   hasOtherItems: boolean;
-  priceLabel: string;
+  cartShowMerchIds: string[];
+  titleOf: (productId: string) => string;
+  /** Items, delivery (if any) and the total the card is charged. */
+  itemsCents: number;
+  deliveryFeeCents: number;
   onPrepare: (paymentIntentId: string, customer: CheckoutCustomer) => Promise<PrepareResult>;
 };
 
@@ -2668,6 +2873,8 @@ function PaymentModal({
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            role="dialog"
+            aria-label="Checkout"
           >
             <div className="payment-header">
               <h3>Checkout</h3>
@@ -2744,10 +2951,15 @@ function StripePaymentForm({
   const [country, setCountry] = useState("US");
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  // The choice made in the bag is shown as a summary; "Change" opens the picker again.
+  const [changingChoice, setChangingChoice] = useState(false);
   // Changing pickup/shipping here flips the address fields on or off immediately.
+  // Everything typed stays in state either way, so switching back loses nothing.
   const { needsAddress } = checkout;
   const pickupWithOtherItems =
     Boolean(checkout.showMerch) && checkout.fulfillment.method === "pickup" && checkout.hasOtherItems;
+  const summary = checkout.showMerch && !checkout.problem && !checkout.notice ? describeChoice(checkout.showMerch, checkout.fulfillment) : null;
+  const showPicker = Boolean(checkout.showMerch) && (changingChoice || !summary);
 
   useEffect(() => {
     if (!accountUser) return;
@@ -2777,6 +2989,7 @@ function StripePaymentForm({
     if (checkout.problem) {
       // The picker already shows a server notice; otherwise say what's missing.
       setLocalError(checkout.notice ? null : checkout.problem);
+      setChangingChoice(true);
       return;
     }
 
@@ -2791,20 +3004,20 @@ function StripePaymentForm({
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!trimmedName) {
-      setLocalError("Name is required");
+      setLocalError("Enter your name.");
       return;
     }
     if (!trimmedEmail || !emailPattern.test(trimmedEmail)) {
-      setLocalError("Enter a valid email address");
+      setLocalError("Enter a valid email address.");
       return;
     }
     if (needsAddress) {
       if (!trimmedLine1 || !trimmedCity || !trimmedState || !trimmedPostal) {
-        setLocalError("Complete the shipping address");
+        setLocalError("Complete the shipping address.");
         return;
       }
       if (trimmedCountry.length !== 2) {
-        setLocalError("Use the 2-letter country code (e.g. US)");
+        setLocalError("Use the 2-letter country code (e.g. US).");
         return;
       }
     }
@@ -2831,11 +3044,9 @@ function StripePaymentForm({
     const prepared = await checkout.onPrepare(paymentIntentId, customer);
     if (!prepared.ok) {
       // Pickup/shipping problems appear on the picker; everything else appears here.
-      setLocalError(
-        prepared.code && FULFILLMENT_CODES.has(prepared.code)
-          ? null
-          : prepared.error ?? "Unable to prepare payment. Nothing was charged.",
-      );
+      const fulfillmentIssue = Boolean(prepared.code && FULFILLMENT_CODES.has(prepared.code));
+      setLocalError(fulfillmentIssue ? null : prepared.error ?? "Unable to prepare payment. Nothing was charged.");
+      if (fulfillmentIssue) setChangingChoice(true);
       setSubmitting(false);
       return;
     }
@@ -2886,23 +3097,37 @@ function StripePaymentForm({
   };
 
   const disabled = submitting || processing || !stripe || !elements;
-  const payLabel = disabled ? "Processing..." : `Pay ${formatCurrency(amount)}`;
+  const blocked = disabled || Boolean(checkout.problem);
+  const payLabel = submitting || processing ? "Processing..." : `Pay ${formatCurrency(amount)}`;
 
   return (
     <form className="payment-form" onSubmit={handleSubmit}>
-      {checkout.showMerch ? (
+      {checkout.showMerch && summary && !showPicker ? (
+        <div className="checkout-summary" role="group" aria-label="Pickup or shipping">
+          <div className="checkout-summary__text">
+            <div className="checkout-summary__title">{summary.title}</div>
+            <div className="checkout-summary__detail">{summary.detail}</div>
+          </div>
+          <button type="button" className="checkout-summary__change" onClick={() => setChangingChoice(true)}>
+            Change
+          </button>
+        </div>
+      ) : null}
+      {checkout.showMerch && showPicker ? (
         <FulfillmentPicker
           offer={checkout.showMerch}
           choice={checkout.fulfillment}
           onChange={(choice) => {
             setLocalError(null);
             checkout.onFulfillmentChange(choice);
+            setChangingChoice(false);
           }}
-          priceLabel={checkout.priceLabel}
+          cartShowMerchIds={checkout.cartShowMerchIds}
+          titleOf={checkout.titleOf}
           hasOtherItems={checkout.hasOtherItems}
           notice={checkout.notice}
           idPrefix="checkout"
-          detailed
+          formatCurrency={formatCurrency}
         />
       ) : null}
       {(localError || errorMessage) && (
@@ -2928,12 +3153,15 @@ function StripePaymentForm({
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           autoComplete="email"
+          inputMode="email"
         />
       </div>
       {needsAddress ? (
         <>
           {pickupWithOtherItems ? (
             <p className="payment-note">The other items in your bag ship to this address.</p>
+          ) : checkout.showMerch && checkout.showMerch.shipping.regionLabel ? (
+            <p className="payment-note">Show merch ships to {checkout.showMerch.shipping.regionLabel}.</p>
           ) : null}
           <div className="payment-row">
             <label htmlFor="checkout-address1">Address line 1</label>
@@ -2998,7 +3226,7 @@ function StripePaymentForm({
           </div>
         </>
       ) : (
-        <p className="payment-note">Pickup order: no shipping address needed.</p>
+        <p className="payment-note">Pickup order: just your name and email — no shipping address needed.</p>
       )}
       <div className="payment-row">
         <label>Card details</label>
@@ -3018,7 +3246,15 @@ function StripePaymentForm({
           />
         </div>
       </div>
-      {checkout.problem && !checkout.notice ? <p className="payment-note payment-note--warn">{checkout.problem}</p> : null}
+      <div className="payment-totals" aria-label="Order total">
+        <div className="payment-totals__line"><span>Items</span><span>{formatCurrency(checkout.itemsCents)}</span></div>
+        <div className="payment-totals__line">
+          <span>Delivery</span>
+          <span>{checkout.deliveryFeeCents > 0 ? formatCurrency(checkout.deliveryFeeCents) : checkout.needsAddress ? "Included" : "—"}</span>
+        </div>
+        <div className="payment-totals__line payment-totals__line--total"><span>Total</span><span>{formatCurrency(amount)}</span></div>
+      </div>
+      {checkout.problem && !checkout.notice ? <p className="payment-note">{checkout.problem}</p> : null}
       <div className="payment-actions">
         <button
           type="button"
@@ -3031,7 +3267,8 @@ function StripePaymentForm({
         <button
           type="submit"
           className="payment-submit"
-          disabled={disabled || Boolean(checkout.problem)}
+          disabled={blocked}
+          aria-disabled={blocked}
         >
           {payLabel}
         </button>
@@ -3039,9 +3276,6 @@ function StripePaymentForm({
     </form>
   );
 }
-
-
-
 
 export default App;
 

@@ -51,20 +51,22 @@ export function sizeOptions(): string[] {
  * The sizes a product offers. Empty means it needs no size at all — a poster
  * or a record behaves exactly as it did before sizing existed.
  */
-export function sizesForProduct(product: Pick<CatalogItem, "tags">): string[] {
+export function sizesForProduct(product: Pick<CatalogItem, "tags" | "sizes">): string[] {
+  // A product can name its own sizes (the blank might run S–XXL); the tag rule is the default.
+  if (Array.isArray(product.sizes) && product.sizes.length) return product.sizes.slice();
   const tags = (product.tags ?? []).map((tag) => String(tag).trim().toLowerCase());
   if (!tags.length) return [];
   const sized = new Set(sizedTags());
   return tags.some((tag) => sized.has(tag)) ? sizeOptions() : [];
 }
 
-export function productNeedsSize(product: Pick<CatalogItem, "tags">): boolean {
+export function productNeedsSize(product: Pick<CatalogItem, "tags" | "sizes">): boolean {
   return sizesForProduct(product).length > 0;
 }
 
 /** Normalises a submitted size to one the product actually offers, else null. */
 export function normalizeSize(
-  product: Pick<CatalogItem, "tags">,
+  product: Pick<CatalogItem, "tags" | "sizes">,
   submitted: unknown,
 ): string | null {
   const options = sizesForProduct(product);

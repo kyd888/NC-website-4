@@ -18,6 +18,8 @@ export type Sale = {
   dropId?: string;
   /** Chosen at checkout for apparel; absent for products that need no size. */
   size?: string;
+  /** What the customer was told about the product, as sold: "Front print · Standard black tee". */
+  productDetail?: string;
   shippingAddress?: {
     line1: string;
     line2?: string;
@@ -52,6 +54,15 @@ function escapeCsv(value: unknown) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;
+}
+
+/**
+ * The order number a customer sees and quotes: short, upper-case, unique
+ * enough for a merch table. The full payment id stays in the admin.
+ */
+export function customerOrderNumber(orderId: string) {
+  const clean = (orderId || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return `NC-${clean.slice(-6) || "000000"}`;
 }
 
 function summarizeOrderItems(items: OrderLineItem[]) {
@@ -93,6 +104,7 @@ function writeOrdersCsv() {
       "fulfillment",
       "pickup_show",
       "pickup_show_date",
+      "order_number",
     ];
 
     let runningRevenueCents = 0;
@@ -119,6 +131,7 @@ function writeOrdersCsv() {
         order.fulfillment.methods.join(" + "),
         order.fulfillment.pickupShow?.name ?? "",
         order.fulfillment.pickupShow?.date ?? "",
+        customerOrderNumber(order.orderId),
       ]
         .map(escapeCsv)
         .join(",");
@@ -141,6 +154,7 @@ function writeOrdersCsv() {
         summary.items,
         formatUsd(summary.grossCents),
         formatUsd(summary.grossCents),
+        "",
         "",
         "",
         "",
@@ -194,9 +208,17 @@ function sanitizeFulfillment(input: unknown): SaleFulfillment | undefined {
   if (value.showMerch === true) out.showMerch = true;
   const show = sanitizeShow(value.show);
   if (show) out.show = show;
-  if (typeof value.bonus === "string" && value.bonus) out.bonus = value.bonus;
-  if (typeof value.shipsAfter === "string" && value.shipsAfter) out.shipsAfter = value.shipsAfter;
-  if (typeof value.dispatchEstimate === "string" && value.dispatchEstimate) out.dispatchEstimate = value.dispatchEstimate;
+  const text = (key: keyof SaleFulfillment) => (typeof value[key] === "string" && value[key] ? (value[key] as string) : undefined);
+  if (text("setupId")) out.setupId = text("setupId");
+  if (text("bonus")) out.bonus = text("bonus");
+  if (text("pickupHours")) out.pickupHours = text("pickupHours");
+  if (text("pickupInstructions")) out.pickupInstructions = text("pickupInstructions");
+  if (text("missedPickupPolicy")) out.missedPickupPolicy = text("missedPickupPolicy");
+  if (text("shipsAfter")) out.shipsAfter = text("shipsAfter");
+  if (text("dispatchEstimate")) out.dispatchEstimate = text("dispatchEstimate");
+  if (typeof value.shippingIncluded === "boolean") out.shippingIncluded = value.shippingIncluded;
+  const fee = Number(value.shippingFeeCents);
+  if (Number.isFinite(fee) && fee >= 0 && value.shippingFeeCents !== undefined && value.shippingFeeCents !== null) out.shippingFeeCents = Math.round(fee);
   return out;
 }
 
@@ -231,6 +253,7 @@ function sanitizeSale(input: unknown): Sale | null {
     // Size used to be dropped here, so every order lost its sizes on the next
     // restart. Pickup lists and packing depend on them.
     size: typeof value.size === "string" && value.size ? value.size : undefined,
+    productDetail: typeof value.productDetail === "string" && value.productDetail ? value.productDetail.slice(0, 200) : undefined,
     fulfillment: sanitizeFulfillment(value.fulfillment),
   };
 }
@@ -287,6 +310,7 @@ function rowToSale(value: any): Sale | null {
     orderId: value.order_id ?? value.orderId,
     lineTotalCents: value.line_total_cents ?? value.lineTotalCents,
     size: value.size ?? undefined,
+    productDetail: value.product_detail ?? value.productDetail ?? undefined,
     fulfillment: value.fulfillment ?? undefined,
   });
 }
@@ -301,7 +325,7 @@ export async function loadSalesFromDb() {
     const result = await dbQuery(
       `SELECT id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
         customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents,
-        size, fulfillment
+        size, fulfillment, product_detail
        FROM sales
        ORDER BY ts ASC
        LIMIT $1`,
@@ -320,9 +344,9 @@ export async function upsertSaleToDb(sale: Sale) {
     `INSERT INTO sales (
       id, ts, product_id, qty, price_cents, ref, ua, user_id, customer_name,
       customer_email, product_title, drop_id, shipping_address, order_id, line_total_cents,
-      size, fulfillment
+      size, fulfillment, product_detail
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17::jsonb)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17::jsonb, $18)
     ON CONFLICT (id) DO UPDATE SET
       ts = EXCLUDED.ts,
       product_id = EXCLUDED.product_id,
@@ -339,7 +363,8 @@ export async function upsertSaleToDb(sale: Sale) {
       order_id = EXCLUDED.order_id,
       line_total_cents = EXCLUDED.line_total_cents,
       size = EXCLUDED.size,
-      fulfillment = EXCLUDED.fulfillment`,
+      fulfillment = EXCLUDED.fulfillment,
+      product_detail = EXCLUDED.product_detail`,
     [
       sale.id,
       sale.ts,
@@ -358,6 +383,7 @@ export async function upsertSaleToDb(sale: Sale) {
       sale.lineTotalCents ?? sale.qty * sale.priceCents,
       sale.size ?? null,
       jsonParam(sale.fulfillment ?? null),
+      sale.productDetail ?? null,
     ],
   );
 }
@@ -389,6 +415,7 @@ export async function recordSale(s: Omit<Sale, "id"|"ts"> & { id?: string; ts?: 
     lineTotalCents: s.lineTotalCents ?? s.priceCents * s.qty,
     dropId: s.dropId,
     size: s.size,
+    productDetail: s.productDetail,
     fulfillment: s.fulfillment,
   };
   sales.push(row);
@@ -413,6 +440,7 @@ export type OrderLineItem = {
   priceCents: number;
   lineTotalCents: number;
   size?: string;
+  productDetail?: string;
   /** Lines recorded before fulfillment existed read as shipped. */
   fulfillment: SaleFulfillment;
 };
@@ -425,6 +453,8 @@ export type OrderFulfillmentSummary = {
 
 export type OrderSummary = {
   orderId: string;
+  /** The short number customers see ("NC-A1B2C3"). */
+  orderNumber: string;
   ts: string;
   userId?: string;
   dropId?: string;
@@ -451,6 +481,7 @@ export function groupSalesByOrder(rows: Sale[]): OrderSummary[] {
     if (!order) {
       order = {
         orderId: key,
+        orderNumber: customerOrderNumber(key),
         ts: sale.ts,
         userId: sale.userId,
         dropId: sale.dropId,
@@ -486,6 +517,7 @@ export function groupSalesByOrder(rows: Sale[]): OrderSummary[] {
       priceCents: sale.priceCents,
       lineTotalCents: lineTotal,
       size: sale.size,
+      productDetail: sale.productDetail,
       fulfillment,
     });
     if (!order.fulfillment.methods.includes(fulfillment.method)) order.fulfillment.methods.push(fulfillment.method);

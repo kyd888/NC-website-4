@@ -29,6 +29,8 @@ export type OrderLineItem = {
 
 export type AccountOrder = {
   orderId: string;
+  /** The short number customers see. */
+  orderNumber?: string;
   ts: string;
   totalCents: number;
   totalItems: number;

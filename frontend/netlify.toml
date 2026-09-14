@@ -47,6 +47,14 @@
   status = 200
   force = true
 
+# Customer order pages the backend renders itself: a missed pickup giving an
+# address through the secure link staff send. Also above the /* catch-all.
+[[redirects]]
+  from = "/orders/*"
+  to = "https://nc-website-4.onrender.com/orders/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

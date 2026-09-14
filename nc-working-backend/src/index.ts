@@ -12,6 +12,7 @@ import { catalogRouter } from "./routes/catalog.js";
 import { adminUiRouter } from "./routes/admin_ui.js";
 import { shareRouter } from "./routes/share.js";
 import { feedsRouter } from "./routes/feeds.js";
+import { ordersRouter } from "./routes/orders.js";
 import {
   seedInventory,
   registerVaultSavesGetter,
@@ -143,6 +144,8 @@ app.use("/admin", adminUiRouter);
 app.use("/p", shareRouter);
 // Product catalog feeds that other platforms pull on a schedule (Meta Commerce).
 app.use("/feeds", feedsRouter);
+// Customer order pages outside the shop app: a missed pickup giving an address.
+app.use("/orders", rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false }), ordersRouter);
 
 // Render's own deploy check. It must answer 200 whenever the process is
 // alive — a stricter test here would fail deploys — so it says nothing about

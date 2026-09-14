@@ -105,6 +105,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .btn.primary { background:#f5f5f5; color:#000; border-color:#f5f5f5; }
   .btn.small { padding: 6px 8px; font-size: 12px; }
   .btn.danger { border-color:#ff6b6b; color:#ff6b6b; }
+  .btn:disabled, .btn[disabled] { opacity:.4; cursor:not-allowed; }
   .btnline { display:flex; gap:8px; flex-wrap:wrap; }
   .list { display:grid; gap:8px; margin-top:12px; }
   .card-surface .list { margin-top:0; }
@@ -214,15 +215,78 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .sm-checklist .sm-mark { width:14px; flex:none; text-align:center; }
   .sm-checklist .ok .sm-mark { color:#7ee2a8; }
   .sm-checklist .todo .sm-mark { color:#e4c56b; }
-  .sm-products { display:grid; gap:6px; }
-  .sm-products label { display:flex; align-items:center; gap:10px; font-size:13px; color:#e8e8e8; margin:0; cursor:pointer; }
-  .sm-products input { width:auto; accent-color:#f5f5f5; }
-  .sm-products .id { margin:0; }
+  .sm-checklist a { color:inherit; text-decoration:underline; text-decoration-color:rgba(255,255,255,.25); text-underline-offset:3px; }
+  .sm-checklist a:hover { text-decoration-color:#fff; }
+  .sm-tag { display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:1px 7px; border-radius:999px; margin-left:6px; vertical-align:middle; }
+  .sm-tag.test { background:#3a2b11; color:#f1c56f; }
+  .sm-tag.optional { background:#1f1f1f; color:#9a9a9a; }
   .sm-pill { display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:2px 8px; border-radius:999px; white-space:nowrap; }
   .sm-pill.open { background:#14351f; color:#7ee2a8; }
   .sm-pill.closed { background:#3a1111; color:#fecaca; }
   .sm-pill.off { background:#2b2b2b; color:#b9b9b9; }
-  .sm-view { font-size:13px; line-height:1.6; color:#d4d4d4; }
+  .sm-pill.draft { background:#2b2b2b; color:#c8c8c8; }
+  .sm-pill.ready { background:#12263a; color:#9ecbff; }
+  .sm-pill.selling { background:#14351f; color:#7ee2a8; }
+  .sm-pill.dirty { background:#31280f; color:#e4c56b; }
+  .sm-pill.approved { background:#14351f; color:#7ee2a8; }
+  .sm-pill.changed { background:#31280f; color:#e4c56b; }
+  .sm-pill.pending { background:#2b2b2b; color:#b9b9b9; }
+  .sm-list { display:grid; gap:8px; }
+  .sm-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px 14px; align-items:center; padding:12px 14px; border:1px solid #1f1f1f; border-radius:12px; background:#0f0f0f; }
+  .sm-row__name { font-size:14px; font-weight:600; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sm-row__meta { font-size:12px; color:#9a9a9a; margin-top:3px; line-height:1.5; }
+  .sm-row__actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .sm-editor-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+  .sm-editor-head input { max-width:360px; font-size:15px; font-weight:600; }
+  .sm-editor-head .btnline { align-items:center; }
+  .sm-groups { display:grid; gap:8px; }
+  .sm-group { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 10px; border:1px solid #1f1f1f; border-radius:10px; background:#0b0b0b; font-size:13px; }
+  .sm-group .btn { font-size:11px; padding:5px 10px; }
+  .sm-product { border:1px solid #1f1f1f; border-radius:12px; padding:12px 14px; background:#0b0b0b; display:grid; gap:10px; }
+  .sm-product__head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-weight:600; font-size:13px; }
+  .sm-product .row { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+  .sm-images { display:grid; gap:8px; }
+  .sm-image { display:grid; grid-template-columns:56px minmax(0,1fr) auto; gap:10px; align-items:center; }
+  .sm-image img { width:56px; height:56px; object-fit:contain; background:#fff; border-radius:8px; }
+  .sm-image__actions { display:flex; gap:4px; }
+  .sm-image__actions .btn { padding:4px 8px; font-size:11px; }
+  .sm-sizeguide { display:grid; gap:6px; }
+  .sm-sizeguide__row { display:grid; grid-template-columns:80px 1fr 1fr auto; gap:6px; align-items:center; }
+  .sm-sizeguide__row .btn { padding:5px 8px; font-size:11px; }
+  .sm-preview { background:#f2f2ee; color:#111; border-radius:14px; padding:18px; display:grid; gap:18px; font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif; }
+  .sm-preview h4 { margin:0; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:rgba(17,17,17,.55); }
+  .sm-preview__tiles { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); }
+  .sm-tile { background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:16px; overflow:hidden; }
+  .sm-tile__img { aspect-ratio:4/5; background:#f2f2ee; display:grid; place-items:center; }
+  .sm-tile__img img { width:100%; height:100%; object-fit:contain; }
+  .sm-tile__body { padding:12px 14px; display:grid; gap:4px; }
+  .sm-tile__title { font-weight:700; font-size:15px; }
+  .sm-tile__price { font-size:13px; }
+  .sm-tile__desc { font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:rgba(17,17,17,.6); }
+  .sm-tile__note { font-size:11px; color:rgba(17,17,17,.6); }
+  .sm-tile__views { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+  .sm-tile__views span { font-size:10px; letter-spacing:.08em; text-transform:uppercase; border:1px solid rgba(0,0,0,.14); border-radius:999px; padding:2px 8px; }
+  .sm-fulfill { display:grid; gap:8px; }
+  .sm-fulfill__sub { font-size:12px; color:rgba(17,17,17,.6); }
+  .sm-opt { display:flex; gap:12px; align-items:flex-start; padding:14px; border:1.5px solid rgba(0,0,0,.14); border-radius:14px; background:#fff; }
+  .sm-opt.is-on { border-color:#111; background:#fafaf8; }
+  .sm-opt.is-off { border-style:dashed; background:#f4f4f2; color:rgba(17,17,17,.55); }
+  .sm-opt__radio { width:18px; height:18px; border-radius:999px; border:2px solid #111; flex:none; margin-top:2px; }
+  .sm-opt.is-on .sm-opt__radio { background:radial-gradient(circle,#111 45%,transparent 50%); }
+  .sm-opt.is-off .sm-opt__radio { border-color:rgba(17,17,17,.3); }
+  .sm-opt__body { display:grid; gap:4px; font-size:12px; line-height:1.45; }
+  .sm-opt__title { font-size:14px; font-weight:600; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .sm-badge { font-size:10px; letter-spacing:.1em; text-transform:uppercase; background:#111; color:#fff; border-radius:999px; padding:2px 8px; }
+  .sm-opt.is-off .sm-badge { background:rgba(17,17,17,.35); }
+  .sm-preview__banner { font-size:12px; background:#fff3cd; color:#7a5a00; border-radius:10px; padding:8px 12px; }
+  .sm-summary { background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:14px; padding:12px 14px; font-size:13px; display:flex; justify-content:space-between; gap:12px; align-items:center; }
+  .sm-summary b { font-weight:600; }
+  .sm-summary .change { font-size:11px; letter-spacing:.14em; text-transform:uppercase; text-decoration:underline; text-underline-offset:3px; }
+  .sm-stats { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
+  .sm-stat { background:#0b0b0b; border:1px solid #1f1f1f; border-radius:10px; padding:10px 12px; }
+  .sm-stat b { display:block; font-size:20px; font-weight:700; }
+  .sm-stat span { font-size:11px; color:#9a9a9a; text-transform:uppercase; letter-spacing:.08em; }
+  .sm-sticky-save { position:sticky; bottom:0; z-index:2; background:#121212; border-top:1px solid #1f1f1f; padding:10px 0 2px; margin-top:-4px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .kyd-pickup { display:grid; gap:8px; padding:10px 12px; border:1px dashed #262626; border-radius:10px; }
   .kyd-pickup__head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
   .kyd-field select, .kyd-field textarea { font-size:12px; padding:7px 9px; }
@@ -231,13 +295,20 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   .queue-tabs { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .queue-tabs .btn[aria-pressed="true"] { background:#f5f5f5; color:#000; border-color:#f5f5f5; }
   .queue-tabs select { width:auto; min-width:200px; }
+  .queue-tabs input[type="search"] { width:auto; min-width:220px; }
   .order-fulfillment { margin-top:12px; padding:10px 12px; border:1px solid #1f1f1f; border-radius:10px; background:#0b0b0b; display:grid; gap:10px; }
   .order-fulfillment__row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; }
   .order-fulfillment__row > div { min-width:150px; }
   .order-fulfillment__row input, .order-fulfillment__row select { width:auto; min-width:150px; }
+  .order-fulfillment__status { font-size:12px; color:#9ecbff; }
+  .order-fulfillment__addr { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+  .order-fulfillment__addr input { width:100%; min-width:0; }
   .fulfill-chip { display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:2px 8px; border-radius:999px; margin:4px 6px 0 0; }
   .fulfill-chip.pickup { background:#31280f; color:#e4c56b; }
   .fulfill-chip.ship { background:#12263a; color:#9ecbff; }
+  .fulfill-chip.missed { background:#3a1111; color:#fecaca; }
+  .fulfill-chip.done { background:#14351f; color:#7ee2a8; }
+  .order-number { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing:.04em; }
   @media (max-width: 860px) {
     .grid2 { grid-template-columns: 1fr; }
     .rowItem { grid-template-columns: minmax(0,1fr); grid-template-rows:auto auto auto auto; }
@@ -259,6 +330,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" type="button" data-tab="drop" aria-controls="panel-drop" aria-selected="true">Drop</button>
       <button class="tab" role="tab" type="button" data-tab="catalog" aria-controls="panel-catalog" aria-selected="false">Catalog</button>
+      <button class="tab" role="tab" type="button" data-tab="showmerch" aria-controls="panel-showmerch" aria-selected="false">Show merch</button>
       <button class="tab" role="tab" type="button" data-tab="kyd" aria-controls="panel-kyd" aria-selected="false">KYD</button>
       <button class="tab" role="tab" type="button" data-tab="vault" aria-controls="panel-vault" aria-selected="false">Vault</button>
       <button class="tab" role="tab" type="button" data-tab="analytics" aria-controls="panel-analytics" aria-selected="false">Analytics</button>
@@ -372,51 +444,34 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
             </div>
           </div>
         </section>
-        <section class="card-section" id="showMerchSection">
-          <div class="card-section-header">
-            <h3>Show merch</h3>
-            <p class="meta">Products customers can pick up at a KYD show with a free sticker pack, or have shipped after the show. The price is the same either way: build standard shipping into the product price, because checkout never adds a shipping charge.</p>
-          </div>
-          <div class="card-surface stack">
-            <div>
-              <div class="subheading">Before launch</div>
-              <ul id="sm_readiness" class="sm-checklist"><li class="muted">Loading&hellip;</li></ul>
-            </div>
-            <div>
-              <div class="subheading">Show merch products</div>
-              <div id="sm_products" class="sm-products"><div class="muted">Loading&hellip;</div></div>
-              <div class="form-note">Only these products get the pickup / ship-after-the-show choice. Everything else checks out and ships exactly as before, including in mixed carts.</div>
-            </div>
-            <div>
-              <div class="subheading">Shipping</div>
-              <div class="row">
-                <div><label for="sm_countries">Ships to (country codes, comma separated)</label><input id="sm_countries" autocomplete="off" /></div>
-                <div><label for="sm_excluded">Excluded states / regions (codes, comma separated)</label><input id="sm_excluded" autocomplete="off" /></div>
-                <div><label for="sm_ships_after">Shipping orders go out after</label><input id="sm_ships_after" type="date" /></div>
-              </div>
-              <div style="margin-top:10px">
-                <label for="sm_dispatch">Dispatch estimate (shown to customers exactly as written)</label>
-                <input id="sm_dispatch" autocomplete="off" />
-                <div class="form-note">Don&rsquo;t promise a delivery date here unless you can keep it. Leave blank to show only the ships-after date.</div>
-              </div>
-            </div>
-            <div>
-              <div class="subheading">Pickup</div>
-              <label for="sm_missed">Missed-pickup policy (shown to customers exactly as written)</label>
-              <textarea id="sm_missed" rows="3"></textarea>
-              <div class="form-note">Each show&rsquo;s status, timezone, pickup on/off, order cutoff and pickup instructions live on its row under Live dates in the KYD tab.</div>
-            </div>
-            <div>
-              <div class="subheading">What customers see right now</div>
-              <div id="sm_customer_view" class="sm-view"><span class="muted">Loading&hellip;</span></div>
-              <table style="margin-top:10px"><thead><tr><th>Show</th><th>Date</th><th>Pickup</th></tr></thead><tbody id="sm_shows"></tbody></table>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="panel-showmerch" role="tabpanel" hidden>
+      <div class="card card-stack">
+        <section class="card-section">
+          <div class="card-section-toolbar">
+            <div class="card-section-header">
+              <h3>Show merch</h3>
+              <p class="meta">One place for a show, its merch, the pickup and shipping terms, and the drop that sells it. A setup sells nothing until every required field is filled, approved, and it is published.</p>
             </div>
             <div class="btnline">
-              <button class="btn primary" id="sm_save" type="button">Save show merch settings</button>
-              <button class="btn" id="sm_reload" type="button">Discard changes</button>
-              <span class="form-note" id="sm_status"></span>
+              <a class="btn small" href="/admin/checkin" target="_blank" rel="noopener">Pickup check-in (phone)</a>
+              <button class="btn small primary" id="smNew" type="button">New setup</button>
             </div>
           </div>
+          <div id="smLive" class="form-note">Loading&hellip;</div>
+          <div id="smList" class="sm-list"><div class="muted">Loading&hellip;</div></div>
+        </section>
+        <section class="card-section" id="smEditor" hidden>
+          <div id="smEditorBody"></div>
+        </section>
+        <section class="card-section">
+          <div class="card-section-header">
+            <h3>Sales tax</h3>
+            <p class="meta">What checkout does about tax today, and what the owner has to set up to change it.</p>
+          </div>
+          <div id="smTax" class="card-surface"><div class="muted">Loading&hellip;</div></div>
         </section>
       </div>
     </div>
@@ -526,6 +581,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
               <button class="btn small" type="button" data-queue="pickup" aria-pressed="false">Pickup</button>
               <button class="btn small" type="button" data-queue="ship" aria-pressed="false">Shipping</button>
               <select id="queueShow" aria-label="Pickup show" hidden><option value="">All shows</option></select>
+              <input id="orderSearch" type="search" placeholder="Search name, email, order number" aria-label="Search orders" autocomplete="off" />
             </div>
             <div class="btnline">
               <button class="btn small" id="btnExportPickup" type="button">Export pickup list</button>
@@ -631,7 +687,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           if (typeof refreshVault === "function") void refreshVault();
         } else if (tab.dataset.tab === "kyd") {
           if (typeof refreshKyd === "function") void refreshKyd();
-        } else if (tab.dataset.tab === "catalog") {
+        } else if (tab.dataset.tab === "showmerch") {
           if (typeof refreshShowMerch === "function") void refreshShowMerch();
         } else if (typeof vaultTimer !== "undefined" && vaultTimer) {
           clearInterval(vaultTimer);
@@ -647,7 +703,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       setTimeout(() => { if (typeof refreshVault === "function") void refreshVault(); }, 0);
     } else if (saved === "kyd") {
       setTimeout(() => { if (typeof refreshKyd === "function") void refreshKyd(); }, 0);
-    } else if (saved === "catalog") {
+    } else if (saved === "showmerch") {
       setTimeout(() => { if (typeof refreshShowMerch === "function") void refreshShowMerch(); }, 0);
     }
   })();
@@ -1342,7 +1398,10 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     try {
       var data = await apiJson("/api/admin/show-merch");
       kydShowChecks = {};
-      (data.shows || []).forEach(function (check) { kydShowChecks[check.id] = check; });
+      // A show's pill is the verdict of the setup that sells for it, published first.
+      (data.setups || []).slice().sort(function (a, b) { return Number(b.published) - Number(a.published); }).forEach(function (setup) {
+        if (setup.showId && setup.pickup && !kydShowChecks[setup.showId]) kydShowChecks[setup.showId] = setup.pickup;
+      });
     } catch (_err) {
       // Without the checks the pills just read "Not saved yet"; editing still works.
     }
@@ -1353,7 +1412,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     var check = row.id ? kydShowChecks[row.id] : null;
     var pill = check
       ? '<span class="sm-pill ' + (check.eligible ? "open" : check.closed ? "closed" : "off") + '">' + escapeHtml(check.reason) + "</span>"
-      : '<span class="sm-pill off">Not saved yet</span>';
+      : '<span class="sm-pill off">Not in a show merch setup</span>';
     var status = row.status || "";
     function opt(value, label) {
       return '<option value="' + value + '"' + (status === value ? " selected" : "") + ">" + label + "</option>";
@@ -1371,9 +1430,13 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           '<input type="datetime-local" data-kydp-index="' + i + '" data-kydp-key="cutoff" value="' + escapeHtml(pickup.cutoff || "") + '" /></div>' +
         '<div class="kyd-field" style="align-self:end"><label class="kyd-check">' +
           '<input type="checkbox" data-kydp-index="' + i + '" data-kydp-key="enabled"' + (pickup.enabled ? " checked" : "") + " /> Offer merch pickup</label></div>" +
+        '<div class="kyd-field"><label>Pickup hours (shown up front)</label>' +
+          '<input type="text" data-kydp-index="' + i + '" data-kydp-key="hours" value="' + escapeHtml(pickup.hours || "") + '" placeholder="e.g. Merch table, 6–10 pm" /></div>' +
+        '<div class="kyd-field"><label>Public pickup location (optional)</label>' +
+          '<input type="text" data-kydp-index="' + i + '" data-kydp-key="location" value="' + escapeHtml(pickup.location || "") + '" placeholder="Defaults to venue · city" /></div>' +
       "</div>" +
-      '<div class="kyd-field"><label>Pickup instructions (shown to customers exactly as written)</label>' +
-        '<textarea rows="2" data-kydp-index="' + i + '" data-kydp-key="instructions">' + escapeHtml(pickup.instructions || "") + "</textarea></div>" +
+      '<div class="kyd-field"><label>Pickup instructions (shown to customers exactly as written, up to 500 characters)</label>' +
+        '<textarea rows="2" maxlength="500" data-kydp-index="' + i + '" data-kydp-key="instructions">' + escapeHtml(pickup.instructions || "") + "</textarea></div>" +
     "</div>";
   }
 
@@ -1689,125 +1752,828 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     });
   }
 
-  // ---------- Show merch settings ----------
-  var smData = null;
+  // ---------- Show merch setups ----------
+  // One setup = one show + its products + the pickup/shipping terms. The list
+  // and the editor read the same records the KYD tab, the catalog and the drop
+  // controls use; nothing here is a second copy.
+  var smOverview = null;
+  var smSetup = null;         // the open setup, as the server describes it
+  var smShows = [];
+  var smCatalog = [];
+  var smDraft = null;         // setup fields being edited
+  var smShowDraft = null;     // the show's fields being edited (saved to the KYD content)
+  var smProductDrafts = {};   // productId -> product fields being edited (saved to the catalog)
+  var smDirty = false;
+  var smReport = null;
+  var smSaving = false;
 
-  function smSetStatus(text, isError) {
-    var el = document.getElementById("sm_status");
+  var SM_SETUP_FIELDS = ["name", "showId", "productIds", "productCutoffs", "pickupWindowMonths", "pickupBonus", "shippingIncluded", "shippingFeeCents", "shippingCountries", "excludedRegions", "shipsAfterDate", "dispatchEstimate", "missedPickupPolicy"];
+
+  function smClone(value) { return JSON.parse(JSON.stringify(value)); }
+  function smMoney(cents) { return "$" + ((Number(cents) || 0) / 100).toFixed(2); }
+  function smPid(id) { return encodeURIComponent(id); }
+  function smShortDate(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? String(iso) : d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  var smNoteText = "";
+  var smNoteError = false;
+  function smNote(text, isError) {
+    smNoteText = text || "";
+    smNoteError = Boolean(isError);
+    var el = document.getElementById("smStatusNote");
     if (!el) return;
-    el.textContent = text || "";
-    el.style.color = isError ? "#e08585" : "";
+    el.textContent = smNoteText;
+    el.style.color = smNoteError ? "#e08585" : "";
   }
 
-  function smSetField(id, value) {
-    var el = document.getElementById(id);
-    if (el && document.activeElement !== el) el.value = value;
+  function smSetDirty(dirty) {
+    // An edit after a save makes "Saved" stale.
+    if (dirty && !smSaving && smNoteText.indexOf("Saved") === 0) smNote("");
+    smDirty = dirty;
+    var pill = document.getElementById("smDirtyPill");
+    if (pill) pill.hidden = !dirty;
+    var save = document.getElementById("smSave");
+    if (save) save.disabled = !dirty || smSaving;
+    var discard = document.getElementById("smDiscard");
+    if (discard) discard.disabled = !dirty || smSaving;
   }
 
-  function smCustomerView(view) {
-    if (!view) return "";
-    var pickup = view.pickup || {};
-    var shipping = view.shipping || {};
-    var lines = [];
-    if (pickup.state === "available") {
-      lines.push("<b>" + escapeHtml(view.labels.pickup) + "</b> is open for:");
-      (pickup.shows || []).forEach(function (s) {
-        lines.push("&nbsp;&nbsp;" + escapeHtml(s.name + " · " + s.dateLabel + " · " + s.location) +
-          (s.cutoffLabel ? ' <span class="muted">(orders close ' + escapeHtml(s.cutoffLabel) + ")</span>" : ""));
-      });
-    } else {
-      lines.push("<b>" + escapeHtml(view.labels.pickup) + "</b> is greyed out with: &ldquo;" + escapeHtml(pickup.message) + "&rdquo;");
-    }
-    if (shipping.available) {
-      lines.push("<b>" + escapeHtml(view.labels.ship) + "</b> is open: ships after " + escapeHtml(shipping.shipsAfterLabel) +
-        " to " + escapeHtml(shipping.regionLabel) + (shipping.dispatchEstimate ? ". &ldquo;" + escapeHtml(shipping.dispatchEstimate) + "&rdquo;" : "."));
-    } else {
-      lines.push("<b>" + escapeHtml(view.labels.ship) + "</b> is unavailable until a shipping region and ships-after date are saved.");
-    }
-    if (!view.productIds.length) lines.push('<span class="muted">No products are marked as show merch, so the shop shows none of this yet.</span>');
-    return lines.map(function (line) { return "<div>" + line + "</div>"; }).join("");
+  window.addEventListener("beforeunload", function (e) {
+    if (!smDirty) return;
+    e.preventDefault();
+    e.returnValue = "";
+  });
+
+  function smPill(status, label) {
+    return '<span class="sm-pill ' + status + '">' + escapeHtml(label) + "</span>";
   }
 
-  function renderShowMerch() {
-    if (!smData) return;
-    var s = smData.settings || {};
-    var readiness = document.getElementById("sm_readiness");
-    if (readiness) {
-      readiness.innerHTML = (smData.readiness || []).map(function (item) {
-        return '<li class="' + (item.ok ? "ok" : "todo") + '"><span class="sm-mark" aria-hidden="true">' + (item.ok ? "&#10003;" : "&#9675;") + "</span>" +
-          '<span><span class="sr-only">' + (item.ok ? "Done: " : "To do: ") + "</span>" + escapeHtml(item.label) + "</span></li>";
-      }).join("");
+  function smPickupPill(pickup) {
+    if (!pickup) return '<span class="sm-pill off">No show chosen</span>';
+    return '<span class="sm-pill ' + (pickup.eligible ? "open" : pickup.closed ? "closed" : "off") + '">Pickup: ' + escapeHtml(pickup.reason) + "</span>";
+  }
+
+  // ---- overview list
+  function renderSmList() {
+    var list = document.getElementById("smList");
+    var live = document.getElementById("smLive");
+    if (!list || !smOverview) return;
+    var setups = smOverview.setups || [];
+    if (live) {
+      var offer = smOverview.live || {};
+      var pickup = offer.pickup || {};
+      var shipping = offer.shipping || {};
+      var parts = [];
+      if (!offer.productIds || !offer.productIds.length) {
+        parts.push("Nothing is published: the shop sells everything the normal way right now.");
+      } else {
+        parts.push("Live in the shop: " + offer.productIds.length + " show merch product" + (offer.productIds.length === 1 ? "" : "s") + ".");
+        parts.push(pickup.state === "available"
+          ? "Pickup open for " + (pickup.shows || []).map(function (s) { return s.name; }).join(", ") + "."
+          : "Pickup greyed out: “" + (pickup.message || "") + "”");
+        parts.push(shipping.available ? "Shipping open to " + shipping.regionLabel + ", after " + shipping.shipsAfterLabel + "." : "Shipping unavailable.");
+      }
+      live.textContent = parts.join(" ");
     }
-    var productsWrap = document.getElementById("sm_products");
-    if (productsWrap) {
-      var chosen = s.productIds || [];
-      var rows = (smData.products || []).map(function (p) {
-        return '<label><input type="checkbox" data-sm-product="' + escapeHtml(p.id) + '"' + (chosen.indexOf(p.id) >= 0 ? " checked" : "") + " />" +
-          "<span>" + escapeHtml(p.title) + ' <span class="id">' + escapeHtml(p.id) + " &middot; " + escapeHtml(formatMoney(p.priceCents)) + (p.enabled ? "" : " &middot; hidden") + "</span></span></label>";
-      });
-      productsWrap.innerHTML = rows.length ? rows.join("") : '<div class="muted">No products yet.</div>';
+    if (!setups.length) {
+      list.innerHTML = '<div class="muted">No setups yet. Create one, pick the show, attach the shirts, fill in pickup and shipping, approve each group, then publish.</div>';
+      return;
     }
-    smSetField("sm_countries", (s.shippingCountries || []).join(", "));
-    smSetField("sm_excluded", (s.excludedRegions || []).join(", "));
-    smSetField("sm_ships_after", s.shipsAfterDate || "");
-    smSetField("sm_dispatch", s.dispatchEstimate || "");
-    smSetField("sm_missed", s.missedPickupPolicy || "");
-    var view = document.getElementById("sm_customer_view");
-    if (view) view.innerHTML = smCustomerView(smData.customerView);
-    var showsBody = document.getElementById("sm_shows");
-    if (showsBody) {
-      var showRows = (smData.shows || []).map(function (c) {
-        var cls = c.eligible ? "open" : c.closed ? "closed" : "off";
-        return "<tr><td>" + escapeHtml(c.name) + '<div class="id">' + escapeHtml(c.location || "") + "</div></td>" +
-          "<td>" + escapeHtml(c.date) + "</td>" +
-          '<td><span class="sm-pill ' + cls + '">' + escapeHtml(c.reason) + "</span>" +
-          (c.cutoffLabel ? '<div class="id">Orders close ' + escapeHtml(c.cutoffLabel) + "</div>" : "") + "</td></tr>";
-      });
-      showsBody.innerHTML = showRows.length ? showRows.join("") : '<tr><td colspan="3" class="muted">No live dates yet.</td></tr>';
-    }
+    list.innerHTML = setups.map(function (s) {
+      var meta = [];
+      meta.push(s.show ? escapeHtml(s.show.title) + " &middot; " + escapeHtml(s.show.date) + (s.show.location ? " &middot; " + escapeHtml(s.show.location) : "") : "No show chosen");
+      meta.push((s.productIds || []).length + " product" + ((s.productIds || []).length === 1 ? "" : "s"));
+      if (s.blockers && !s.published) meta.push(s.blockers + " item" + (s.blockers === 1 ? "" : "s") + " before it can launch");
+      if (s.copiedFrom) meta.push("Copied from " + escapeHtml(s.copiedFrom));
+      return '<div class="sm-row">' +
+        '<div><div class="sm-row__name">' + escapeHtml(s.name) + smPill(s.status, s.statusLabel) + smPickupPill(s.pickup) + "</div>" +
+        '<div class="sm-row__meta">' + meta.join(" &middot; ") + "</div></div>" +
+        '<div class="sm-row__actions">' +
+          '<button class="btn small primary" type="button" data-sm-open="' + escapeHtml(s.id) + '">Open</button>' +
+          '<button class="btn small" type="button" data-sm-dup="' + escapeHtml(s.id) + '">Duplicate</button>' +
+          (s.published ? "" : '<button class="btn small danger" type="button" data-sm-del="' + escapeHtml(s.id) + '">Delete</button>') +
+        "</div></div>";
+    }).join("");
+  }
+
+  function renderSmTax() {
+    var box = document.getElementById("smTax");
+    if (!box || !smOverview || !smOverview.tax) return;
+    var tax = smOverview.tax;
+    box.innerHTML = '<div class="sm-row__name">' + smPill(tax.configured ? "selling" : "off", tax.label) + "</div>" +
+      '<p class="form-note" style="margin:8px 0 10px">' + escapeHtml(tax.summary) + "</p>" +
+      '<div class="subheading">Owner setup, if tax should be added at checkout</div>' +
+      '<ol style="margin:0;padding-left:18px;font-size:13px;line-height:1.6;color:#d4d4d4">' + (tax.ownerSteps || []).map(function (step) { return "<li>" + escapeHtml(step) + "</li>"; }).join("") + "</ol>";
   }
 
   async function refreshShowMerch() {
     try {
-      smData = await apiJson("/api/admin/show-merch");
-      renderShowMerch();
-      smSetStatus("");
+      smOverview = await apiJson("/api/admin/show-merch");
+      renderSmList();
+      renderSmTax();
+      if (smSetup && !smDirty) await smOpen(smSetup.id, true);
     } catch (err) {
-      smSetStatus(err.message || String(err), true);
+      var list = document.getElementById("smList");
+      if (list) list.innerHTML = '<div class="muted">' + escapeHtml(err.message || String(err)) + "</div>";
     }
   }
 
-  var smSaveBtn = document.getElementById("sm_save");
-  if (smSaveBtn) {
-    smSaveBtn.addEventListener("click", async function () {
-      var productIds = Array.prototype.slice.call(document.querySelectorAll("[data-sm-product]"))
-        .filter(function (el) { return el.checked; })
-        .map(function (el) { return el.getAttribute("data-sm-product"); });
-      var body = {
-        productIds: productIds,
-        shippingCountries: document.getElementById("sm_countries").value,
-        excludedRegions: document.getElementById("sm_excluded").value,
-        shipsAfterDate: document.getElementById("sm_ships_after").value,
-        dispatchEstimate: document.getElementById("sm_dispatch").value,
-        missedPickupPolicy: document.getElementById("sm_missed").value,
-      };
-      smSaveBtn.disabled = true;
-      smSetStatus("Saving…");
-      try {
-        // The fields refill with what the server kept, so a code it rejected is visible.
-        smData = await apiJson("/api/admin/show-merch", { method: "PUT", body: body });
-        renderShowMerch();
-        smSetStatus("Saved.");
-      } catch (err) {
-        smSetStatus(err.message || String(err), true);
-      } finally {
-        smSaveBtn.disabled = false;
-      }
-    });
+  // ---- open / close
+  async function smOpen(id, quiet) {
+    if (smDirty && !quiet && !confirm("Discard unsaved changes?")) return;
+    if (!quiet || !smSetup || smSetup.id !== id) smNote("");
+    try {
+      var data = await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(id));
+      smSetup = data.setup;
+      smShows = data.shows || [];
+      smCatalog = data.catalog || [];
+      smDraft = {};
+      SM_SETUP_FIELDS.forEach(function (key) { smDraft[key] = smClone(smSetup[key]); });
+      smShowDraft = smSetup.show ? {
+        title: smSetup.show.title || "", date: smSetup.show.date || "", city: smSetup.show.city || "", venue: smSetup.show.venue || "",
+        status: smSetup.show.status || "", timezone: smSetup.show.timezone || "",
+        merchPickup: Object.assign({ enabled: false, cutoff: "", hours: "", location: "", instructions: "" }, smSetup.show.merchPickup || {}),
+      } : null;
+      smProductDrafts = {};
+      (smSetup.products || []).forEach(function (p) { if (p) smProductDrafts[p.id] = smProductDraft(p); });
+      smReport = null;
+      renderSmEditor();
+      smSetDirty(false);
+      document.getElementById("smEditor").hidden = false;
+      if (!quiet) document.getElementById("smEditor").scrollIntoView({ behavior: "smooth", block: "start" });
+      smLoadReport();
+    } catch (err) {
+      alert(err.message || String(err));
+    }
   }
 
-  var smReloadBtn = document.getElementById("sm_reload");
-  if (smReloadBtn) smReloadBtn.addEventListener("click", function () { void refreshShowMerch(); });
+  function smProductDraft(p) {
+    var guide = p.sizeGuide || { rows: [] };
+    return {
+      id: p.id,
+      title: p.title || "",
+      priceDollars: ((p.priceCents || 0) / 100).toFixed(2),
+      enabled: p.enabled !== false,
+      inventoryMode: p.inventoryMode || "stocked",
+      printPlacement: p.printPlacement || "",
+      garment: p.garment || "",
+      description: p.description || "",
+      sizes: Array.isArray(p.sizes) ? p.sizes.join(", ") : "",
+      images: (p.images || []).slice(),
+      imageLabels: Object.assign({}, p.imageLabels || {}),
+      sizeGuideNote: guide.note || "",
+      sizeGuideRows: (guide.rows || []).map(function (r) { return { size: r.size || "", chest: r.chest || "", length: r.length || "" }; }),
+    };
+  }
+
+  function smClose() {
+    if (smDirty && !confirm("Discard unsaved changes?")) return;
+    smSetup = null;
+    smDraft = null;
+    smSetDirty(false);
+    document.getElementById("smEditor").hidden = true;
+    document.getElementById("smEditorBody").innerHTML = "";
+  }
+
+  // ---- editor rendering
+  function smField(id, label, inputHtml, note) {
+    return '<div><label for="' + id + '">' + label + "</label>" + inputHtml + (note ? '<div class="form-note">' + note + "</div>" : "") + "</div>";
+  }
+  function smInput(id, attr, value, extra) {
+    return '<input id="' + id + '" ' + attr + ' value="' + escapeHtml(value == null ? "" : String(value)) + '" ' + (extra || "") + " />";
+  }
+  function smOption(value, label, current) {
+    return '<option value="' + escapeHtml(value) + '"' + (String(current) === String(value) ? " selected" : "") + ">" + escapeHtml(label) + "</option>";
+  }
+  function smCheck(id, attr, checked, label) {
+    return '<label class="kyd-check" style="font-size:13px;margin-top:6px"><input id="' + id + '" type="checkbox" ' + attr + (checked ? " checked" : "") + " /> " + label + "</label>";
+  }
+
+  function smChecklistHtml(items, filter) {
+    var rows = items.filter(filter);
+    if (!rows.length) return '<div class="muted">Nothing here.</div>';
+    return '<ul class="sm-checklist">' + rows.map(function (item) {
+      var cls = item.ok && !item.placeholder ? "ok" : "todo";
+      var text = escapeHtml(item.label);
+      if (item.field) text = '<a href="#' + escapeHtml(item.field) + '" data-sm-goto="' + escapeHtml(item.field) + '">' + text + "</a>";
+      return '<li class="' + cls + '"><span class="sm-mark" aria-hidden="true">' + (cls === "ok" ? "&#10003;" : "&#9675;") + "</span>" +
+        '<span><span class="sr-only">' + (cls === "ok" ? "Done: " : "To do: ") + "</span>" + text +
+        (item.placeholder ? '<span class="sm-tag test">Looks like test text</span>' : "") +
+        (!item.required ? '<span class="sm-tag optional">Optional</span>' : "") + "</span></li>";
+    }).join("") + "</ul>";
+  }
+
+  function smApprovalsHtml() {
+    var keys = ["show", "products", "prices", "pickup", "shipping"];
+    return '<div class="sm-groups">' + keys.map(function (key) {
+      var state = smSetup.approvals[key];
+      var label = smSetup.approvalLabels[key];
+      var text = state === "approved" ? "Approved" : state === "changed" ? "Changed since approval" : "Not approved";
+      return '<div class="sm-group" id="sm-a-' + key + '"><span>' + escapeHtml(label) + " " + smPill(state, text) + "</span>" +
+        '<span class="btnline">' +
+          (state === "approved"
+            ? '<button class="btn" type="button" data-sm-approve="' + key + '" data-sm-approved="0">Withdraw</button>'
+            : '<button class="btn primary" type="button" data-sm-approve="' + key + '" data-sm-approved="1">Approve for launch</button>') +
+        "</span></div>";
+    }).join("") + "</div>";
+  }
+
+  function smShowSectionHtml() {
+    var options = '<option value="">Choose a show…</option>' + smShows.map(function (s) {
+      return smOption(s.id, s.title + " · " + s.date + (s.city ? " · " + s.city : ""), smDraft.showId);
+    }).join("");
+    var html = '<div class="subheading">Show</div>' +
+      '<div class="row">' + smField("sm-f-show", "Which show", '<select id="sm-f-show" data-smf="showId">' + options + "</select>", "Shows are managed under Live dates in the KYD tab. Editing the fields below changes that same show.") + "</div>";
+    if (smShowDraft) {
+      var d = smShowDraft;
+      var p = d.merchPickup;
+      html += '<div class="row" style="margin-top:10px">' +
+        smField("sm-f-show-title", "Title", smInput("sm-f-show-title", 'type="text" data-sms="title"', d.title)) +
+        smField("sm-f-show-date", "Show date", smInput("sm-f-show-date", 'type="date" data-sms="date"', d.date)) +
+        smField("sm-f-show-venue", "Venue", smInput("sm-f-show-venue", 'type="text" data-sms="venue"', d.venue)) +
+        smField("sm-f-show-city", "City", smInput("sm-f-show-city", 'type="text" data-sms="city"', d.city)) +
+        smField("sm-f-show-status", "Show status", '<select id="sm-f-show-status" data-sms="status">' + smOption("", "Not set", d.status) + smOption("confirmed", "Confirmed", d.status) + smOption("tentative", "Tentative", d.status) + smOption("canceled", "Canceled", d.status) + "</select>") +
+        smField("sm-f-show-timezone", "Timezone (where the show is)", smInput("sm-f-show-timezone", 'type="text" list="kydTimezones" autocomplete="off" data-sms="timezone"', d.timezone)) +
+      "</div>" +
+      '<div class="subheading" style="margin-top:14px">Pickup at this show</div>' +
+      '<div class="row">' +
+        '<div style="align-self:end">' + smCheck("sm-f-pickup-enabled", 'data-smp="enabled"', p.enabled, "Offer merch pickup at this show") + "</div>" +
+        smField("sm-f-pickup-cutoff", "Pickup orders close (show time)", smInput("sm-f-pickup-cutoff", 'type="datetime-local" data-smp="cutoff"', p.cutoff), "Keep the printer’s completion date in mind: orders placed before this must be ready at the show.") +
+        smField("sm-f-pickup-hours", "Pickup hours (shown up front)", smInput("sm-f-pickup-hours", 'type="text" maxlength="160" data-smp="hours"', p.hours, 'placeholder="e.g. Merch table, 6–10 pm"')) +
+        smField("sm-f-pickup-location", "Public pickup location (optional)", smInput("sm-f-pickup-location", 'type="text" maxlength="160" data-smp="location"', p.location, 'placeholder="Defaults to venue · city"'), "Shown as the pickup location. Current: " + escapeHtml(smSetup.show ? smSetup.show.location : "")) +
+      "</div>" +
+      '<div style="margin-top:10px">' + smField("sm-f-pickup-instructions", "Pickup instructions (extended; shown under “More about pickup” and in the receipt)", '<textarea id="sm-f-pickup-instructions" rows="3" maxlength="500" data-smp="instructions">' + escapeHtml(p.instructions) + "</textarea>", "Up to 500 characters; copied onto each paid order as written.") + "</div>";
+    }
+    return html;
+  }
+
+  function smProductCardHtml(p) {
+    var pid = smPid(p.id);
+    var cutoff = smDraft.productCutoffs[p.id] || "";
+    var images = p.images.map(function (url, i) {
+      return '<div class="sm-image">' +
+        '<img src="' + escapeHtml(url) + '" alt="" onerror="this.style.visibility=&quot;hidden&quot;" />' +
+        '<input type="text" placeholder="Label: Front / Back (blank) / Artwork close-up" maxlength="40" data-smimg="' + escapeHtml(p.id) + '" data-url="' + escapeHtml(url) + '" value="' + escapeHtml(p.imageLabels[url] || "") + '" />' +
+        '<div class="sm-image__actions">' +
+          '<button class="btn" type="button" data-smimg-move="' + escapeHtml(p.id) + '" data-index="' + i + '" data-dir="-1" title="Move up">&uarr;</button>' +
+          '<button class="btn" type="button" data-smimg-move="' + escapeHtml(p.id) + '" data-index="' + i + '" data-dir="1" title="Move down">&darr;</button>' +
+          '<button class="btn danger" type="button" data-smimg-del="' + escapeHtml(p.id) + '" data-index="' + i + '">Remove</button>' +
+        "</div></div>";
+    }).join("");
+    var rows = p.sizeGuideRows.map(function (r, i) {
+      return '<div class="sm-sizeguide__row">' +
+        '<input type="text" placeholder="Size" data-smsg="' + escapeHtml(p.id) + '" data-row="' + i + '" data-key="size" value="' + escapeHtml(r.size) + '" />' +
+        '<input type="text" placeholder="Chest (e.g. 20 in)" data-smsg="' + escapeHtml(p.id) + '" data-row="' + i + '" data-key="chest" value="' + escapeHtml(r.chest) + '" />' +
+        '<input type="text" placeholder="Length (e.g. 28 in)" data-smsg="' + escapeHtml(p.id) + '" data-row="' + i + '" data-key="length" value="' + escapeHtml(r.length) + '" />' +
+        '<button class="btn danger" type="button" data-smsg-del="' + escapeHtml(p.id) + '" data-row="' + i + '">&times;</button>' +
+      "</div>";
+    }).join("");
+    return '<div class="sm-product" data-sm-product="' + escapeHtml(p.id) + '">' +
+      '<div class="sm-product__head"><span>' + escapeHtml(p.title || p.id) + ' <span class="id">' + escapeHtml(p.id) + "</span></span>" +
+        '<button class="btn small" type="button" data-smprod-remove="' + escapeHtml(p.id) + '">Remove from setup</button></div>' +
+      '<div class="row">' +
+        smField("sm-p-" + pid + "-title", "Name", smInput("sm-p-" + pid + "-title", 'type="text" data-smpr="' + escapeHtml(p.id) + '" data-key="title"', p.title)) +
+        smField("sm-p-" + pid + "-price", "Price (USD)", smInput("sm-p-" + pid + "-price", 'type="number" step="0.01" min="0" data-smpr="' + escapeHtml(p.id) + '" data-key="priceDollars"', p.priceDollars), "Suggested until production quotes are in; approve under Prices when confirmed.") +
+        smField("sm-p-" + pid + "-inventory", "Inventory", '<select id="sm-p-' + pid + '-inventory" data-smpr="' + escapeHtml(p.id) + '" data-key="inventoryMode">' + smOption("stocked", "Stocked — units reserved while in a bag", p.inventoryMode) + smOption("made_to_order", "Made to order — no count, no hold timer", p.inventoryMode) + "</select>") +
+        smField("sm-p-" + pid + "-print", "Print placement", '<select id="sm-p-' + pid + '-print" data-smpr="' + escapeHtml(p.id) + '" data-key="printPlacement">' + smOption("", "Not set", p.printPlacement) + smOption("front", "Front print (blank back)", p.printPlacement) + smOption("front_back", "Front + back print", p.printPlacement) + "</select>") +
+        smField("sm-p-" + pid + "-garment", "Garment (the blank, as verified)", smInput("sm-p-" + pid + "-garment", 'type="text" maxlength="120" data-smpr="' + escapeHtml(p.id) + '" data-key="garment"', p.garment, 'placeholder="e.g. Standard black tee"')) +
+        smField("sm-p-" + pid + "-sizes", "Sizes (comma separated; blank = S, M, L, XL)", smInput("sm-p-" + pid + "-sizes", 'type="text" data-smpr="' + escapeHtml(p.id) + '" data-key="sizes"', p.sizes)) +
+        smField("sm-f-cutoff-" + pid, "Own pickup cutoff (optional)", smInput("sm-f-cutoff-" + pid, 'type="datetime-local" data-smcut="' + escapeHtml(p.id) + '"', cutoff), "Overrides the show’s cutoff for this product, e.g. a longer production time.") +
+        '<div style="align-self:end">' + smCheck("sm-p-" + pid + "-enabled", 'data-smpr="' + escapeHtml(p.id) + '" data-key="enabled"', p.enabled, "Shown in the shop") + "</div>" +
+      "</div>" +
+      smField("sm-p-" + pid + "-description", "Description", '<textarea id="sm-p-' + pid + '-description" rows="2" maxlength="600" data-smpr="' + escapeHtml(p.id) + '" data-key="description">' + escapeHtml(p.description) + "</textarea>") +
+      '<div id="sm-p-' + pid + '-images"><div class="subheading">Images (front, back, artwork close-up)</div>' +
+        '<div class="sm-images">' + (images || '<div class="muted">No images yet.</div>') + "</div>" +
+        '<div class="btnline" style="margin-top:8px"><input type="file" accept="image/*" multiple style="display:none" data-smimg-file="' + escapeHtml(p.id) + '" />' +
+        '<button class="btn small" type="button" data-smimg-up="' + escapeHtml(p.id) + '">Upload images</button></div></div>' +
+      '<div id="sm-p-' + pid + '-size-guide"><div class="subheading">Size guide (the blank’s measurements)</div>' +
+        '<div class="sm-sizeguide">' + rows + "</div>" +
+        '<div class="btnline" style="margin-top:8px"><button class="btn small" type="button" data-smsg-add="' + escapeHtml(p.id) + '">Add size</button></div>' +
+        '<div style="margin-top:8px">' + smField("sm-p-" + pid + "-sgnote", "Note (optional)", smInput("sm-p-" + pid + "-sgnote", 'type="text" maxlength="200" data-smpr="' + escapeHtml(p.id) + '" data-key="sizeGuideNote"', p.sizeGuideNote, 'placeholder="e.g. Measured flat, in inches"')) + "</div></div>" +
+    "</div>";
+  }
+
+  function smProductsSectionHtml() {
+    var chosen = smDraft.productIds;
+    var picker = smCatalog.map(function (p) {
+      return '<label><input type="checkbox" data-smprod-toggle="' + escapeHtml(p.id) + '"' + (chosen.indexOf(p.id) >= 0 ? " checked" : "") + " /><span>" + escapeHtml(p.title) + ' <span class="id">' + escapeHtml(p.id) + " &middot; " + smMoney(p.priceCents) + (p.enabled ? "" : " &middot; hidden") + "</span></span></label>";
+    }).join("");
+    var cards = chosen.map(function (id) {
+      var draft = smProductDrafts[id];
+      if (!draft) return '<div class="muted">' + escapeHtml(id) + " is not in the catalog any more.</div>";
+      return smProductCardHtml(draft);
+    }).join("");
+    return '<div class="subheading">Products in this setup</div>' +
+      '<div id="sm-f-products" class="sm-products">' + (picker || '<div class="muted">No products in the catalog yet. Add one in the Catalog tab.</div>') + "</div>" +
+      '<div class="form-note">Only these products get the pickup / ship-after-the-show choice. Everything else checks out exactly as before, including in a mixed bag.</div>' +
+      '<div style="display:grid;gap:10px;margin-top:12px">' + cards + "</div>";
+  }
+
+  function smTermsSectionHtml() {
+    var d = smDraft;
+    return '<div class="subheading">Pickup terms</div>' +
+      '<div class="row">' +
+        smField("sm-f-bonus", "Pickup bonus", smInput("sm-f-bonus", 'type="text" maxlength="60" data-smf="pickupBonus"', d.pickupBonus, 'placeholder="e.g. Sticker pack"'), "Shown as a badge: “" + escapeHtml(d.pickupBonus ? d.pickupBonus + " included" : "…") + "”. Clear it if a future offer has no bonus.") +
+        smField("sm-f-window", "Pickup opens this many calendar months before a show", smInput("sm-f-window", 'type="number" min="1" max="12" data-smf="pickupWindowMonths"', d.pickupWindowMonths)) +
+      "</div>" +
+      '<div style="margin-top:10px">' + smField("sm-f-missed", "Missed-pickup policy (shown to customers exactly as written)", '<textarea id="sm-f-missed" rows="3" maxlength="500" data-smf="missedPickupPolicy">' + escapeHtml(d.missedPickupPolicy) + "</textarea>", "Staff can later arrange shipping for an uncollected order from the Orders list without charging shipping again.") + "</div>" +
+      '<div class="subheading" style="margin-top:14px">Shipping terms</div>' +
+      '<div class="row">' +
+        '<div style="align-self:end">' + smCheck("sm-f-shipping-included", 'data-smf="shippingIncluded"', d.shippingIncluded, "Standard shipping is included in the price (same price either way)") + "</div>" +
+        smField("sm-f-fee", "Delivery fee (USD) when shipping is not included", smInput("sm-f-fee", 'type="number" step="0.01" min="0" data-smf="shippingFeeDollars"', (d.shippingFeeCents / 100).toFixed(2), d.shippingIncluded ? "disabled" : ""), "Ignored while shipping is included."),
+        smField("sm-f-countries", "Ships to (country codes, comma separated)", smInput("sm-f-countries", 'type="text" autocomplete="off" data-smf="shippingCountries"', d.shippingCountries.join(", "), 'placeholder="US"')) +
+        smField("sm-f-excluded", "Excluded states / regions (codes)", smInput("sm-f-excluded", 'type="text" autocomplete="off" data-smf="excludedRegions"', d.excludedRegions.join(", "), 'placeholder="AK, HI"')) +
+        smField("sm-f-ships-after", "Shipping orders go out after", smInput("sm-f-ships-after", 'type="date" data-smf="shipsAfterDate"', d.shipsAfterDate)) +
+        smField("sm-f-dispatch", "Dispatch estimate (shown exactly as written)", smInput("sm-f-dispatch", 'type="text" maxlength="300" data-smf="dispatchEstimate"', d.dispatchEstimate, 'placeholder="e.g. Ships within 7 days after the show"'), "Don’t promise a delivery date you can’t keep.") +
+      "</div>";
+  }
+
+  function smDropSectionHtml() {
+    var drop = smSetup.drop;
+    var stocked = smDraft.productIds.filter(function (id) { return smProductDrafts[id] && smProductDrafts[id].inventoryMode !== "made_to_order"; });
+    var mto = smDraft.productIds.filter(function (id) { return smProductDrafts[id] && smProductDrafts[id].inventoryMode === "made_to_order"; });
+    var html = '<div class="subheading">Drop (sales window)</div><div id="sm-f-drop">';
+    if (drop && drop.status !== "ended") {
+      var inDrop = smDraft.productIds.filter(function (id) { return drop.productIds.indexOf(id) >= 0; });
+      var missing = smDraft.productIds.filter(function (id) { return drop.productIds.indexOf(id) < 0; });
+      html += '<div class="form-note">' + smPill(drop.status === "live" ? "selling" : "ready", drop.status === "live" ? "Live drop" : "Scheduled drop") +
+        " &nbsp;Sales open " + escapeHtml(smShortDate(drop.startsAt)) + " and close <b>" + escapeHtml(smShortDate(drop.endsAt)) + "</b> (the sale deadline). " +
+        "Pickup closing does not close shipping sales while this drop is live.</div>" +
+        '<div class="form-note">In the drop: ' + (inDrop.length ? inDrop.map(function (id) { return escapeHtml(smProductDrafts[id] ? smProductDrafts[id].title : id); }).join(", ") : "none of this setup’s products") + "</div>";
+      if (missing.length && drop.status === "live") {
+        html += '<div class="row" style="margin-top:8px">' + missing.map(function (id) {
+          var p = smProductDrafts[id];
+          return p.inventoryMode === "made_to_order"
+            ? '<div><label>' + escapeHtml(p.title) + '</label><div class="form-note">Made to order — joins with no count</div></div>'
+            : smField("sm-dq-" + smPid(id), escapeHtml(p.title) + " — units available", smInput("sm-dq-" + smPid(id), 'type="number" min="1" data-smdq="' + escapeHtml(id) + '"', ""));
+        }).join("") + "</div>" +
+        '<div class="btnline" style="margin-top:8px"><button class="btn" type="button" id="smDropAdd">Add missing products to the live drop</button></div>';
+      }
+    } else {
+      html += '<div class="form-note">No drop is scheduled. The shop only sells during a drop, so schedule one here with this setup’s products (or from the Drop tab). Its end time is the sale deadline, separate from the pickup cutoff and the ships-after date.</div>' +
+        '<div class="row" style="margin-top:8px">' +
+          smField("sm-drop-start", "Start (local time; blank = now)", smInput("sm-drop-start", 'type="datetime-local"', "")) +
+          smField("sm-drop-minutes", "Duration (minutes)", smInput("sm-drop-minutes", 'type="number" min="5"', "10080"), "10080 = 7 days.") +
+          stocked.map(function (id) {
+            var p = smProductDrafts[id];
+            return smField("sm-dq-" + smPid(id), escapeHtml(p.title) + " — units available", smInput("sm-dq-" + smPid(id), 'type="number" min="1" data-smdq="' + escapeHtml(id) + '"', ""));
+          }).join("") +
+          (mto.length ? '<div><label>Made to order</label><div class="form-note">' + mto.map(function (id) { return escapeHtml(smProductDrafts[id].title); }).join(", ") + " join with no unit count.</div></div>" : "") +
+        "</div>" +
+        '<div class="btnline" style="margin-top:8px"><button class="btn" type="button" id="smDropSchedule">Schedule the drop</button></div>';
+    }
+    return html + "</div>";
+  }
+
+  function smPreviewHtml() {
+    var view = smSetup.customerView || {};
+    var pickup = view.pickup || {};
+    var shipping = view.shipping || {};
+    var hasPlaceholder = (smSetup.checklist || []).some(function (i) { return i.placeholder; });
+    var tiles = smDraft.productIds.map(function (id) {
+      var p = smProductDrafts[id];
+      if (!p) return "";
+      var desc = [p.printPlacement === "front_back" ? "Front + back print" : p.printPlacement === "front" ? "Front print · blank back" : "", p.garment].filter(Boolean).join(" · ");
+      var views = p.images.map(function (url) { return p.imageLabels[url] || ""; }).filter(Boolean);
+      return '<div class="sm-tile"><div class="sm-tile__img">' + (p.images[0] ? '<img src="' + escapeHtml(p.images[0]) + '" alt="" />' : '<span class="muted">No image</span>') + "</div>" +
+        '<div class="sm-tile__body"><div class="sm-tile__title">' + escapeHtml(p.title) + '</div><div class="sm-tile__price">$' + escapeHtml(String(Number(p.priceDollars || 0).toFixed(2)).replace(".00", "")) + "</div>" +
+        (desc ? '<div class="sm-tile__desc">' + escapeHtml(desc) + "</div>" : "") +
+        '<div class="sm-tile__note">' + (p.inventoryMode === "made_to_order" ? "Made to order" : "Stocked") + (p.sizes ? " · Sizes " + escapeHtml(p.sizes) : " · Sizes S / M / L / XL") + "</div>" +
+        (views.length ? '<div class="sm-tile__views">' + views.map(function (v) { return "<span>" + escapeHtml(v) + "</span>"; }).join("") + "</div>" : "") +
+        "</div></div>";
+    }).join("");
+    var single = (pickup.shows || [])[0];
+    var pickupOn = pickup.state === "available";
+    var pickupCard = '<div class="sm-opt ' + (pickupOn ? "is-on" : "is-off") + '"><span class="sm-opt__radio"></span><div class="sm-opt__body">' +
+      '<div class="sm-opt__title">' + escapeHtml((view.labels || {}).pickup || "Show pickup") + (view.bonusBadge ? '<span class="sm-badge">' + escapeHtml(view.bonusBadge) + "</span>" : "") + "</div>" +
+      (pickupOn && single
+        ? "<div><b>" + escapeHtml(single.name) + "</b><br/>" + escapeHtml(single.dateLabel + " · " + single.location) + "</div>" +
+          (single.hours ? "<div>Pickup: " + escapeHtml(single.hours) + "</div>" : "") +
+          (single.cutoffLabel ? "<div>Pickup orders close " + escapeHtml(single.cutoffLabel) + "</div>" : "") +
+          '<div style="text-decoration:underline;text-underline-offset:3px">More about pickup</div>'
+        : "<div>" + escapeHtml(pickup.message || "") + "</div>") +
+      "</div></div>";
+    var shipCard = '<div class="sm-opt ' + (shipping.available ? "" : "is-off") + '"><span class="sm-opt__radio"></span><div class="sm-opt__body">' +
+      '<div class="sm-opt__title">' + escapeHtml((view.labels || {}).ship || "Ship after the show") + "</div>" +
+      (shipping.available
+        ? "<div>Ships after " + escapeHtml(shipping.shipsAfterLabel) + (shipping.dispatchEstimate ? " · " + escapeHtml(shipping.dispatchEstimate) : "") + "</div>" +
+          "<div>" + (shipping.included ? "Standard shipping to " + escapeHtml(shipping.regionLabel) + " included." : "Delivery to " + escapeHtml(shipping.regionLabel) + (shipping.feeCents ? " adds " + smMoney(shipping.feeCents) + "." : ".")) + "</div>"
+        : "<div>Shipping isn’t available for this item yet.</div>") +
+      "</div></div>";
+    var summary = pickupOn && single
+      ? '<div class="sm-summary"><span><b>' + escapeHtml((view.labels || {}).pickup || "Show pickup") + "</b> · " + escapeHtml(single.name) + " · " + escapeHtml(single.dateLabel) + (view.bonusBadge ? " · " + escapeHtml(view.bonusBadge) : "") + '</span><span class="change">Change</span></div>'
+      : shipping.available
+        ? '<div class="sm-summary"><span><b>' + escapeHtml((view.labels || {}).ship || "Ship after the show") + "</b> · after " + escapeHtml(shipping.shipsAfterLabel) + " · to " + escapeHtml(shipping.regionLabel) + '</span><span class="change">Change</span></div>'
+        : "";
+    return '<div class="subheading">Previews (what customers would see if this setup were live)</div>' +
+      '<div class="sm-preview">' +
+        (hasPlaceholder ? '<div class="sm-preview__banner">Contains labeled test text. Fine for a preview; publishing is blocked until it is replaced.</div>' : "") +
+        '<div><h4>Storefront</h4><div class="sm-preview__tiles" style="margin-top:8px">' + (tiles || '<div class="sm-tile__note">No products attached yet.</div>') + "</div></div>" +
+        '<div><h4>Bag — how do you want it?</h4><div class="sm-fulfill" style="margin-top:8px"><div class="sm-fulfill__sub">' +
+          escapeHtml(view.samePrice ? "Same price with either option." : "Delivery adds " + smMoney(shipping.feeCents || 0) + ".") + "</div>" + pickupCard + shipCard + "</div></div>" +
+        (summary ? '<div><h4>Checkout — compact summary</h4><div style="margin-top:8px">' + summary + "</div></div>" : "") +
+        '<div class="sm-tile__note">The bag and checkout cards reflect the saved settings; product tiles reflect what is typed above.</div>' +
+      "</div>";
+  }
+
+  function smReportHtml() {
+    if (!smReport) return '<div class="subheading">Orders &amp; production</div><div class="muted">Loading…</div>';
+    var r = smReport;
+    var stats = [
+      ["Pickup orders", r.totals.pickup.orders], ["Pickup items", r.totals.pickup.items], ["Pickup revenue", smMoney(r.totals.pickup.revenueCents)],
+      ["Shipping orders", r.totals.ship.orders], ["Shipping items", r.totals.ship.items], ["Shipping revenue", smMoney(r.totals.ship.revenueCents)],
+      ["Awaiting pickup", r.progress.awaitingPickup], ["Picked up", r.progress.pickedUp], ["Missed", r.progress.missed],
+      ["Awaiting shipment", r.progress.awaitingShipment], ["Shipped", r.progress.shipped],
+    ];
+    var table = r.products.length
+      ? '<table style="margin-top:10px"><thead><tr><th>Product</th><th>Size</th><th>Pickup</th><th>Ship</th><th>Total to produce</th></tr></thead><tbody>' +
+        r.products.map(function (p) {
+          return p.rows.map(function (row, i) {
+            return "<tr>" + (i === 0 ? '<td rowspan="' + (p.rows.length + 1) + '">' + escapeHtml(p.title) + '<div class="id">' + escapeHtml(p.productId) + "</div></td>" : "") +
+              "<td>" + escapeHtml(row.size) + "</td><td>" + row.pickup + "</td><td>" + row.ship + "</td><td><b>" + row.total + "</b></td></tr>";
+          }).join("") + "<tr><td><b>All sizes</b></td><td>" + p.pickup + "</td><td>" + p.ship + "</td><td><b>" + p.total + "</b></td></tr>";
+        }).join("") + "</tbody></table>"
+      : '<div class="muted" style="margin-top:8px">No orders yet for this setup.</div>';
+    return '<div class="subheading">Orders &amp; production</div>' +
+      '<div class="sm-stats">' + stats.map(function (s) { return '<div class="sm-stat"><b>' + escapeHtml(String(s[1])) + "</b><span>" + escapeHtml(s[0]) + "</span></div>"; }).join("") + "</div>" +
+      table +
+      '<div class="btnline" style="margin-top:10px">' +
+        '<button class="btn small" type="button" id="smExportProduction">Export production totals (CSV)</button>' +
+        '<button class="btn small" type="button" id="smExportPickup">Export pickup list</button>' +
+        '<button class="btn small" type="button" id="smExportShipping">Export shipping queue</button>' +
+        '<a class="btn small" href="/admin/checkin' + (smDraft.showId ? "?showId=" + encodeURIComponent(smDraft.showId) : "") + '" target="_blank" rel="noopener">Open check-in</a>' +
+      "</div>";
+  }
+
+  function renderSmEditor() {
+    var body = document.getElementById("smEditorBody");
+    if (!body || !smSetup) return;
+    var checklist = smSetup.checklist || [];
+    var required = checklist.filter(function (i) { return i.required; });
+    var doneCount = required.filter(function (i) { return i.ok && !i.placeholder; }).length;
+    var blockers = smSetup.blockers || [];
+    var statusHtml = smPill(smSetup.status, smSetup.statusLabel) + " " + smPickupPill(smSetup.pickup) +
+      (smSetup.published ? "" : ' <span class="muted">' + doneCount + "/" + required.length + " required complete</span>");
+    body.innerHTML =
+      '<div class="sm-editor-head">' +
+        '<div style="flex:1;min-width:240px"><label for="sm-f-name">Setup name</label>' + smInput("sm-f-name", 'type="text" maxlength="80" data-smf="name"', smDraft.name) +
+          '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' + statusHtml + '<span class="sm-pill dirty" id="smDirtyPill" hidden>Unsaved changes</span></div></div>' +
+        '<div class="btnline">' +
+          (smSetup.published
+            ? '<button class="btn" type="button" id="smPublish" data-published="0">Unpublish</button>'
+            : '<button class="btn primary" type="button" id="smPublish" data-published="1"' + (blockers.length ? ' title="' + blockers.length + ' item(s) to fix first"' : "") + ">Publish (approve for launch)</button>") +
+          '<button class="btn" type="button" id="smDuplicate">Duplicate as draft</button>' +
+          '<button class="btn" type="button" id="smCloseBtn">Close</button>' +
+        "</div>" +
+      "</div>" +
+      '<div class="card-surface stack">' +
+        "<div>" +
+          '<div class="subheading">Launch checklist</div>' +
+          (smSetup.published
+            ? '<div class="form-note" style="margin-bottom:8px">Published: the shop reads this setup. Changes save immediately once you click Save; a changed group asks for re-approval but does not unpublish.</div>'
+            : '<div class="form-note" style="margin-bottom:8px">Publishing needs every required item done, no test text, and every group approved. Click an item to jump to its field.</div>') +
+          (blockers.length ? '<div class="form-note" style="color:#e4c56b;margin-bottom:8px">Blocking publish: ' + blockers.length + " item" + (blockers.length === 1 ? "" : "s") + ".</div>" : "") +
+          '<div class="row"><div><div class="form-note" style="margin-bottom:4px">Required</div>' + smChecklistHtml(checklist, function (i) { return i.required; }) + "</div>" +
+          '<div><div class="form-note" style="margin-bottom:4px">Optional &amp; info</div>' + smChecklistHtml(checklist, function (i) { return !i.required; }) + "</div></div>" +
+          '<div class="subheading" style="margin-top:14px">Approved for launch</div>' +
+          '<div class="form-note" style="margin-bottom:8px">“Filled in” is not “approved”. Approve each group after checking it; any later change to those fields withdraws the approval until someone looks again.</div>' +
+          smApprovalsHtml() +
+        "</div>" +
+        "<div>" + smShowSectionHtml() + "</div>" +
+        "<div>" + smProductsSectionHtml() + "</div>" +
+        "<div>" + smTermsSectionHtml() + "</div>" +
+        "<div>" + smDropSectionHtml() + "</div>" +
+        "<div>" + smPreviewHtml() + "</div>" +
+        '<div id="smReportWrap">' + smReportHtml() + "</div>" +
+        (smSetup.published ? "" : '<div><div class="btnline"><button class="btn danger" type="button" id="smDelete">Delete this draft</button></div></div>') +
+      "</div>" +
+      '<div class="sm-sticky-save">' +
+        '<button class="btn primary" type="button" id="smSave" disabled>Save changes</button>' +
+        '<button class="btn" type="button" id="smDiscard" disabled>Discard changes</button>' +
+        '<span class="form-note" id="smStatusNote" role="status" aria-live="polite"></span>' +
+      "</div>";
+    smSetDirty(smDirty);
+    smNote(smNoteText, smNoteError);
+  }
+
+  async function smLoadReport() {
+    if (!smSetup) return;
+    try {
+      var data = await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id) + "/report");
+      smReport = data.report;
+      var wrap = document.getElementById("smReportWrap");
+      if (wrap) wrap.innerHTML = smReportHtml();
+    } catch (_err) {
+      var w = document.getElementById("smReportWrap");
+      if (w) w.innerHTML = '<div class="subheading">Orders &amp; production</div><div class="muted">Could not load the report.</div>';
+    }
+  }
+
+  // ---- edits: inputs write into the drafts; structure changes re-render
+  document.addEventListener("input", function (e) {
+    var el = e.target;
+    if (!el || !el.getAttribute || !smDraft) return;
+    var editor = document.getElementById("smEditor");
+    if (!editor || !editor.contains(el)) return;
+    var f = el.getAttribute("data-smf");
+    if (f) {
+      if (f === "shippingIncluded") { smDraft.shippingIncluded = el.checked; var fee = document.getElementById("sm-f-fee"); if (fee) fee.disabled = el.checked; }
+      else if (f === "shippingFeeDollars") smDraft.shippingFeeCents = Math.max(0, Math.round(Number(el.value || 0) * 100));
+      else if (f === "shippingCountries" || f === "excludedRegions") smDraft[f] = el.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+      else if (f === "pickupWindowMonths") smDraft[f] = Number(el.value) || 2;
+      else if (f === "showId") { /* handled on change */ }
+      else smDraft[f] = el.value;
+      smSetDirty(true);
+      return;
+    }
+    var s = el.getAttribute("data-sms");
+    if (s && smShowDraft) { smShowDraft[s] = el.value; smSetDirty(true); return; }
+    var p = el.getAttribute("data-smp");
+    if (p && smShowDraft) { smShowDraft.merchPickup[p] = p === "enabled" ? el.checked : el.value; smSetDirty(true); return; }
+    var pr = el.getAttribute("data-smpr");
+    if (pr && smProductDrafts[pr]) {
+      var key = el.getAttribute("data-key");
+      smProductDrafts[pr][key] = key === "enabled" ? el.checked : el.value;
+      smSetDirty(true);
+      return;
+    }
+    var cut = el.getAttribute("data-smcut");
+    if (cut) {
+      if (el.value) smDraft.productCutoffs[cut] = el.value; else delete smDraft.productCutoffs[cut];
+      smSetDirty(true);
+      return;
+    }
+    var img = el.getAttribute("data-smimg");
+    if (img && smProductDrafts[img]) {
+      var url = el.getAttribute("data-url");
+      if (el.value.trim()) smProductDrafts[img].imageLabels[url] = el.value.trim(); else delete smProductDrafts[img].imageLabels[url];
+      smSetDirty(true);
+      return;
+    }
+    var sg = el.getAttribute("data-smsg");
+    if (sg && smProductDrafts[sg]) {
+      var row = smProductDrafts[sg].sizeGuideRows[Number(el.getAttribute("data-row"))];
+      if (row) row[el.getAttribute("data-key")] = el.value;
+      smSetDirty(true);
+    }
+  });
+
+  document.addEventListener("change", function (e) {
+    var el = e.target;
+    if (!el || !el.getAttribute || !smDraft) return;
+    var editor = document.getElementById("smEditor");
+    if (!editor || !editor.contains(el)) return;
+    if (el.getAttribute("data-smf") === "showId") {
+      smDraft.showId = el.value;
+      var show = smShows.find(function (s) { return s.id === el.value; });
+      smShowDraft = show ? {
+        title: show.title || "", date: show.date || "", city: show.city || "", venue: show.venue || "", status: show.status || "", timezone: show.timezone || "",
+        merchPickup: Object.assign({ enabled: false, cutoff: "", hours: "", location: "", instructions: "" }, show.merchPickup || {}),
+      } : null;
+      smSetDirty(true);
+      renderSmEditor();
+      return;
+    }
+    // Checkboxes and selects don't always fire input.
+    if (el.getAttribute("data-smf") === "shippingIncluded" || el.getAttribute("data-smp") === "enabled" || (el.getAttribute("data-smpr") && el.getAttribute("data-key") === "enabled") || el.tagName === "SELECT") {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    var toggle = el.getAttribute("data-smprod-toggle");
+    if (toggle) {
+      if (el.checked) {
+        if (smDraft.productIds.indexOf(toggle) < 0) smDraft.productIds.push(toggle);
+        if (!smProductDrafts[toggle]) {
+          var product = smCatalog.find(function (p) { return p.id === toggle; });
+          if (product) smProductDrafts[toggle] = smProductDraft(product);
+        }
+      } else {
+        smDraft.productIds = smDraft.productIds.filter(function (id) { return id !== toggle; });
+        delete smDraft.productCutoffs[toggle];
+      }
+      smSetDirty(true);
+      renderSmEditor();
+      return;
+    }
+    var file = el.getAttribute("data-smimg-file");
+    if (file && el.files && el.files.length) {
+      smUploadImages(file, el);
+    }
+  });
+
+  async function smUploadImages(productId, input) {
+    try {
+      var fd = new FormData();
+      for (var i = 0; i < input.files.length; i++) fd.append("files", input.files[i]);
+      var res = await fetch("/api/admin/upload-images", { method: "POST", headers: { "x-admin-key": getKey() }, body: fd });
+      var data = await res.json().catch(function () { return {}; });
+      var urls = Array.isArray(data.urls) ? data.urls.filter(Boolean) : [];
+      if (!res.ok || !urls.length) throw new Error(data.error || "Upload failed");
+      var draft = smProductDrafts[productId];
+      urls.forEach(function (url) { if (draft.images.indexOf(url) < 0) draft.images.push(url); });
+      smSetDirty(true);
+      renderSmEditor();
+      smNote(urls.length + " image" + (urls.length === 1 ? "" : "s") + " uploaded. Label them, then Save.");
+    } catch (err) {
+      alert(err.message || String(err));
+    } finally {
+      input.value = "";
+    }
+  }
+
+  document.addEventListener("click", async function (e) {
+    if (!e.target.closest) return;
+    var goto = e.target.closest("[data-sm-goto]");
+    if (goto) {
+      e.preventDefault();
+      var target = document.getElementById(goto.getAttribute("data-sm-goto"));
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
+        var focusable = target.matches("input,select,textarea") ? target : target.querySelector("input,select,textarea");
+        if (focusable) setTimeout(function () { focusable.focus(); }, 300);
+      }
+      return;
+    }
+    var open = e.target.closest("[data-sm-open]");
+    if (open) { await smOpen(open.getAttribute("data-sm-open")); return; }
+    var dup = e.target.closest("[data-sm-dup]");
+    if (dup) {
+      if (!confirm("Duplicate this setup as an unpublished draft? You will need to choose the show, re-enter dates and approve every group again.")) return;
+      try {
+        var copied = await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(dup.getAttribute("data-sm-dup")) + "/duplicate", { method: "POST" });
+        await refreshShowMerch();
+        await smOpen(copied.setup.id);
+      } catch (err) { alert(err.message || String(err)); }
+      return;
+    }
+    var del = e.target.closest("[data-sm-del]");
+    if (del) {
+      var delId = del.getAttribute("data-sm-del");
+      if (!confirm("Delete this draft setup? Orders already placed are not affected.")) return;
+      try {
+        await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(delId), { method: "DELETE" });
+        if (smSetup && smSetup.id === delId) { smSetup = null; smDraft = null; smSetDirty(false); document.getElementById("smEditor").hidden = true; }
+        await refreshShowMerch();
+      } catch (err) { alert(err.message || String(err)); }
+      return;
+    }
+    if (!smSetup) return;
+    var editor = document.getElementById("smEditor");
+    if (!editor || !editor.contains(e.target)) return;
+
+    if (e.target.closest("#smCloseBtn")) { smClose(); return; }
+    if (e.target.closest("#smSave")) { await smSaveAll(); return; }
+    if (e.target.closest("#smDiscard")) { if (confirm("Discard unsaved changes?")) await smOpen(smSetup.id, true); return; }
+    if (e.target.closest("#smDelete")) {
+      if (!confirm("Delete this draft setup?")) return;
+      try { await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id), { method: "DELETE" }); smSetup = null; smDraft = null; smSetDirty(false); editor.hidden = true; await refreshShowMerch(); }
+      catch (err) { alert(err.message || String(err)); }
+      return;
+    }
+    if (e.target.closest("#smDuplicate")) {
+      if (smDirty) { alert("Save or discard your changes first."); return; }
+      if (!confirm("Duplicate this setup as an unpublished draft?")) return;
+      try { var c2 = await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id) + "/duplicate", { method: "POST" }); await refreshShowMerch(); await smOpen(c2.setup.id); }
+      catch (err) { alert(err.message || String(err)); }
+      return;
+    }
+    var approve = e.target.closest("[data-sm-approve]");
+    if (approve) {
+      if (smDirty) { alert("Save your changes first, then approve what was saved."); return; }
+      var approved = approve.getAttribute("data-sm-approved") === "1";
+      if (approved && !confirm("Approve “" + smSetup.approvalLabels[approve.getAttribute("data-sm-approve")] + "” for launch as currently saved?")) return;
+      try {
+        var r = await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id) + "/approve", { method: "POST", body: { key: approve.getAttribute("data-sm-approve"), approved: approved } });
+        smSetup = r.setup; renderSmEditor(); smNote(approved ? "Approved." : "Approval withdrawn.");
+      } catch (err) { alert(err.message || String(err)); }
+      return;
+    }
+    var publish = e.target.closest("#smPublish");
+    if (publish) {
+      if (smDirty) { alert("Save your changes first."); return; }
+      var toPublish = publish.getAttribute("data-published") === "1";
+      if (!confirm(toPublish ? "Publish this setup? The shop starts offering pickup / ship-after-the-show for its products as soon as a drop carries them." : "Unpublish? The products go back to the shop’s normal checkout. Paid orders keep what they were promised.")) return;
+      try {
+        var pr = await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id) + "/publish", { method: "POST", body: { published: toPublish } });
+        smSetup = pr.setup; renderSmEditor(); smNote(toPublish ? "Published." : "Unpublished."); await refreshShowMerch();
+      } catch (err) { alert(err.message || String(err)); await smOpen(smSetup.id, true); }
+      return;
+    }
+    var remove = e.target.closest("[data-smprod-remove]");
+    if (remove) {
+      var rid = remove.getAttribute("data-smprod-remove");
+      smDraft.productIds = smDraft.productIds.filter(function (id) { return id !== rid; });
+      delete smDraft.productCutoffs[rid];
+      smSetDirty(true); renderSmEditor(); return;
+    }
+    var up = e.target.closest("[data-smimg-up]");
+    if (up) { var fileInput = editor.querySelector('[data-smimg-file="' + up.getAttribute("data-smimg-up").replace(/"/g, '&quot;') + '"]'); if (fileInput) fileInput.click(); return; }
+    var mv = e.target.closest("[data-smimg-move]");
+    if (mv) {
+      var md = smProductDrafts[mv.getAttribute("data-smimg-move")];
+      var from = Number(mv.getAttribute("data-index")); var to = from + Number(mv.getAttribute("data-dir"));
+      if (md && to >= 0 && to < md.images.length) { var tmp = md.images[from]; md.images[from] = md.images[to]; md.images[to] = tmp; smSetDirty(true); renderSmEditor(); }
+      return;
+    }
+    var idel = e.target.closest("[data-smimg-del]");
+    if (idel) {
+      var dd = smProductDrafts[idel.getAttribute("data-smimg-del")];
+      if (dd) { var gone = dd.images.splice(Number(idel.getAttribute("data-index")), 1)[0]; delete dd.imageLabels[gone]; smSetDirty(true); renderSmEditor(); }
+      return;
+    }
+    var sgAdd = e.target.closest("[data-smsg-add]");
+    if (sgAdd) { var ad = smProductDrafts[sgAdd.getAttribute("data-smsg-add")]; if (ad) { ad.sizeGuideRows.push({ size: "", chest: "", length: "" }); smSetDirty(true); renderSmEditor(); } return; }
+    var sgDel = e.target.closest("[data-smsg-del]");
+    if (sgDel) { var dl = smProductDrafts[sgDel.getAttribute("data-smsg-del")]; if (dl) { dl.sizeGuideRows.splice(Number(sgDel.getAttribute("data-row")), 1); smSetDirty(true); renderSmEditor(); } return; }
+    if (e.target.closest("#smDropSchedule") || e.target.closest("#smDropAdd")) {
+      if (smDirty) { alert("Save your changes first."); return; }
+      var qty = {};
+      editor.querySelectorAll("[data-smdq]").forEach(function (inp) { qty[inp.getAttribute("data-smdq")] = Number(inp.value); });
+      var add = Boolean(e.target.closest("#smDropAdd"));
+      var startEl = document.getElementById("sm-drop-start");
+      var minutesEl = document.getElementById("sm-drop-minutes");
+      var body = { qty: qty, mode: add ? "add" : "schedule" };
+      if (!add) {
+        body.startsAt = startEl && startEl.value ? new Date(startEl.value).toISOString() : "now";
+        body.durationMinutes = Number(minutesEl ? minutesEl.value : 10080) || 10080;
+      }
+      if (!confirm(add ? "Add the missing products to the live drop?" : "Schedule a drop with this setup’s products? Sales open at the start time.")) return;
+      try {
+        await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id) + "/drop", { method: "POST", body: body });
+        smNote(add ? "Added to the live drop." : "Drop scheduled.");
+        await refreshShowMerch(); await smOpen(smSetup.id, true); refreshDrops(); refreshState();
+      } catch (err) { alert(err.message || String(err)); }
+      return;
+    }
+    if (e.target.closest("#smExportProduction")) { try { await downloadAdminFile("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id) + "/production.csv", "production.csv"); } catch (err) { alert(err.message || String(err)); } return; }
+    if (e.target.closest("#smExportPickup")) { try { await downloadAdminFile("/api/admin/orders/export.csv?fulfillment=pickup" + (smDraft.showId ? "&showId=" + encodeURIComponent(smDraft.showId) : ""), "pickup-list.csv"); } catch (err) { alert(err.message || String(err)); } return; }
+    if (e.target.closest("#smExportShipping")) { try { await downloadAdminFile("/api/admin/orders/export.csv?fulfillment=ship", "shipping-queue.csv"); } catch (err) { alert(err.message || String(err)); } return; }
+  });
+
+  // ---- save: setup, then the show, then each product; then reload
+  async function smSaveAll() {
+    if (!smSetup || smSaving) return;
+    smSaving = true;
+    smSetDirty(true);
+    smNote("Saving…");
+    try {
+      var setupBody = {};
+      SM_SETUP_FIELDS.forEach(function (key) { setupBody[key] = smDraft[key]; });
+      await apiJson("/api/admin/show-merch/setups/" + encodeURIComponent(smSetup.id), { method: "PUT", body: setupBody });
+      if (smDraft.showId && smShowDraft) {
+        await apiJson("/api/admin/kyd/shows/" + encodeURIComponent(smDraft.showId), { method: "PATCH", body: smShowDraft });
+      }
+      var ids = Object.keys(smProductDrafts).filter(function (id) { return smDraft.productIds.indexOf(id) >= 0; });
+      for (var i = 0; i < ids.length; i++) {
+        var p = smProductDrafts[ids[i]];
+        var price = Math.round(Number(p.priceDollars) * 100);
+        await apiJson("/api/admin/products/" + encodeURIComponent(p.id), {
+          method: "PATCH",
+          body: {
+            title: p.title.trim(),
+            priceCents: Number.isFinite(price) ? price : 0,
+            enabled: p.enabled,
+            inventoryMode: p.inventoryMode,
+            printPlacement: p.printPlacement,
+            garment: p.garment,
+            description: p.description,
+            sizes: p.sizes,
+            images: p.images,
+            imageLabels: p.imageLabels,
+            sizeGuide: { note: p.sizeGuideNote, rows: p.sizeGuideRows.filter(function (r) { return r.size.trim(); }) },
+          },
+        });
+      }
+      smSaving = false;
+      var when = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      smDirty = false;
+      smNote("Saved " + when + ".");
+      await refreshShowMerch();
+      await smOpen(smSetup.id, true);
+      refreshProducts();
+    } catch (err) {
+      smSaving = false;
+      smSetDirty(true);
+      smNote(err.message || String(err), true);
+    }
+  }
+
+  var smNewBtn = document.getElementById("smNew");
+  if (smNewBtn) {
+    smNewBtn.addEventListener("click", async function () {
+      if (smDirty && !confirm("Discard unsaved changes?")) return;
+      var name = prompt("Name this setup (for the admin only):", "Show merch setup");
+      if (name === null) return;
+      try {
+        var created = await apiJson("/api/admin/show-merch/setups", { method: "POST", body: { name: name } });
+        await refreshShowMerch();
+        smDirty = false;
+        await smOpen(created.setup.id);
+      } catch (err) { alert(err.message || String(err)); }
+    });
+  }
 
   // ---------- Vault ----------
   var vaultRows = [];
@@ -2245,6 +3011,8 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
   // ---------- Orders: all / pickup / shipping ----------
   var orderQueue = "all";
   var orderShowId = "";
+  var orderSearch = "";
+  var ordersMailerConfigured = false;
 
   var PICKUP_STATUS_OPTIONS = [["awaiting", "Awaiting pickup"], ["picked_up", "Picked up"], ["missed", "Missed"]];
   var SHIPPING_STATUS_OPTIONS = [["awaiting", "Awaiting shipment"], ["shipped", "Shipped"]];
@@ -2259,21 +3027,43 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     return item.fulfillment && item.fulfillment.method === "pickup" ? "pickup" : "ship";
   }
 
+  function orderShips(order) {
+    var items = Array.isArray(order.items) ? order.items : [];
+    return items.some(function (item) { return lineMethod(item) === "ship"; }) || Boolean(order.status && order.status.missedPickupAddress);
+  }
+
   function orderChips(order) {
     var chips = [];
     var items = Array.isArray(order.items) ? order.items : [];
+    var status = order.status || {};
     var pickupLine = items.find(function (item) { return lineMethod(item) === "pickup"; });
     if (pickupLine) {
       var show = (pickupLine.fulfillment && pickupLine.fulfillment.show) || {};
-      chips.push('<span class="fulfill-chip pickup">Pickup' + (show.name ? " &middot; " + escapeHtml(show.name) : "") + "</span>");
+      var pickupCls = status.pickupStatus === "picked_up" ? "done" : status.pickupStatus === "missed" ? "missed" : "pickup";
+      var pickupText = status.pickupStatus === "picked_up" ? "Picked up" : status.pickupStatus === "missed" ? "Missed pickup" : "Pickup";
+      chips.push('<span class="fulfill-chip ' + pickupCls + '">' + pickupText + (show.name ? " &middot; " + escapeHtml(show.name) : "") + "</span>");
     }
-    if (items.some(function (item) { return lineMethod(item) === "ship"; })) {
+    if (orderShips(order)) {
       var showMerchShip = items.find(function (item) { return lineMethod(item) === "ship" && item.fulfillment && item.fulfillment.showMerch; });
-      chips.push('<span class="fulfill-chip ship">' + (showMerchShip && showMerchShip.fulfillment.shipsAfter
-        ? "Ships after " + escapeHtml(showMerchShip.fulfillment.shipsAfter)
-        : "Ships") + "</span>");
+      var shipText = status.shippingStatus === "shipped"
+        ? "Shipped"
+        : status.missedPickupAddress && !items.some(function (item) { return lineMethod(item) === "ship"; })
+          ? "Ships (missed pickup)"
+          : showMerchShip && showMerchShip.fulfillment.shipsAfter ? "Ships after " + escapeHtml(showMerchShip.fulfillment.shipsAfter) : "Ships";
+      chips.push('<span class="fulfill-chip ' + (status.shippingStatus === "shipped" ? "done" : "ship") + '">' + shipText + "</span>");
     }
     return chips.join("");
+  }
+
+  function addressInputs(prefix, address) {
+    var a = address || {};
+    function inp(key, label, value, extra) {
+      return '<div><label>' + label + '</label><input data-' + prefix + '="' + key + '" value="' + escapeHtml(value || "") + '" ' + (extra || "") + " /></div>";
+    }
+    return '<div class="order-fulfillment__addr">' +
+      inp("line1", "Address line 1", a.line1) + inp("line2", "Line 2", a.line2) + inp("city", "City", a.city) +
+      inp("state", "State", a.state, 'maxlength="20"') + inp("postalCode", "Postal code", a.postalCode) + inp("country", "Country", a.country || "US", 'maxlength="2"') +
+    "</div>";
   }
 
   function fulfillmentControls(order) {
@@ -2281,22 +3071,47 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     var items = Array.isArray(order.items) ? order.items : [];
     var rows = [];
     var pickupLine = items.find(function (item) { return lineMethod(item) === "pickup"; });
+    var hasShipLines = items.some(function (item) { return lineMethod(item) === "ship"; });
     if (pickupLine) {
-      var show = (pickupLine.fulfillment && pickupLine.fulfillment.show) || {};
+      var f = pickupLine.fulfillment || {};
+      var show = f.show || {};
       rows.push('<div class="order-fulfillment__row">' +
         '<div><div class="order-label">Pick up at</div><div class="order-value">' +
           escapeHtml(show.name || "Show") + "<br/>" + escapeHtml([show.date, show.location].filter(Boolean).join(" · ")) +
-          (pickupLine.fulfillment.bonus ? '<br/><span class="muted">+ ' + escapeHtml(pickupLine.fulfillment.bonus) + "</span>" : "") +
+          (f.pickupHours ? "<br/>" + escapeHtml(f.pickupHours) : "") +
+          (f.bonus ? '<br/><span class="muted">+ ' + escapeHtml(f.bonus) + "</span>" : "") +
+          (status.pickedUpAt ? '<br/><span class="muted">Checked in ' + escapeHtml(formatDateTime(status.pickedUpAt)) + "</span>" : "") +
         "</div></div>" +
         "<div><label>Pickup status</label>" + statusSelect("data-pickup-status", "Pickup status", PICKUP_STATUS_OPTIONS, status.pickupStatus) + "</div>" +
       "</div>");
+      if (status.pickupStatus === "missed") {
+        var addr = status.missedPickupAddress;
+        rows.push('<div class="order-fulfillment__row" style="flex-direction:column;align-items:stretch">' +
+          '<div class="order-label">Missed pickup &rarr; ship it instead (nothing is charged again)</div>' +
+          (addr
+            ? '<div class="order-value">Ships to: ' + formatOrderAddress(addr) + '<br/><span class="muted">Address from ' + (status.missedPickupAddressSource === "customer" ? "the customer’s link" : "staff") + (status.missedPickupAddressAt ? ", " + escapeHtml(formatDateTime(status.missedPickupAddressAt)) : "") + "</span></div>"
+            : '<div class="muted">No address yet.' + (status.addressRequestSentAt ? " Address link emailed " + escapeHtml(formatDateTime(status.addressRequestSentAt)) + "." : "") + "</div>") +
+          '<div class="btnline">' +
+            '<button class="btn small" type="button" data-address-request' + (ordersMailerConfigured && order.customerEmail ? "" : ' title="No email transport configured: the link is shown to copy"') + ">" + (status.addressToken ? "New address link" : "Send address link to customer") + "</button>" +
+            '<button class="btn small" type="button" data-address-toggle>' + (addr ? "Edit address" : "Enter address (from a call or reply)") + "</button>" +
+            (hasShipLines && order.shippingAddress && !addr ? '<button class="btn small" type="button" data-address-copy>Use the order’s shipping address</button>' : "") +
+          "</div>" +
+          '<div data-address-form hidden>' + addressInputs("addr", addr) + '<div class="btnline" style="margin-top:8px"><button class="btn small primary" type="button" data-address-save>Save address</button></div></div>' +
+          '<div class="form-note" data-address-link>' + (status.addressToken ? "Link exists; use “New address link” to issue and show a fresh one." : "") + "</div>" +
+        "</div>");
+      }
     }
-    if (items.some(function (item) { return lineMethod(item) === "ship"; })) {
+    if (orderShips(order)) {
+      var sent = status.shippingUpdateSentAt
+        ? "Shipping update emailed " + escapeHtml(formatDateTime(status.shippingUpdateSentAt)) + (status.shippingUpdateCount > 1 ? " (" + status.shippingUpdateCount + " sends)" : "")
+        : "No shipping update sent yet.";
       rows.push('<div class="order-fulfillment__row">' +
         "<div><label>Shipping status</label>" + statusSelect("data-ship-status", "Shipping status", SHIPPING_STATUS_OPTIONS, status.shippingStatus) + "</div>" +
-        '<div><label>Carrier</label><input data-carrier value="' + escapeHtml(status.carrier || "") + '" /></div>' +
+        '<div><label>Carrier</label><input data-carrier value="' + escapeHtml(status.carrier || "") + '" placeholder="USPS / UPS / FedEx" /></div>' +
         '<div><label>Tracking number</label><input data-tracking value="' + escapeHtml(status.trackingNumber || "") + '" /></div>' +
         '<div><button class="btn small" type="button" data-save-shipping>Save shipping</button></div>' +
+        '<div><button class="btn small primary" type="button" data-send-update' + (order.customerEmail ? "" : ' disabled title="No customer email"') + ">Send shipping update</button></div>" +
+        '<div class="order-fulfillment__status" style="flex-basis:100%">' + sent + "</div>" +
       "</div>");
     }
     return '<div class="order-fulfillment" data-order-id="' + escapeHtml(order.orderId || "") + '">' + rows.join("") +
@@ -2305,6 +3120,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 
   function syncQueueControls(data) {
     var counts = data.counts || {};
+    ordersMailerConfigured = Boolean(data.mailer && data.mailer.configured);
     document.querySelectorAll("[data-queue]").forEach(function (btn) {
       var queue = btn.getAttribute("data-queue");
       btn.setAttribute("aria-pressed", queue === orderQueue ? "true" : "false");
@@ -2324,14 +3140,16 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
 
   async function refreshSales() {
     try {
-      const query = "?fulfillment=" + encodeURIComponent(orderQueue) + (orderShowId ? "&showId=" + encodeURIComponent(orderShowId) : "");
+      const query = "?fulfillment=" + encodeURIComponent(orderQueue) +
+        (orderShowId ? "&showId=" + encodeURIComponent(orderShowId) : "") +
+        (orderSearch ? "&q=" + encodeURIComponent(orderSearch) : "");
       const data = await apiJson("/api/admin/orders" + query);
       const totals = data.totals || { count: 0, items: 0, grossCents: 0 };
       const orders = Array.isArray(data.orders) ? data.orders : [];
       syncQueueControls(data);
 
       if (!orders.length) {
-        salesWrap.innerHTML = '<div class="muted">' + (orderQueue === "pickup" ? "No pickup orders yet." : orderQueue === "ship" ? "No shipping orders yet." : "No sales yet.") + "</div>";
+        salesWrap.innerHTML = '<div class="muted">' + (orderSearch ? "No orders match “" + escapeHtml(orderSearch) + "”." : orderQueue === "pickup" ? "No pickup orders yet." : orderQueue === "ship" ? "No shipping orders yet." : "No sales yet.") + "</div>";
         return;
       }
 
@@ -2348,19 +3166,18 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
         if (!customerHtml) customerHtml = "—";
 
         const itemRows = Array.isArray(order.items) ? order.items : [];
-        const hasShipLines = itemRows.some(function (item) { return lineMethod(item) === "ship"; });
-        const addressHtml = order.shippingAddress
-          ? formatOrderAddress(order.shippingAddress)
-          : hasShipLines ? "—" : '<span class="muted">None needed (pickup)</span>';
+        const status = order.status || {};
+        const shipTo = status.missedPickupAddress || order.shippingAddress;
+        const addressHtml = shipTo
+          ? formatOrderAddress(shipTo) + (status.missedPickupAddress ? '<br/><span class="muted">(missed pickup)</span>' : "")
+          : orderShips(order) ? "—" : '<span class="muted">None needed (pickup)</span>';
 
         const headerMeta = [];
         const dateText = formatDateTime(order.ts);
         if (dateText) headerMeta.push('<div class="order-meta">' + escapeHtml(dateText) + "</div>");
         const itemsCount = Number.isFinite(Number(order.totalItems)) ? Number(order.totalItems) : 0;
         headerMeta.push('<div class="order-meta">Items: ' + escapeHtml(String(itemsCount)) + "</div>");
-        if (order.paymentRef) {
-          headerMeta.push('<div class="order-meta">Payment: ' + escapeHtml(order.paymentRef) + "</div>");
-        }
+        headerMeta.push('<div class="order-meta">Payment: ' + escapeHtml(order.paymentRef || order.orderId || "") + "</div>");
         headerMeta.push("<div>" + orderChips(order) + "</div>");
 
         let itemsTable = '<div class="muted">No line items.</div>';
@@ -2371,10 +3188,10 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
               const qtyText = Number.isFinite(Number(item.qty)) ? Number(item.qty) : 0;
               const each = formatMoney(item.priceCents);
               const subtotal = formatMoney(item.lineTotalCents ?? (Number(item.priceCents) || 0) * qtyText);
-              const productId = item.productId ? '<div class="order-item-id">' + escapeHtml(item.productId) + "</div>" : "";
+              const detail = [item.productId, item.productDetail].filter(Boolean).map(escapeHtml).join(" &middot; ");
               return (
                 "<tr>" +
-                "<td><div>" + escapeHtml(title) + "</div>" + productId + "</td>" +
+                "<td><div>" + escapeHtml(title) + "</div>" + (detail ? '<div class="order-item-id">' + detail + "</div>" : "") + "</td>" +
                 '<td style="text-align:center;">' + escapeHtml(item.size || "—") + "</td>" +
                 '<td style="text-align:center;">' + escapeHtml(String(qtyText)) + "</td>" +
                 "<td>" + (lineMethod(item) === "pickup" ? "Pickup" : "Ship") + "</td>" +
@@ -2393,7 +3210,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
         html +=
           '<div class="order-card">' +
           '<div class="order-header">' +
-          '<div><div class="order-id">Order ' + escapeHtml(order.orderId || "") + "</div>" + headerMeta.join("") + "</div>" +
+          '<div><div class="order-id">Order <span class="order-number">' + escapeHtml(order.orderNumber || "") + "</span></div>" + headerMeta.join("") + "</div>" +
           '<div class="order-total">' + escapeHtml(formatMoney(order.totalCents)) + "</div>" +
           "</div>" +
           '<div class="order-grid">' +
@@ -2427,30 +3244,119 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     try {
       await apiJson("/api/admin/orders/" + encodeURIComponent(orderId) + "/fulfillment", { method: "PATCH", body: patch });
       if (note) note.textContent = "Saved.";
+      return true;
     } catch (err) {
       if (note) { note.textContent = err.message || String(err); note.style.color = "#e08585"; }
+      return false;
     } finally {
       if (control) control.disabled = false;
     }
   }
 
-  salesWrap.addEventListener("change", function (e) {
+  salesWrap.addEventListener("change", async function (e) {
     var el = e.target;
     if (!el || !el.hasAttribute || !el.hasAttribute("data-pickup-status")) return;
     var box = el.closest(".order-fulfillment");
-    if (box) void saveOrderFulfillment(box, { pickupStatus: el.value }, el);
+    if (!box) return;
+    var ok = await saveOrderFulfillment(box, { pickupStatus: el.value }, el);
+    // "Missed" opens the ship-it-instead controls, so redraw the list.
+    if (ok) void refreshSales();
   });
 
-  salesWrap.addEventListener("click", function (e) {
-    var btn = e.target && e.target.closest ? e.target.closest("[data-save-shipping]") : null;
-    if (!btn) return;
-    var box = btn.closest(".order-fulfillment");
+  salesWrap.addEventListener("click", async function (e) {
+    if (!e.target || !e.target.closest) return;
+    var box = e.target.closest(".order-fulfillment");
     if (!box) return;
-    void saveOrderFulfillment(box, {
-      shippingStatus: box.querySelector("[data-ship-status]").value,
-      carrier: box.querySelector("[data-carrier]").value,
-      trackingNumber: box.querySelector("[data-tracking]").value,
-    }, btn);
+    var orderId = box.getAttribute("data-order-id");
+    var note = box.querySelector("[data-fulfillment-note]");
+
+    var saveBtn = e.target.closest("[data-save-shipping]");
+    if (saveBtn) {
+      void saveOrderFulfillment(box, {
+        shippingStatus: box.querySelector("[data-ship-status]").value,
+        carrier: box.querySelector("[data-carrier]").value,
+        trackingNumber: box.querySelector("[data-tracking]").value,
+      }, saveBtn);
+      return;
+    }
+
+    var sendBtn = e.target.closest("[data-send-update]");
+    if (sendBtn) {
+      var carrier = box.querySelector("[data-carrier]").value;
+      var tracking = box.querySelector("[data-tracking]").value;
+      if (!confirm("Email the customer that this order has shipped" + (tracking ? " with tracking " + tracking : " (no tracking number entered)") + "? This also marks it shipped.")) return;
+      sendBtn.disabled = true;
+      if (note) { note.textContent = "Sending…"; note.style.color = ""; }
+      try {
+        var body = { carrier: carrier, trackingNumber: tracking };
+        var res = await fetch("/api/admin/orders/" + encodeURIComponent(orderId) + "/shipping-update", {
+          method: "POST", headers: { "x-admin-key": getKey(), "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body),
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (res.status === 409 && data.code === "ALREADY_SENT") {
+          if (!confirm(data.error + " Send it again anyway?")) { if (note) note.textContent = "Not sent again."; sendBtn.disabled = false; return; }
+          body.force = true;
+          res = await fetch("/api/admin/orders/" + encodeURIComponent(orderId) + "/shipping-update", {
+            method: "POST", headers: { "x-admin-key": getKey(), "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body),
+          });
+          data = await res.json().catch(function () { return {}; });
+        }
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        if (note) note.textContent = "Shipping update sent.";
+        void refreshSales();
+      } catch (err) {
+        if (note) { note.textContent = err.message || String(err); note.style.color = "#e08585"; }
+        sendBtn.disabled = false;
+      }
+      return;
+    }
+
+    var reqBtn = e.target.closest("[data-address-request]");
+    if (reqBtn) {
+      if (!confirm("Issue a secure address link for this order" + (ordersMailerConfigured ? " and email it to the customer" : "") + "? The order is marked as a missed pickup. Nothing is charged.")) return;
+      reqBtn.disabled = true;
+      try {
+        var r = await apiJson("/api/admin/orders/" + encodeURIComponent(orderId) + "/address-request", { method: "POST", body: { send: true } });
+        var linkNote = box.querySelector("[data-address-link]");
+        if (linkNote) {
+          linkNote.innerHTML = (r.emailed ? "Emailed to the customer. " : "Not emailed (no mail transport or no email on the order). ") +
+            'Link to share: <input readonly value="' + escapeHtml(r.link) + '" style="width:100%;margin-top:6px" onclick="this.select()" />';
+        }
+        if (note) note.textContent = r.emailed ? "Address link sent." : "Address link ready to copy.";
+      } catch (err) {
+        if (note) { note.textContent = err.message || String(err); note.style.color = "#e08585"; }
+      } finally {
+        reqBtn.disabled = false;
+      }
+      return;
+    }
+
+    var toggleBtn = e.target.closest("[data-address-toggle]");
+    if (toggleBtn) {
+      var form = box.querySelector("[data-address-form]");
+      if (form) form.hidden = !form.hidden;
+      return;
+    }
+
+    var copyBtn = e.target.closest("[data-address-copy]");
+    if (copyBtn) {
+      var card = box.closest(".order-card");
+      // The address shown on the card is the order's own; copy it in as the shipping address for the missed pickup.
+      var lines = card ? card.querySelector(".order-grid .order-value:last-child") : null;
+      var form2 = box.querySelector("[data-address-form]");
+      if (form2) form2.hidden = false;
+      if (note) note.textContent = "Fill in the address below (copied text is on the card above) and save.";
+      if (lines) lines.scrollIntoView({ block: "center" });
+      return;
+    }
+
+    var addrSave = e.target.closest("[data-address-save]");
+    if (addrSave) {
+      var address = {};
+      box.querySelectorAll("[data-addr]").forEach(function (inp) { address[inp.getAttribute("data-addr")] = inp.value; });
+      var ok = await saveOrderFulfillment(box, { missedPickupAddress: address }, addrSave);
+      if (ok) void refreshSales();
+    }
   });
 
   document.querySelectorAll("[data-queue]").forEach(function (btn) {
@@ -2466,6 +3372,18 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     queueShowSelect.addEventListener("change", function () {
       orderShowId = queueShowSelect.value;
       void refreshSales();
+    });
+  }
+
+  var orderSearchInput = document.getElementById("orderSearch");
+  if (orderSearchInput) {
+    var searchTimer = null;
+    orderSearchInput.addEventListener("input", function () {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        orderSearch = orderSearchInput.value.trim();
+        void refreshSales();
+      }, 250);
     });
   }
 
@@ -2855,6 +3773,184 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     refreshVaultReady();
     refreshVaultSaves();
   }, 20000);
+})();
+</script>
+</body>
+</html>`);
+});
+
+
+/**
+ * Pickup check-in, built for a phone at the merch table: pick the show, search
+ * by name / email / order number, tap to mark collected, undo a wrong tap.
+ */
+adminUiRouter.get("/checkin", requireAdminPage, (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<title>Pickup check-in — NC Admin</title>
+<style>
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body { background:#0b0b0b; color:#e8e8e8; font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; -webkit-font-smoothing:antialiased; padding-bottom:calc(80px + env(safe-area-inset-bottom)); }
+  .top { position:sticky; top:0; z-index:2; background:#0b0b0b; border-bottom:1px solid #1f1f1f; padding:calc(12px + env(safe-area-inset-top)) 14px 12px; display:grid; gap:8px; }
+  .top h1 { margin:0; font-size:16px; letter-spacing:-.01em; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .top h1 a { color:#9a9a9a; font-size:12px; text-decoration:none; }
+  .controls { display:grid; gap:8px; grid-template-columns:1fr; }
+  @media (min-width:560px) { .controls { grid-template-columns:1fr 1fr; } }
+  select, input { width:100%; background:#141414; color:#f2f2f2; border:1px solid #2a2a2a; border-radius:12px; padding:12px 14px; font-size:16px; font-family:inherit; }
+  .counts { font-size:12px; color:#9a9a9a; display:flex; gap:14px; flex-wrap:wrap; }
+  .counts b { color:#f2f2f2; }
+  .list { padding:12px 14px; display:grid; gap:10px; }
+  .order { background:#121212; border:1px solid #242424; border-radius:16px; padding:14px; display:grid; gap:8px; }
+  .order.done { opacity:.55; }
+  .order.missed { border-color:#5a1d1d; }
+  .who { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+  .name { font-size:17px; font-weight:600; }
+  .num { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:13px; color:#9ecbff; white-space:nowrap; }
+  .email { font-size:12px; color:#8a8a8a; }
+  .items { display:grid; gap:4px; font-size:14px; }
+  .items span { color:#c8c8c8; }
+  .bonus { font-size:12px; color:#e4c56b; }
+  .note { font-size:12px; color:#8a8a8a; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+  .btn { appearance:none; border:1px solid #2a2a2a; background:#1a1a1a; color:#fff; border-radius:12px; padding:12px 16px; font-size:14px; font-weight:600; cursor:pointer; min-height:44px; flex:1; }
+  .btn.primary { background:#f5f5f5; color:#000; border-color:#f5f5f5; }
+  .btn.quiet { flex:0 0 auto; background:transparent; color:#bcbcbc; font-weight:500; }
+  .btn:disabled { opacity:.5; }
+  .status { font-size:11px; letter-spacing:.08em; text-transform:uppercase; padding:3px 8px; border-radius:999px; background:#2b2b2b; color:#c8c8c8; }
+  .status.done { background:#14351f; color:#7ee2a8; }
+  .status.missed { background:#3a1111; color:#fecaca; }
+  .empty { padding:40px 14px; text-align:center; color:#8a8a8a; font-size:14px; }
+  .toast { position:fixed; left:14px; right:14px; bottom:calc(16px + env(safe-area-inset-bottom)); background:#f5f5f5; color:#050505; border-radius:14px; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; gap:12px; box-shadow:0 18px 40px rgba(0,0,0,.4); font-size:14px; z-index:3; }
+  .toast[hidden] { display:none; }
+  .toast button { appearance:none; border:0; background:#050505; color:#fff; border-radius:999px; padding:10px 16px; font-weight:600; font-size:13px; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>Pickup check-in <a href="/admin">Admin</a></h1>
+    <div class="controls">
+      <select id="show" aria-label="Show"><option value="">All shows</option></select>
+      <input id="q" type="search" placeholder="Search name, email or order number" autocomplete="off" />
+    </div>
+    <div class="counts" id="counts"></div>
+  </div>
+  <div class="list" id="list"><div class="empty">Loading…</div></div>
+  <div class="toast" id="toast" hidden><span id="toastText"></span><button type="button" id="toastUndo">Undo</button></div>
+<script>
+(() => {
+  var showSelect = document.getElementById("show");
+  var q = document.getElementById("q");
+  var list = document.getElementById("list");
+  var counts = document.getElementById("counts");
+  var toast = document.getElementById("toast");
+  var toastText = document.getElementById("toastText");
+  var toastUndo = document.getElementById("toastUndo");
+  var orders = [];
+  var undoAction = null;
+  var toastTimer = null;
+  var params = new URLSearchParams(window.location.search);
+  var showId = params.get("showId") || "";
+
+  function escapeHtml(str) {
+    return String(str == null ? "" : str).replace(/[&<>"]/g, function (ch) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] || ch; });
+  }
+
+  async function api(path, init) {
+    var res = await fetch(path, Object.assign({ headers: { Accept: "application/json", "Content-Type": "application/json" } }, init || {}));
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  }
+
+  function timeLabel(iso) {
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+
+  function render() {
+    counts.innerHTML = "<span><b>" + orders.length + "</b> orders</span><span><b>" + orders.filter(function (o) { return o.pickupStatus === "picked_up"; }).length + "</b> picked up</span><span><b>" + orders.filter(function (o) { return o.pickupStatus === "awaiting"; }).length + "</b> waiting</span>" + (orders.some(function (o) { return o.pickupStatus === "missed"; }) ? "<span><b>" + orders.filter(function (o) { return o.pickupStatus === "missed"; }).length + "</b> missed</span>" : "");
+    if (!orders.length) {
+      list.innerHTML = '<div class="empty">' + (q.value ? "No orders match." : "No pickup orders for this show yet.") + "</div>";
+      return;
+    }
+    list.innerHTML = orders.map(function (o) {
+      var done = o.pickupStatus === "picked_up";
+      var missed = o.pickupStatus === "missed";
+      return '<div class="order' + (done ? " done" : missed ? " missed" : "") + '" data-order="' + escapeHtml(o.orderId) + '">' +
+        '<div class="who"><div><div class="name">' + escapeHtml(o.customerName || "No name") + '</div><div class="email">' + escapeHtml(o.customerEmail) + "</div></div>" +
+          '<div style="text-align:right;display:grid;gap:6px;justify-items:end"><span class="num">' + escapeHtml(o.orderNumber) + "</span>" +
+          '<span class="status' + (done ? " done" : missed ? " missed" : "") + '">' + (done ? "Picked up " + timeLabel(o.pickedUpAt) : missed ? "Missed" : "Waiting") + "</span></div></div>" +
+        '<div class="items">' + o.items.map(function (i) { return "<div>" + escapeHtml(i.title) + (i.size ? " <span>· Size " + escapeHtml(i.size) + "</span>" : "") + " <span>× " + i.qty + "</span></div>"; }).join("") + "</div>" +
+        (o.bonus ? '<div class="bonus">+ ' + escapeHtml(o.bonus) + "</div>" : "") +
+        (o.otherItemsShip ? '<div class="note">Other items in this order ship separately.</div>' : "") +
+        '<div class="actions">' +
+          (done
+            ? '<button class="btn" type="button" data-set="awaiting">Not collected after all</button>'
+            : '<button class="btn primary" type="button" data-set="picked_up">Picked up</button>' +
+              (missed ? '<button class="btn quiet" type="button" data-set="awaiting">Back to waiting</button>' : '<button class="btn quiet" type="button" data-set="missed">Missed</button>')) +
+        "</div></div>";
+    }).join("");
+  }
+
+  async function load() {
+    try {
+      var data = await api("/api/admin/checkin?showId=" + encodeURIComponent(showId) + "&q=" + encodeURIComponent(q.value.trim()));
+      orders = data.orders || [];
+      if (showSelect.options.length <= 1 && data.shows && data.shows.length) {
+        showSelect.innerHTML = '<option value="">All shows</option>' + data.shows.map(function (s) { return '<option value="' + escapeHtml(s.id) + '"' + (s.id === showId ? " selected" : "") + ">" + escapeHtml(s.name + " · " + s.date) + "</option>"; }).join("");
+      }
+      render();
+    } catch (err) {
+      list.innerHTML = '<div class="empty">' + escapeHtml(err.message || String(err)) + "</div>";
+    }
+  }
+
+  function showToast(text, undo) {
+    toastText.textContent = text;
+    undoAction = undo;
+    toast.hidden = false;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.hidden = true; undoAction = null; }, 8000);
+  }
+
+  async function setStatus(orderId, status, previous, silent) {
+    var order = orders.find(function (o) { return o.orderId === orderId; });
+    try {
+      var data = await api("/api/admin/orders/" + encodeURIComponent(orderId) + "/fulfillment", { method: "PATCH", body: JSON.stringify({ pickupStatus: status }) });
+      if (order) { order.pickupStatus = data.status.pickupStatus; order.pickedUpAt = data.status.pickedUpAt || null; }
+      render();
+      if (!silent) {
+        var label = status === "picked_up" ? " marked picked up" : status === "missed" ? " marked missed" : " back to waiting";
+        showToast((order ? order.customerName || order.orderNumber : "Order") + label + ".", function () { setStatus(orderId, previous, status, true); });
+      }
+    } catch (err) {
+      alert(err.message || String(err));
+    }
+  }
+
+  list.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-set]") : null;
+    if (!btn) return;
+    var card = btn.closest("[data-order]");
+    var orderId = card.getAttribute("data-order");
+    var order = orders.find(function (o) { return o.orderId === orderId; });
+    setStatus(orderId, btn.getAttribute("data-set"), order ? order.pickupStatus : "awaiting");
+  });
+  toastUndo.addEventListener("click", function () {
+    toast.hidden = true;
+    if (undoAction) undoAction();
+    undoAction = null;
+  });
+  showSelect.addEventListener("change", function () { showId = showSelect.value; load(); });
+  var qTimer = null;
+  q.addEventListener("input", function () { if (qTimer) clearTimeout(qTimer); qTimer = setTimeout(load, 200); });
+  load();
+  setInterval(function () { if (!document.hidden) load(); }, 30000);
 })();
 </script>
 </body>
