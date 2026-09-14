@@ -69,6 +69,25 @@ rejecting the whole link, so `?products=tee-black:2,junk,other:two` still opens
 a bag with two tees in it. Sizes can't be set from a link — they're picked in
 the bag, and checkout won't charge without them.
 
+### The URL to give Meta Commerce
+
+```
+https://no-connection.com/checkout?products=<id>:<qty>,...&coupon=<CODE>
+```
+
+Not `/shop`. The shop is a single-page app, so a checker that reads the HTML
+and runs no scripts finds no cart on it, which is what Meta reports as "your
+checkout link didn't go to a checkout or cart page". `/checkout` is rendered by
+the backend (proxied in `frontend/netlify.toml`, above the catch-all, beside the
+`/p/*` rule) and lists each product, quantity, price and the coupon in the
+markup. Its Checkout button carries the same link into `/shop`, which fills the
+real bag and opens it, so a person still ends up where they should.
+
+Two things to check in Commerce Manager: the template must use Meta's own
+placeholder tokens rather than fixed ids, and the test quantity must be 3 or
+lower, since the shop caps every item at 3 and a test asking for 5 can never
+match.
+
 Check what a link will do before sharing it:
 
 ```

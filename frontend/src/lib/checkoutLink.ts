@@ -1,5 +1,5 @@
 import { requireBackendUrl } from "../config";
-import { fetchWithSession } from "./session";
+import { fetchBackendJson } from "./backend";
 
 /**
  * Checkout links: /shop?products=<id>:<qty>,<id>:<qty>&coupon=<CODE>
@@ -69,7 +69,16 @@ export function readCheckoutLinkParams(search: string): { products: string; coup
   };
 }
 
-/** Asks the server what the link actually resolves to. Reserves nothing. */
+/**
+ * Asks the server what the link actually resolves to. Reserves nothing.
+ *
+ * Goes through fetchBackendJson so it rides out a cold start, like the catalog
+ * does. The API host suspends the service after a quiet spell and answers with
+ * a holding page for the better part of a minute while it wakes. A plain fetch
+ * gives up on that first failure, and someone arriving on a shared link is
+ * exactly who finds the shop asleep — they are often the first visit in hours.
+ * Losing the bag there wastes the link.
+ */
 export async function resolveCheckoutLink(
   input: { products: string; coupon: string },
   signal?: AbortSignal,
@@ -82,12 +91,10 @@ export async function resolveCheckoutLink(
   if (input.coupon) query.set("coupon", input.coupon);
 
   try {
-    const res = await fetchWithSession(`${requireBackendUrl()}/api/checkout/link?${query.toString()}`, {
-      headers: { Accept: "application/json" },
-      signal,
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as ResolvedCheckoutLink;
+    const json = await fetchBackendJson<ResolvedCheckoutLink>(
+      `${requireBackendUrl()}/api/checkout/link?${query.toString()}`,
+      { headers: { Accept: "application/json" }, signal },
+    );
     return json && Array.isArray(json.items) ? json : null;
   } catch {
     return null;

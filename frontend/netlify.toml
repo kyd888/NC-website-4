@@ -38,6 +38,17 @@
   status = 200
   force = true
 
+# The checkout URL Meta Commerce is given. The shop is a single-page app, so a
+# checker that reads the HTML and runs no scripts finds no cart on it — which is
+# what Meta reported. The backend renders the cart into the markup instead, and
+# its Checkout button carries the same link on into the shop, which fills the
+# real bag. Must stay ABOVE the /* catch-all.
+[[redirects]]
+  from = "/checkout"
+  to = "https://nc-website-4.onrender.com/checkout"
+  status = 200
+  force = true
+
 # Product catalog feed that Meta Commerce Manager re-fetches on a schedule. The
 # backend builds it from the live catalog and stock; proxied so the feed URL
 # stays on the site's own domain. Also above the /* catch-all.
