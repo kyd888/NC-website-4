@@ -40,11 +40,29 @@ https://no-connection.com/shop?products=<id>:<qty>,<id>:<qty>&coupon=<CODE>
   rules in `summarizeCart`, not a code in a URL.
 
 A link is a request, never a reservation. Opening one resolves it against the
-live catalog first (`GET /api/checkout/link`), and only what is genuinely for
-sale goes in the bag, through the same `/api/cart/add` every other add uses.
-Anything sold out, pulled from the drop, or misspelled is named in the shop
-rather than silently dropped, and the link is taken out of the address bar so a
-reload doesn't add everything twice.
+live catalog first (`GET /api/checkout/link`), and what it can add goes in the
+bag through the same `/api/cart/add` every other add uses. Anything misspelled
+or pulled from the shop is named rather than silently dropped, and the link is
+taken out of the address bar so a reload doesn't add everything twice.
+
+**Between drops a link still fills the bag.** The shop is closed, not gone, so
+the link shows what it was pointing at and the bag says checkout opens with the
+next drop. Nothing is taken out of inventory then — there is no drop to take it
+from — so those lines carry no hold and no countdown. Paying stays shut:
+`create-intent`, `prepare` and `confirm` each refuse outside a live drop.
+
+This is what makes Meta Commerce's checkout-URL verification pass whenever Meta
+runs it, rather than only while a drop happens to be live. During a drop the
+old behaviour is unchanged: only what is genuinely for sale goes in the bag,
+and sold-out items are named instead of added.
+
+Because a bag can now exist without holding stock, every line records how many
+units it actually took (`held`). Releases, expiry and the hold countdown all
+read that, so a preview line can never hand back units it never took. When
+checkout opens, `create-intent` converts any unheld line into a real
+reservation before anything is charged — `confirm` does not re-check stock, so
+without that step a bag built between drops could oversell the first units of
+the next one.
 
 Nothing in a link is trusted: malformed entries are skipped rather than
 rejecting the whole link, so `?products=tee-black:2,junk,other:two` still opens

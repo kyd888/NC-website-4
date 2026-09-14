@@ -33,10 +33,18 @@ export type ResolvedLinkItem = {
   sizes?: string[];
   qty: number;
   status: CheckoutLinkStatus;
+  /**
+   * Whether this goes in the bag, which is not the same as whether it can be
+   * bought. Between drops everything real still fills the bag and paying waits
+   * for the drop; during one, only what is genuinely for sale goes in.
+   */
+  canBag: boolean;
 };
 
 export type ResolvedCheckoutLink = {
   ok: boolean;
+  /** False when the shop is between drops: the bag fills, but nothing can be paid for. */
+  live: boolean;
   items: ResolvedLinkItem[];
   subtotalCents: number;
   coupon: string | null;
@@ -88,10 +96,11 @@ export async function resolveCheckoutLink(
 
 /**
  * What to tell someone whose link was only partly usable. Empty when
- * everything in it went into the bag.
+ * everything in it went into the bag — including items that are in the bag but
+ * can't be paid for yet, which the bag itself explains.
  */
 export function describeLeftOut(items: ResolvedLinkItem[]): string {
-  const missing = items.filter((item) => item.status !== "ok");
+  const missing = items.filter((item) => !item.canBag);
   if (!missing.length) return "";
   const name = (item: ResolvedLinkItem) => item.title ?? item.productId;
   const soldOut = missing.filter((item) => item.status === "sold_out");

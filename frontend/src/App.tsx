@@ -324,6 +324,14 @@ function App() {
   const linkParamsRef = useRef(
     typeof window !== "undefined" ? readCheckoutLinkParams(window.location.search) : { products: "", coupon: "" },
   );
+  /**
+   * Products a checkout link named that /api/products doesn't return. Between
+   * drops the catalog is filtered down to what was recently live, and for a
+   * scheduled drop it is empty, so a bag filled from a link would otherwise
+   * render its lines as bare ids at $0. Kept apart from `catalog` rather than
+   * merged into it because the catalog fetch replaces that wholesale.
+   */
+  const [linkProducts, setLinkProducts] = useState<Record<string, ProductCard>>({});
   // Sizes are picked in the bag, one per unit: { "tee-black": ["M", "L"] }.
   const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>(() => {
     try {
@@ -528,12 +536,40 @@ function App() {
         }
         if (resolved.coupon) setLinkCoupon(resolved.coupon);
 
+        // The catalog may not carry these — between drops it is filtered, and
+        // for a scheduled drop it is empty — so keep what the server said about
+        // them or the bag shows bare ids at $0.
+        const named: Record<string, ProductCard> = {};
+        for (const item of resolved.items) {
+          if (!item.canBag || !item.title) continue;
+          const img = item.imageUrl || "/placeholder.png";
+          named[item.productId] = {
+            id: item.productId,
+            title: item.title,
+            priceCents: item.priceCents ?? 0,
+            img,
+            images: [img],
+            imageLabels: {},
+            bg: PAGE_BG,
+            tags: [],
+            sizes: Array.isArray(item.sizes) ? item.sizes : [],
+            description: "",
+            printPlacement: "",
+            garment: "",
+            sizeGuide: null,
+            madeToOrder: false,
+            inDrop: item.status === "ok",
+            order: 0,
+          };
+        }
+        if (Object.keys(named).length) setLinkProducts((prev) => ({ ...prev, ...named }));
+
         let snapshot: BackendCartSnapshot | null = null;
         let added = 0;
         let refused = "";
 
         for (const item of resolved.items) {
-          if (item.status !== "ok") continue;
+          if (!item.canBag) continue;
           try {
             const res = await fetchWithSession(`${BACKEND_URL}/api/cart/add`, {
               method: "POST",
@@ -563,7 +599,12 @@ function App() {
         const leftOut = describeLeftOut(resolved.items) || refused;
         if (added) {
           setCartOpen(true);
-          showToast(leftOut ? `Bag filled — ${leftOut}` : "Bag filled from your link", leftOut ? 3000 : 1800);
+          const note = leftOut
+            ? `Bag filled — ${leftOut}`
+            : resolved.live
+            ? "Bag filled from your link"
+            : "Bag filled — checkout opens with the drop";
+          showToast(note, leftOut || !resolved.live ? 3000 : 1800);
         } else {
           showToast(leftOut || "Nothing from that link is available", 3000);
         }
@@ -859,7 +900,7 @@ function App() {
   const cartDetails = useMemo(
     () =>
       cart.map((item) => {
-        const product = catalog.find((p) => p.id === item.id);
+        const product = catalog.find((p) => p.id === item.id) ?? linkProducts[item.id];
         const priceCents = product?.priceCents ?? 0;
         const holdSecondsRemaining =
           item.holdExpiresAt != null
@@ -884,7 +925,7 @@ function App() {
           picked,
         };
       }),
-    [cart, catalog, remainingById, nowTick, sizeChoices],
+    [cart, catalog, linkProducts, remainingById, nowTick, sizeChoices],
   );
 
   // Every sized unit needs a size before payment can be taken.
@@ -1516,18 +1557,6 @@ function App() {
         </div>
       )}
 
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            className="toast"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-          >
-            {toast}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {saveSheet && (
@@ -1614,6 +1643,26 @@ function App() {
               </form>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+          </>
+        )}
+
+      {/* The bag and the toast sit outside the landing/shop split on
+          purpose. A checkout link fills the bag whether or not a drop is
+          live, so between drops the shop still has to be able to show it —
+          inside that branch they simply would not exist on the page. */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            className="toast"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+          >
+            {toast}
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -1736,7 +1785,7 @@ function App() {
                 </div>
                 {/* The wallet sheet charges straight from the bag and always ships;
                     pickup is chosen in Checkout. It waits for sizes like Checkout does. */}
-                {!missingSizeFor ? (
+                {isLive && !missingSizeFor ? (
                   <CartPaymentRequestButton
                     amountCents={priceTotalCents}
                     sizes={sizesPayload}
@@ -1755,7 +1804,14 @@ function App() {
                     onError={(msg) => showToast(msg, 3000)}
                   />
                 ) : null}
-                {missingSizeFor ? (
+                {/* Between drops a link still fills the bag, so the bag is the
+                    place that explains why it can't be paid for yet. The drop
+                    is the outer blocker: sizes don't matter until it opens. */}
+                {!isLive ? (
+                  <div className="cart-sheet__note" aria-live="polite">
+                    Checkout opens when the next drop goes live. Your bag is saved until then.
+                  </div>
+                ) : missingSizeFor ? (
                   <div className="cart-sheet__note" aria-live="polite">
                     Choose a size for {missingSizeFor.title} to check out.
                   </div>
@@ -1764,7 +1820,7 @@ function App() {
                   type="button"
                   className="cart-sheet__checkout"
                   onClick={beginCheckout}
-                  disabled={checkoutLoading || Boolean(missingSizeFor)}
+                  disabled={checkoutLoading || !isLive || Boolean(missingSizeFor)}
                 >
                   {checkoutLoading ? "Preparing..." : `Checkout · ${formatCurrency(priceTotalCents)}`}
                 </button>
@@ -1773,8 +1829,6 @@ function App() {
           </>
         )}
       </AnimatePresence>
-          </>
-        )}
       </main>
       <PaymentModal
         open={paymentModalOpen}
