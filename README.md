@@ -40,16 +40,53 @@ https://no-connection.com/shop?products=<id>:<qty>,<id>:<qty>&coupon=<CODE>
   rules in `summarizeCart`, not a code in a URL.
 
 A link is a request, never a reservation. Opening one resolves it against the
-live catalog first (`GET /api/checkout/link`), and only what is genuinely for
-sale goes in the bag, through the same `/api/cart/add` every other add uses.
-Anything sold out, pulled from the drop, or misspelled is named in the shop
-rather than silently dropped, and the link is taken out of the address bar so a
-reload doesn't add everything twice.
+live catalog first (`GET /api/checkout/link`), and what it can add goes in the
+bag through the same `/api/cart/add` every other add uses. Anything misspelled
+or pulled from the shop is named rather than silently dropped, and the link is
+taken out of the address bar so a reload doesn't add everything twice.
+
+**Between drops a link still fills the bag.** The shop is closed, not gone, so
+the link shows what it was pointing at and the bag says checkout opens with the
+next drop. Nothing is taken out of inventory then — there is no drop to take it
+from — so those lines carry no hold and no countdown. Paying stays shut:
+`create-intent`, `prepare` and `confirm` each refuse outside a live drop.
+
+This is what makes Meta Commerce's checkout-URL verification pass whenever Meta
+runs it, rather than only while a drop happens to be live. During a drop the
+old behaviour is unchanged: only what is genuinely for sale goes in the bag,
+and sold-out items are named instead of added.
+
+Because a bag can now exist without holding stock, every line records how many
+units it actually took (`held`). Releases, expiry and the hold countdown all
+read that, so a preview line can never hand back units it never took. When
+checkout opens, `create-intent` converts any unheld line into a real
+reservation before anything is charged — `confirm` does not re-check stock, so
+without that step a bag built between drops could oversell the first units of
+the next one.
 
 Nothing in a link is trusted: malformed entries are skipped rather than
 rejecting the whole link, so `?products=tee-black:2,junk,other:two` still opens
 a bag with two tees in it. Sizes can't be set from a link — they're picked in
 the bag, and checkout won't charge without them.
+
+### The URL to give Meta Commerce
+
+```
+https://no-connection.com/checkout?products=<id>:<qty>,...&coupon=<CODE>
+```
+
+Not `/shop`. The shop is a single-page app, so a checker that reads the HTML
+and runs no scripts finds no cart on it, which is what Meta reports as "your
+checkout link didn't go to a checkout or cart page". `/checkout` is rendered by
+the backend (proxied in `frontend/netlify.toml`, above the catch-all, beside the
+`/p/*` rule) and lists each product, quantity, price and the coupon in the
+markup. Its Checkout button carries the same link into `/shop`, which fills the
+real bag and opens it, so a person still ends up where they should.
+
+Two things to check in Commerce Manager: the template must use Meta's own
+placeholder tokens rather than fixed ids, and the test quantity must be 3 or
+lower, since the shop caps every item at 3 and a test asking for 5 can never
+match.
 
 Check what a link will do before sharing it:
 

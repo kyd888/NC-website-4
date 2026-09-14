@@ -51,7 +51,15 @@ import {
 } from "../lib/checkoutLink.js";
 
 type DropState = "idle" | "scheduled" | "live";
-type SessionCartLine = { qty: number; reservedAt: number };
+/**
+ * `held` is how many units this line has actually taken out of inventory, which
+ * is not always `qty`. A made-to-order line holds nothing because it cannot run
+ * out, and a line added while the shop is between drops holds nothing because
+ * there is no drop to take units from. Releasing `qty` on such a line would
+ * hand stock back that was never taken and invent inventory, so every release,
+ * expiry and hold countdown reads `held`.
+ */
+type SessionCartLine = { qty: number; reservedAt: number; held: number };
 type SessionCart = Record<string, SessionCartLine>;
 type SessionData = { cart: SessionCart; updatedAt: number };
 
@@ -145,12 +153,18 @@ export const catalogRouter = Router();
 
 type CartLine = { product: CatalogItem; qty: number };
 
-function normalizeCartLine(entry: SessionCartLine | number | undefined): SessionCartLine | null {
+function normalizeCartLine(
+  entry: SessionCartLine | number | undefined,
+  productId: string,
+): SessionCartLine | null {
   if (entry == null) return null;
+  // A line written before `held` existed reserved a unit per item unless it was
+  // made-to-order, which is what those two shapes mean.
+  const assumedHeld = (qty: number) => (isMadeToOrder(productId) ? 0 : qty);
   if (typeof entry === "number") {
     const qty = Math.max(0, Math.floor(entry));
     if (qty <= 0) return null;
-    return { qty, reservedAt: Date.now() };
+    return { qty, reservedAt: Date.now(), held: assumedHeld(qty) };
   }
   const qty = Math.max(0, Math.floor(entry.qty ?? 0));
   if (qty <= 0) return null;
@@ -158,23 +172,26 @@ function normalizeCartLine(entry: SessionCartLine | number | undefined): Session
     typeof entry.reservedAt === "number" && Number.isFinite(entry.reservedAt)
       ? entry.reservedAt
       : Date.now();
-  return { qty, reservedAt };
+  const held =
+    typeof entry.held === "number" && Number.isFinite(entry.held)
+      ? Math.min(qty, Math.max(0, Math.floor(entry.held)))
+      : assumedHeld(qty);
+  return { qty, reservedAt, held };
 }
 
 function purgeExpiredCart(session: SessionData) {
   const now = Date.now();
   for (const [productId, raw] of Object.entries(session.cart)) {
-    const line = normalizeCartLine(raw);
+    const line = normalizeCartLine(raw, productId);
     if (!line) {
       delete session.cart[productId];
       continue;
     }
-    // A made-to-order line holds no units, so there is nothing to give back:
-    // it stays in the bag until the session itself expires.
-    if (!isMadeToOrder(productId) && line.reservedAt + CART_HOLD_TTL_MS <= now) {
-      if (line.qty > 0) {
-        release(productId, line.qty);
-      }
+    // A line holding no units has nothing to give back and so nothing to
+    // expire — made-to-order, or added while the shop was between drops. It
+    // stays in the bag until the session itself expires.
+    if (line.held > 0 && line.reservedAt + CART_HOLD_TTL_MS <= now) {
+      release(productId, line.held);
       delete session.cart[productId];
       continue;
     }
@@ -199,7 +216,9 @@ function serializeCart(session: SessionData) {
   for (const [productId, line] of Object.entries(session.cart)) {
     const qty = Math.max(0, Math.floor(line.qty));
     if (!qty) continue;
-    const holdMsRemaining = isMadeToOrder(productId) ? null : Math.max(0, line.reservedAt + CART_HOLD_TTL_MS - now);
+    // null means "nothing is being held, so nothing runs out" — the shop shows
+    // no countdown for it.
+    const holdMsRemaining = line.held > 0 ? Math.max(0, line.reservedAt + CART_HOLD_TTL_MS - now) : null;
     out[productId] = { qty, holdMsRemaining };
   }
   return out;
@@ -235,6 +254,39 @@ function toAbsoluteUrl(input: string | undefined, baseUrl: string): string | und
 }
 
 /// ---------- Checkout helpers ----------
+
+/**
+ * Takes the units a bag is about to be charged for.
+ *
+ * A line built while the shop was between drops holds nothing, and confirm
+ * never re-checks stock — it trusts the reservation made when the item went in
+ * the bag. So an unheld line reaching payment would sell a unit that isn't
+ * there, twice over if two people hold the same link. This closes that: every
+ * line takes its units here, when checkout opens, or checkout does not open.
+ *
+ * Whatever it managed to take before hitting a sold-out line stays held; the
+ * bag is still the customer's, and the hold expires on its own if they walk
+ * away.
+ */
+function secureCartHolds(session: SessionData): { ok: true } | { ok: false; productId: string; title: string } {
+  purgeExpiredCart(session);
+  for (const [productId, line] of Object.entries(session.cart)) {
+    const short = line.qty - line.held;
+    if (short <= 0) continue;
+    if (!reserve(productId, short)) {
+      return { ok: false, productId, title: getProduct(productId)?.title ?? productId };
+    }
+    // reserve() reports success for made-to-order without taking anything, so
+    // held stays 0 there and the line keeps its "nothing to give back" shape.
+    session.cart[productId] = {
+      qty: line.qty,
+      reservedAt: Date.now(),
+      held: isMadeToOrder(productId) ? 0 : line.qty,
+    };
+  }
+  return { ok: true };
+}
+
 
 /** Sizes are picked in the bag: { productId: ["M", "L"] }, one per unit, all valid. */
 function checkSizes(
@@ -620,30 +672,42 @@ catalogRouter.post("/cart/add", (req, res) => {
     return res.status(404).json({ error: "Product not found" });
   }
 
+  // A bag can be built between drops — a checkout link opened while the shop is
+  // closed still shows what it was pointing at. Nothing is taken out of
+  // inventory then, because there is no drop to take it from, and paying stays
+  // shut until one opens: create-intent, prepare and confirm each refuse
+  // outside a live drop. Checkout turns those unheld lines into real
+  // reservations before it charges anything.
   const drop = getCurrentDrop();
-  if (!drop || drop.status !== "live") {
-    return res.status(409).json({ error: "Drop is not live" });
-  }
+  const live = drop?.status === "live";
 
   session.updatedAt = Date.now();
   purgeExpiredCart(session);
 
   const existing = session.cart[productId];
   const currentQty = existing ? Math.max(0, Math.floor(existing.qty)) : 0;
+  const currentHeld = existing ? Math.max(0, Math.floor(existing.held)) : 0;
 
   if (currentQty >= MAX_QTY_PER_ITEM) {
     return res.status(409).json({ error: `Limit of ${MAX_QTY_PER_ITEM} per item` });
   }
 
   const addQty = Math.min(qty, MAX_QTY_PER_ITEM - currentQty);
-  const success = reserve(productId, addQty);
-  if (!success) {
-    return res.status(409).json({ error: "Sold out" });
+
+  // reserve() answers false when no drop is live, so this only ever runs for a
+  // drop that is open. Made-to-order takes no units and reports success.
+  let heldAdded = 0;
+  if (live) {
+    if (!reserve(productId, addQty)) {
+      return res.status(409).json({ error: "Sold out" });
+    }
+    if (!isMadeToOrder(productId)) heldAdded = addQty;
   }
 
   session.cart[productId] = {
     qty: currentQty + addQty,
     reservedAt: Date.now(),
+    held: currentHeld + heldAdded,
   };
 
   const auth = getAuthContext(req);
@@ -672,6 +736,9 @@ catalogRouter.post("/cart/add", (req, res) => {
     cart: serializeCart(session),
     session: id,
     remaining: getAllRemaining(),
+    // False means the bag is a preview: it holds nothing and can't be paid for
+    // until a drop opens.
+    live,
   });
 });
 
@@ -687,22 +754,28 @@ catalogRouter.post("/cart/remove", (req, res) => {
 
   purgeExpiredCart(session);
 
-  const current = session.cart[productId]?.qty ?? 0;
+  const line = session.cart[productId];
+  const current = line?.qty ?? 0;
   if (current <= 0) {
     return res.status(404).json({ error: "Item not in cart" });
   }
 
   const removeQty = Math.min(current, qty);
   const remainingQty = current - removeQty;
+  // Give back only units this line actually took. A preview line built between
+  // drops holds none, and releasing against it would invent stock.
+  const heldNow = Math.max(0, Math.floor(line?.held ?? 0));
+  const releaseQty = Math.min(heldNow, removeQty);
   if (remainingQty > 0) {
     session.cart[productId] = {
       qty: remainingQty,
-      reservedAt: session.cart[productId]?.reservedAt ?? Date.now(),
+      reservedAt: line?.reservedAt ?? Date.now(),
+      held: heldNow - releaseQty,
     };
   } else {
     delete session.cart[productId];
   }
-  release(productId, removeQty);
+  if (releaseQty > 0) release(productId, releaseQty);
 
   res.json({
     ok: true,
@@ -741,10 +814,12 @@ catalogRouter.get("/checkout/link", (req, res) => {
     coupon: typeof req.query.coupon === "string" ? req.query.coupon : null,
   });
 
+  const live = getCurrentDrop()?.status === "live";
+
   const items = parsed.items.map((item) => {
     const product = getProduct(item.productId);
     if (!product || product.enabled === false) {
-      return { productId: item.productId, qty: item.qty, status: "unknown" as const };
+      return { productId: item.productId, qty: item.qty, status: "unknown" as const, canBag: false };
     }
 
     // The same availability the share page and the Meta feed read, so a link
@@ -769,6 +844,15 @@ catalogRouter.get("/checkout/link", (req, res) => {
       sizes: sizesForProduct(product),
       qty: item.qty,
       status,
+      /**
+       * Whether this goes in the bag, which is a different question from
+       * whether it can be bought. During a drop they match: putting something
+       * sold out in a bag would be a lie the customer finds out at checkout.
+       * Between drops they don't — "sold out" and "ended" there only mean the
+       * shop is shut, so the link still shows what it was pointing at and
+       * paying waits for the drop to open.
+       */
+      canBag: live ? status === "ok" : true,
     };
   });
 
@@ -778,6 +862,9 @@ catalogRouter.get("/checkout/link", (req, res) => {
   res.set("Cache-Control", "no-store");
   res.json({
     ok: true,
+    // False means the shop is between drops: a link still fills the bag, but
+    // nothing can be paid for until a drop opens.
+    live,
     items,
     subtotalCents: buyable.reduce((sum, item) => sum + (item.priceCents ?? 0) * item.qty, 0),
     coupon: parsed.coupon,
@@ -819,6 +906,16 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
 
   if (!summary.lines.length) {
     return res.status(400).json({ error: "Cart is empty" });
+  }
+
+  // Nothing is charged for a unit that was never taken out of inventory.
+  const secured = secureCartHolds(session);
+  if (!secured.ok) {
+    return res.status(409).json({
+      error: `${secured.title} sold out while it was in your bag.`,
+      code: "SOLD_OUT",
+      productId: secured.productId,
+    });
   }
 
   // Arrived with the bag from a checkout link. Saved on the payment so the
@@ -1219,9 +1316,9 @@ function setSessionCookie(res: Response, id: string) {
 
 function releaseCart(cart: SessionCart) {
   for (const [productId, raw] of Object.entries(cart)) {
-    const line = normalizeCartLine(raw);
-    if (line && line.qty > 0) {
-      release(productId, line.qty);
+    const line = normalizeCartLine(raw, productId);
+    if (line && line.held > 0) {
+      release(productId, line.held);
     }
     delete cart[productId];
   }
