@@ -64,8 +64,14 @@ function parseEntry(entry: string): CheckoutLinkItem | CheckoutLinkProblem {
   // No quantity means one — the common case for a link to a single piece.
   if (!qtyText) return { productId, qty: 1 };
 
-  // Number() over parseInt: parseInt("2kg") is 2, which silently buys
-  // something nobody asked for. Reject the whole quantity instead.
+  // Plain digits only, checked before any conversion. parseInt("2kg") is 2,
+  // which silently buys something nobody asked for, and Number() is no safer
+  // in the other direction: it reads "0x10" as sixteen and "1e3" as a
+  // thousand. A quantity in a link is written the way it is read, or it is
+  // not a quantity.
+  if (!/^\d+$/.test(qtyText)) {
+    return { input: trimmed, reason: "Quantity must be a whole number, 1 or more" };
+  }
   const qty = Number(qtyText);
   if (!Number.isInteger(qty) || qty < 1) {
     return { input: trimmed, reason: "Quantity must be a whole number, 1 or more" };
