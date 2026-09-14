@@ -64,27 +64,20 @@ export type ShowSnapshot = {
 
 /**
  * Saved on each order line at purchase. Everything a customer was told about
- * pickup or shipping is copied here, so editing a show, a policy or a product
- * afterwards never rewrites what a paid order promised.
+ * their pickup is copied here, so editing the show afterwards never rewrites
+ * what a paid order promised.
  */
 export type SaleFulfillment = {
   method: FulfillmentMethod;
-  /** Bought under a show merch setup (pickup at a show, or ship after it). */
-  showMerch?: boolean;
-  /** The setup it was sold under, for reports. */
-  setupId?: string;
   /** Pickup only: where the customer collects it. */
   show?: ShowSnapshot;
-  /** Pickup only: the bonus that goes with it. */
+  /** Pickup only: the bonus, the essentials and the policy, as shown at checkout. */
   bonus?: string;
-  /** Pickup only: the essentials and the policy, as shown at checkout. */
   pickupHours?: string;
   pickupInstructions?: string;
   missedPickupPolicy?: string;
-  /** Show merch shipping only: what the customer was told at purchase. */
+  /** Orders from the first show merch release may carry these; nothing writes them now. */
+  showMerch?: boolean;
   shipsAfter?: string;
   dispatchEstimate?: string;
-  /** Show merch shipping only: whether standard shipping was in the price, or what was charged. */
-  shippingIncluded?: boolean;
-  shippingFeeCents?: number;
 };

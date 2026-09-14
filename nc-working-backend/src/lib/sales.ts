@@ -209,16 +209,12 @@ function sanitizeFulfillment(input: unknown): SaleFulfillment | undefined {
   const show = sanitizeShow(value.show);
   if (show) out.show = show;
   const text = (key: keyof SaleFulfillment) => (typeof value[key] === "string" && value[key] ? (value[key] as string) : undefined);
-  if (text("setupId")) out.setupId = text("setupId");
   if (text("bonus")) out.bonus = text("bonus");
   if (text("pickupHours")) out.pickupHours = text("pickupHours");
   if (text("pickupInstructions")) out.pickupInstructions = text("pickupInstructions");
   if (text("missedPickupPolicy")) out.missedPickupPolicy = text("missedPickupPolicy");
   if (text("shipsAfter")) out.shipsAfter = text("shipsAfter");
   if (text("dispatchEstimate")) out.dispatchEstimate = text("dispatchEstimate");
-  if (typeof value.shippingIncluded === "boolean") out.shippingIncluded = value.shippingIncluded;
-  const fee = Number(value.shippingFeeCents);
-  if (Number.isFinite(fee) && fee >= 0 && value.shippingFeeCents !== undefined && value.shippingFeeCents !== null) out.shippingFeeCents = Math.round(fee);
   return out;
 }
 

@@ -4,7 +4,6 @@ import { loadSalesFromDb } from "./sales.js";
 import { loadUsersFromDb } from "./users.js";
 import { loadVaultFromDb } from "./vault.js";
 import { loadKydContent } from "./siteContent.js";
-import { loadShowMerchSettings } from "./showMerch.js";
 import { loadOrderFulfillment } from "./orderFulfillment.js";
 import { schemaSql } from "./schema.js";
 
@@ -70,7 +69,6 @@ export async function initializePersistentStores() {
   // KYD content falls back to disk, so it loads with or without a database.
   await loadKydContent();
   if (!dbEnabled) {
-    await loadShowMerchSettings();
     await loadOrderFulfillment();
     // Without a database everything lives in DATA_DIR. On a host with an
     // ephemeral filesystem (Render, unless that path is a mounted disk) each
@@ -90,6 +88,5 @@ export async function initializePersistentStores() {
   await loadSalesFromDb();
   await loadInventoryFromDb();
   await loadVaultFromDb();
-  await loadShowMerchSettings();
   await loadOrderFulfillment();
 }

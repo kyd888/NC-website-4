@@ -1198,8 +1198,6 @@ input,select,textarea{font-size:16px}
 @media (prefers-reduced-motion:reduce){.size-pick__option{transition:none}}
 
 /* ---------- Show merch: pick up at a show, or ship after it ---------- */
-.cart-line__fulfill{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#111}
-.cart-line__fulfill.is-pending{color:#a32b1f}
 
 .fulfill{border:0;margin:0;padding:0;min-width:0;display:grid;gap:10px}
 .fulfill__legend{padding:0;margin-bottom:2px;font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:#111}
@@ -1252,8 +1250,6 @@ input,select,textarea{font-size:16px}
 .cart-sheet{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px);gap:14px}
 .cart-sheet__body{flex:1 1 auto;min-height:0;max-height:none;gap:16px;padding-right:2px;overscroll-behavior:contain}
 .cart-sheet__footer{flex:none;gap:10px;padding-top:10px;border-top:1px solid rgba(0,0,0,.08)}
-.cart-sheet__lines{display:grid;gap:4px}
-.cart-sheet__line{display:flex;justify-content:space-between;font-size:12px;color:rgba(17,17,17,.6)}
 
 /* One compact row per product: thumbnail, name, what it is, size, quantity, price. */
 .cart-line{
@@ -1274,9 +1270,6 @@ input,select,textarea{font-size:16px}
 .cart-line__hold{font-size:11px;letter-spacing:.06em;color:rgba(17,17,17,.55)}
 .cart-line__remove{margin-left:auto;font-size:10px;letter-spacing:.18em;color:rgba(17,17,17,.5)}
 .cart-line__remove:hover{color:#111}
-.cart-line__fulfill{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(17,17,17,.7)}
-/* Neutral guidance: a choice still to be made is not an error. */
-.cart-line__fulfill.is-pending{color:rgba(17,17,17,.5)}
 .cart-sheet__note{font-size:12px;color:rgba(17,17,17,.62);text-align:center;margin:0}
 
 /* Enabled and disabled must read differently at a glance. */
@@ -1323,21 +1316,9 @@ input,select,textarea{font-size:16px}
 .fulfill__show-option.is-disabled{cursor:not-allowed;background:#f4f4f2;border-style:dashed;color:rgba(17,17,17,.5)}
 .fulfill__show-option.is-disabled input{opacity:.45}
 
-/* Checkout: the choice from the bag as one line, with a way back into it. */
-.checkout-summary{
-  display:flex;justify-content:space-between;align-items:center;gap:12px;
-  padding:12px 14px;border:1.5px solid #111;border-radius:14px;background:#fafaf8;
-}
-.checkout-summary__title{font-size:13px;font-weight:600;color:#111}
-.checkout-summary__detail{margin-top:3px;font-size:12px;line-height:1.45;color:rgba(17,17,17,.7)}
-.checkout-summary__change{
-  flex:none;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#111;
-  text-decoration:underline;text-underline-offset:3px;padding:6px 2px;
-}
-.checkout-summary__change:focus-visible{outline:2px solid #111;outline-offset:2px}
 .payment-totals{display:grid;gap:6px;padding:12px 14px;border-radius:12px;background:#f8f8f6;border:1px solid rgba(0,0,0,.08)}
 .payment-totals__line{display:flex;justify-content:space-between;font-size:13px;color:rgba(17,17,17,.7)}
-.payment-totals__line--total{font-weight:600;color:#111;font-size:14px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08)}
+.payment-totals__line--total{font-weight:600;color:#111;font-size:14px}
 .payment-submit:disabled{background:#ececea;color:rgba(17,17,17,.45);opacity:1}
 
 /* Confirmation: what was bought, where it goes, what was paid, who to ask. */
@@ -1359,7 +1340,6 @@ input,select,textarea{font-size:16px}
 .order-confirm-more summary{cursor:pointer;font-size:11px;letter-spacing:.12em;text-transform:uppercase;text-decoration:underline;text-underline-offset:3px;list-style:none;width:fit-content;padding:2px 0}
 .order-confirm-more summary::-webkit-details-marker{display:none}
 .order-confirm-more p{margin:6px 0 0;font-size:12px;line-height:1.5;color:rgba(17,17,17,.75)}
-.order-confirm-total__note{font-weight:400;font-size:11px;opacity:.75}
 .order-confirm-support{
   display:block;text-align:center;font-size:12px;letter-spacing:.06em;color:#111;
   text-decoration:underline;text-underline-offset:3px;padding:8px 0 2px;

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { findByAddressToken, recordCustomerAddress } from "../lib/orderFulfillment.js";
 import { groupSalesByOrder, listSales } from "../lib/sales.js";
-import { getSetup, primarySetup, shippingRegionLabel, validateShippingAddress } from "../lib/showMerch.js";
+import { validateShippingAddress } from "../lib/pickup.js";
 import { frontendOrigin } from "../lib/storefront.js";
 
 /**
@@ -9,9 +9,8 @@ import { frontendOrigin } from "../lib/storefront.js";
  *
  * GET/POST /orders/address/:token — a missed pickup: the customer gives the
  * address to ship to instead. The link is unique to their order (issued from
- * the admin), works for 30 days, and charges nothing: standard shipping was
- * already in the price. Same address rules as checkout, so what they enter
- * can actually be shipped to.
+ * the admin), works for 30 days, and charges nothing. Same address rules as
+ * checkout.
  */
 export const ordersRouter = Router();
 
@@ -81,27 +80,25 @@ function orderFor(token: string) {
   const order = groupSalesByOrder(listSales(5000)).find((o) => o.orderId === record.orderId);
   if (!order) return null;
   const pickupLine = order.items.find((l) => l.fulfillment.method === "pickup");
-  const setupId = order.items.find((l) => l.fulfillment.setupId)?.fulfillment.setupId;
-  return { record, order, pickupLine, setup: (setupId ? getSetup(setupId) : undefined) ?? primarySetup() };
+  return { record, order, pickupLine };
 }
 
 type FormValues = { line1: string; line2: string; city: string; state: string; postalCode: string; country: string };
 
 function formPage(data: NonNullable<ReturnType<typeof orderFor>>, values: FormValues, error: string, shop: string) {
-  const { order, pickupLine, setup, record } = data;
+  const { order, pickupLine, record } = data;
   const items = order.items
     .filter((l) => l.fulfillment.method === "pickup")
     .map((l) => `<div class="item"><span>${escapeHtml(l.productTitle ?? l.productId)}${l.size ? ` · Size ${escapeHtml(l.size)}` : ""}</span><span>× ${l.qty}</span></div>`)
     .join("");
   const show = pickupLine?.fulfillment.show;
-  const region = shippingRegionLabel(setup);
   const saved = record.missedPickupAddress;
   const field = (name: keyof FormValues, label: string, autocomplete: string, placeholder = "") =>
     `<div class="row"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${escapeHtml(values[name])}" autocomplete="${autocomplete}" placeholder="${escapeHtml(placeholder)}" /></div>`;
   return page(
     "Where should we send it?",
     `<h1>Where should we send it?</h1>
-     <p>Order <strong>${escapeHtml(order.orderNumber)}</strong>${show ? ` wasn’t collected at ${escapeHtml(show.name)}` : ""}. Enter the address to ship it to. Standard shipping was already covered by your order, so there’s nothing more to pay.</p>
+     <p>Order <strong>${escapeHtml(order.orderNumber)}</strong>${show ? ` wasn’t collected at ${escapeHtml(show.name)}` : ""}. Enter the address to ship it to. There’s nothing more to pay.</p>
      <div class="card"><div class="eyebrow">Shipping</div>${items || "<div class='item'><span>Your order</span></div>"}</div>
      ${saved ? `<div class="card"><div class="eyebrow">Address on file</div><div>${escapeHtml([saved.line1, saved.line2, `${saved.city}, ${saved.state} ${saved.postalCode}`, saved.country].filter(Boolean).join(" · "))}</div><div class="note">Submit the form to change it.</div></div>` : ""}
      <form method="post" class="card">
@@ -117,7 +114,6 @@ function formPage(data: NonNullable<ReturnType<typeof orderFor>>, values: FormVa
          ${field("postalCode", "ZIP / postal code", "postal-code")}
          ${field("country", "Country", "country", "US")}
        </div>
-       ${region ? `<div class="note">We ship show merch to ${escapeHtml(region)}.</div>` : ""}
        <button class="btn" type="submit">Send it here</button>
      </form>`,
     shop,
@@ -161,7 +157,7 @@ ordersRouter.post("/address/:token", async (req, res) => {
     postalCode: String(body.postalCode ?? ""),
     country: String(body.country ?? "US"),
   };
-  const checked = validateShippingAddress(values, true, data.setup);
+  const checked = validateShippingAddress(values);
   if (!checked.ok) return res.status(400).type("html").send(formPage(data, values, checked.error, shop));
   await recordCustomerAddress(data.order.orderId, checked.address);
   const a = checked.address;
