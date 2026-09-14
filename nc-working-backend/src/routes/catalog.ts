@@ -27,15 +27,16 @@ import {
   type ReceiptFulfillment,
 } from "../lib/mailer.js";
 import { noteCartAdd } from "../lib/cartAlerts.js";
-import type { CatalogItem, FulfillmentMethod, SaleFulfillment, ShowSnapshot } from "../lib/types.js";
+import type { CatalogItem, SaleFulfillment, ShowSnapshot } from "../lib/types.js";
 import {
   dateLabel,
-  planFulfillment,
-  publicShowMerch,
+  pickupFulfillment,
+  planPickup,
+  publicPickup,
   validateShippingAddress,
-  type FulfillmentPlan,
+  type ShowPickupCheck,
   type ShippingAddress,
-} from "../lib/showMerch.js";
+} from "../lib/pickup.js";
 import { getAuthContext } from "../lib/auth.js";
 import { getKydContent } from "../lib/siteContent.js";
 import { sizesForProduct, normalizeSize } from "../lib/sizing.js";
@@ -260,24 +261,16 @@ export function productDetailOf(product: Pick<CatalogItem, "printPlacement" | "g
   return parts.length ? parts.join(" · ") : undefined;
 }
 
-/** Items, delivery (when it isn't in the price) and the total the card is charged. */
-function orderTotals(summary: { grossCents: number }, plan: FulfillmentPlan) {
-  const shippingFeeCents = plan.method === "ship" ? plan.shippingFeeCents : 0;
-  return { itemsCents: summary.grossCents, shippingFeeCents, totalCents: summary.grossCents + shippingFeeCents };
-}
-
 /**
  * What was validated on the server right before payment, saved on the Stripe
  * PaymentIntent. Confirm reads it back instead of trusting the browser again,
- * and never re-checks eligibility: once paid, an order keeps the fulfillment
- * it was paid under even if the show's settings change a second later. The
- * texts the customer saw (hours, instructions, policy) ride along too, so a
- * later edit in the admin can't rewrite what a paid order promised.
+ * and never re-checks eligibility: once paid, a pickup order stays a pickup
+ * order even if the show's settings change a second later. The texts the
+ * customer saw (hours, instructions, policy) ride along, so a later edit in
+ * the admin can't rewrite what a paid order promised.
  */
 type PreparedCheckout = {
-  method: FulfillmentMethod | null;
-  showMerchIds: string[];
-  setupId?: string;
+  pickup: boolean;
   show?: ShowSnapshot;
   address?: ShippingAddress;
   contact?: { name?: string; email?: string };
@@ -285,25 +278,14 @@ type PreparedCheckout = {
   pickupHours?: string;
   pickupInstructions?: string;
   missedPickupPolicy?: string;
-  shipsAfter?: string;
-  dispatchEstimate?: string;
-  shippingIncluded?: boolean;
-  shippingFeeCents: number;
 };
 
 // Stripe metadata values cap at 500 characters, so every stored field is bounded.
 const clip = (value: string | undefined, max: number) => (value ? value.slice(0, max) : value);
 
-function preparedMetadata(plan: FulfillmentPlan, contact: CheckoutContact, address: ShippingAddress | undefined) {
-  const setup = plan.setup;
-  const show = plan.show
-    ? {
-        id: clip(plan.show.id, 80),
-        name: clip(plan.show.name, 120),
-        date: plan.show.date,
-        location: clip(plan.show.location, 160),
-        timezone: plan.show.timezone,
-      }
+function preparedMetadata(pickup: ShowPickupCheck | null, contact: CheckoutContact, address: ShippingAddress | undefined) {
+  const show = pickup
+    ? { id: clip(pickup.id, 80), name: clip(pickup.name, 120), date: pickup.date, location: clip(pickup.location, 160), timezone: pickup.timezone }
     : null;
   const ship = address
     ? {
@@ -315,23 +297,15 @@ function preparedMetadata(plan: FulfillmentPlan, contact: CheckoutContact, addre
         country: address.country,
       }
     : null;
-  const pickup = plan.method === "pickup";
-  const ships = plan.method === "ship";
   return {
-    nc_fulfillment: plan.method ?? "none",
-    nc_show_merch_ids: clip(plan.showMerchIds.join(","), 500) ?? "",
-    nc_setup: setup?.id ?? "",
+    nc_fulfillment: pickup ? "pickup" : "ship",
     nc_show: show ? JSON.stringify(show) : "",
     nc_ship: ship ? JSON.stringify(ship) : "",
     nc_contact: JSON.stringify({ name: clip(contact.name, 120) ?? "", email: clip(contact.email, 200) }),
-    nc_bonus: pickup ? clip(setup?.pickupBonus, 60) ?? "" : "",
-    nc_pickup_hours: pickup ? clip(plan.show?.hours, 160) ?? "" : "",
-    nc_pickup_instructions: pickup ? clip(plan.show?.instructions, 500) ?? "" : "",
-    nc_policy: pickup ? clip(setup?.missedPickupPolicy, 500) ?? "" : "",
-    nc_ships_after: ships ? setup?.shipsAfterDate ?? "" : "",
-    nc_dispatch: ships ? clip(setup?.dispatchEstimate, 300) ?? "" : "",
-    nc_ship_included: ships ? (setup?.shippingIncluded === false ? "no" : "yes") : "",
-    nc_ship_fee: String(ships ? plan.shippingFeeCents : 0),
+    nc_bonus: clip(pickup?.bonus, 60) ?? "",
+    nc_pickup_hours: clip(pickup?.hours, 160) ?? "",
+    nc_pickup_instructions: clip(pickup?.instructions, 500) ?? "",
+    nc_policy: clip(pickup?.missedPolicy, 500) ?? "",
     nc_prepared_at: new Date().toISOString(),
   };
 }
@@ -348,11 +322,8 @@ function parseJson<T>(raw: string | undefined): T | undefined {
 function readPreparedCheckout(metadata: Record<string, string> | undefined | null): PreparedCheckout | null {
   const method = metadata?.nc_fulfillment;
   if (!method) return null; // Paid through a checkout that never ran prepare (an older browser tab).
-  const fee = Number(metadata?.nc_ship_fee ?? 0);
   return {
-    method: method === "pickup" || method === "ship" ? method : null,
-    showMerchIds: (metadata?.nc_show_merch_ids ?? "").split(",").filter(Boolean),
-    setupId: metadata?.nc_setup || undefined,
+    pickup: method === "pickup",
     show: parseJson<ShowSnapshot>(metadata?.nc_show),
     address: parseJson<ShippingAddress>(metadata?.nc_ship),
     contact: parseJson<{ name?: string; email?: string }>(metadata?.nc_contact),
@@ -360,77 +331,44 @@ function readPreparedCheckout(metadata: Record<string, string> | undefined | nul
     pickupHours: metadata?.nc_pickup_hours || undefined,
     pickupInstructions: metadata?.nc_pickup_instructions || undefined,
     missedPickupPolicy: metadata?.nc_policy || undefined,
-    shipsAfter: metadata?.nc_ships_after || undefined,
-    dispatchEstimate: metadata?.nc_dispatch || undefined,
-    shippingIncluded: metadata?.nc_ship_included ? metadata.nc_ship_included === "yes" : undefined,
-    shippingFeeCents: Number.isFinite(fee) && fee > 0 ? Math.round(fee) : 0,
   };
 }
 
-function preparedLineFulfillment(productId: string, prepared: PreparedCheckout | null): SaleFulfillment {
-  if (!prepared?.method || !prepared.showMerchIds.includes(productId)) return { method: "ship" };
-  if (prepared.method === "pickup") {
-    return {
-      method: "pickup",
-      showMerch: true,
-      setupId: prepared.setupId,
-      show: prepared.show,
-      bonus: prepared.bonus,
-      pickupHours: prepared.pickupHours,
-      pickupInstructions: prepared.pickupInstructions,
-      missedPickupPolicy: prepared.missedPickupPolicy,
-    };
-  }
+function preparedLineFulfillment(prepared: PreparedCheckout | null): SaleFulfillment {
+  if (!prepared?.pickup) return { method: "ship" };
   return {
-    method: "ship",
-    showMerch: true,
-    setupId: prepared.setupId,
-    shipsAfter: prepared.shipsAfter,
-    dispatchEstimate: prepared.dispatchEstimate,
-    shippingIncluded: prepared.shippingIncluded ?? true,
-    shippingFeeCents: prepared.shippingFeeCents,
+    method: "pickup",
+    show: prepared.show,
+    bonus: prepared.bonus,
+    pickupHours: prepared.pickupHours,
+    pickupInstructions: prepared.pickupInstructions,
+    missedPickupPolicy: prepared.missedPickupPolicy,
   };
 }
 
 /** The details a customer sees on the confirmation page and in the receipt — from the snapshot, never live data. */
-function describePrepared(prepared: PreparedCheckout | null, lines: CartLine[]): ReceiptFulfillment {
-  const method = prepared?.method ?? null;
-  const otherItemsShip = lines.some((line) => !prepared?.showMerchIds.includes(line.product.id));
-  if (method === "pickup") {
-    return {
-      method,
-      show: prepared?.show
-        ? { name: prepared.show.name, dateLabel: dateLabel(prepared.show.date), location: prepared.show.location }
-        : undefined,
-      pickupHours: prepared?.pickupHours,
-      pickupInstructions: prepared?.pickupInstructions,
-      missedPickupPolicy: prepared?.missedPickupPolicy,
-      bonus: prepared?.bonus,
-      otherItemsShip,
-    };
-  }
-  if (method === "ship") {
-    return {
-      method,
-      shipsAfterLabel: prepared?.shipsAfter ? dateLabel(prepared.shipsAfter) : undefined,
-      dispatchEstimate: prepared?.dispatchEstimate,
-      shippingFeeCents: prepared?.shippingFeeCents || undefined,
-      otherItemsShip,
-    };
-  }
-  return { method: null, otherItemsShip: true };
+function describePrepared(prepared: PreparedCheckout | null): ReceiptFulfillment {
+  if (!prepared?.pickup) return { method: null };
+  return {
+    method: "pickup",
+    show: prepared.show ? { name: prepared.show.name, dateLabel: dateLabel(prepared.show.date), location: prepared.show.location } : undefined,
+    pickupHours: prepared.pickupHours,
+    pickupInstructions: prepared.pickupInstructions,
+    missedPickupPolicy: prepared.missedPickupPolicy,
+    bonus: prepared.bonus,
+  };
 }
 
-/** A fulfillment problem in the shape the shop reads: a message, plus a code to act on. */
+/** A pickup problem in the shape the shop reads: a message, plus a code to act on. */
 function sendPlanFailure(res: Response, failure: { status: number; code: string; error: string }) {
   return res.status(failure.status).json({ error: failure.error, code: failure.code });
 }
 
-// Everything the shop needs to show pickup and shipping options. Eligibility is
-// computed here, and checked again on the server right before payment.
-catalogRouter.get("/show-merch", (_req, res) => {
+// Whether checkout can offer pickup at a show, and where. Checked again on the
+// server right before payment.
+catalogRouter.get("/pickup", (_req, res) => {
   res.set("Cache-Control", "no-store");
-  res.json(publicShowMerch());
+  res.json(publicPickup());
 });
 
 // KYD page content — live dates, music, visuals, booking.
@@ -804,15 +742,9 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
     return res.status(400).json({ error: "Cart is empty" });
   }
 
-  // Show merch needs an explicit pickup-or-ship choice before checkout starts.
-  // The amount only moves when delivery isn't in the price (a configured fee).
-  const planned = planFulfillment(summary.lines.map((line) => line.product.id), req.body?.fulfillment);
-  if (!planned.ok) return sendPlanFailure(res, planned);
-  const totals = orderTotals(summary, planned.plan);
-
   try {
     const intent = await stripe.paymentIntents.create({
-      amount: totals.totalCents,
+      amount: summary.grossCents,
       currency: "usd",
       automatic_payment_methods: { enabled: true },
       metadata: {
@@ -825,10 +757,7 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
       ok: true,
       clientSecret: intent.client_secret,
       paymentIntentId: intent.id,
-      amount: totals.totalCents,
-      itemsCents: totals.itemsCents,
-      shippingFeeCents: totals.shippingFeeCents,
-      needsAddress: planned.plan.needsAddress,
+      amount: summary.grossCents,
     });
   } catch (error) {
     console.error("[stripe] createIntent error", error);
@@ -836,11 +765,11 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
   }
 });
 
-// Runs right before the card is charged. Re-checks the fulfillment choice,
-// pickup eligibility, contact details, address and sizes on the server, then
-// saves the result on the PaymentIntent for confirm to use. If pickup closed
-// while the customer was filling in the form, it says so and changes nothing:
-// the customer chooses shipping and enters an address themselves.
+// Runs right before the card is charged. Re-checks pickup (when chosen),
+// contact details, address and sizes on the server, then saves the result on
+// the PaymentIntent for confirm to use. If pickup closed while the customer
+// was filling in the form, it says so and changes nothing: the customer
+// chooses shipping and enters an address themselves.
 catalogRouter.post("/checkout/prepare", async (req, res) => {
   if (!stripe) {
     return res.status(500).json({ error: "Stripe is not configured" });
@@ -875,10 +804,9 @@ catalogRouter.post("/checkout/prepare", async (req, res) => {
     return res.status(400).json({ error: "Payment verification missing" });
   }
 
-  const planned = planFulfillment(summary.lines.map((line) => line.product.id), req.body?.fulfillment);
+  const planned = planPickup(req.body?.fulfillment);
   if (!planned.ok) return sendPlanFailure(res, planned);
-  const { plan } = planned;
-  const totals = orderTotals(summary, plan);
+  const { pickup } = planned;
 
   const contact = checkoutContactSchema.safeParse(req.body?.customer ?? {});
   if (!contact.success) {
@@ -889,8 +817,8 @@ catalogRouter.post("/checkout/prepare", async (req, res) => {
   }
 
   let address: ShippingAddress | undefined;
-  if (plan.needsAddress) {
-    const checked = validateShippingAddress(req.body?.customer?.address, plan.showMerchShips, plan.setup ?? undefined);
+  if (!pickup) {
+    const checked = validateShippingAddress(req.body?.customer?.address);
     if (!checked.ok) {
       return res.status(400).json({ error: checked.error, code: "ADDRESS_INVALID" });
     }
@@ -914,20 +842,19 @@ catalogRouter.post("/checkout/prepare", async (req, res) => {
     if (intent.status === "succeeded" || intent.status === "canceled") {
       return res.status(409).json({ error: "This checkout already finished. Start again from your bag.", code: "INTENT_DONE" });
     }
-    // The amount was fixed when checkout opened; a different bag — or a
-    // switch that adds or drops a delivery fee — needs a fresh one.
-    if (intent.amount !== totals.totalCents) {
-      return res.status(409).json({ error: "Your bag or delivery choice changed. Close checkout and start again.", code: "CART_CHANGED" });
+    // The amount was fixed when checkout opened; a different bag needs a new one.
+    if (intent.amount !== summary.grossCents) {
+      return res.status(409).json({ error: "Your bag changed. Close checkout and start again.", code: "CART_CHANGED" });
     }
     await stripe.paymentIntents.update(paymentIntentId, {
-      metadata: preparedMetadata(plan, contact.data, address),
+      metadata: preparedMetadata(pickup, contact.data, address),
     });
   } catch (error) {
     console.error("[stripe] prepare error", error);
     return res.status(502).json({ error: "Unable to prepare payment. Try again." });
   }
 
-  res.json({ ok: true, method: plan.method, needsAddress: plan.needsAddress, ...totals });
+  res.json({ ok: true, method: pickup ? "pickup" : "ship" });
 });
 
 catalogRouter.post("/checkout/confirm", async (req, res) => {
@@ -960,9 +887,8 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     typeof req.body?.paymentIntentId === "string" ? req.body.paymentIntentId : null;
 
   // What the server validated right before payment. Eligibility is not checked
-  // again here: the customer has paid for the fulfillment they chose.
+  // again here: the customer has paid for the delivery they chose.
   let prepared: PreparedCheckout | null = null;
-  let paidCents = summary.grossCents;
   if (stripe) {
     if (!paymentIntentId) {
       return res.status(400).json({ error: "Payment verification missing" });
@@ -972,12 +898,10 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       if (intent.status !== "succeeded") {
         return res.status(400).json({ error: "Payment not completed" });
       }
-      prepared = readPreparedCheckout(intent.metadata);
-      const expected = summary.grossCents + (prepared?.shippingFeeCents ?? 0);
-      if ((intent.amount_received ?? 0) < expected) {
+      if ((intent.amount_received ?? 0) < summary.grossCents) {
         return res.status(400).json({ error: "Payment amount mismatch" });
       }
-      paidCents = intent.amount_received ?? expected;
+      prepared = readPreparedCheckout(intent.metadata);
     } catch (error) {
       console.error("[stripe] retrieveIntent error", error);
       return res.status(400).json({ error: "Unable to verify payment" });
@@ -994,18 +918,15 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     return res.status(400).json({ error: "Invalid customer details" });
   }
 
-  const lineFulfillments = new Map(
-    summary.lines.map((line) => [line.product.id, preparedLineFulfillment(line.product.id, prepared)]),
-  );
-  const needsAddress = [...lineFulfillments.values()].some((f) => f.method === "ship");
+  const fulfillment = preparedLineFulfillment(prepared);
 
   let address: ShippingAddress | undefined;
-  if (needsAddress) {
+  if (fulfillment.method === "ship") {
     if (prepared?.address) {
       address = prepared.address;
     } else {
       // A checkout that never ran prepare: the shop's original address rules.
-      const checked = validateShippingAddress(req.body?.customer?.address, false);
+      const checked = validateShippingAddress(req.body?.customer?.address);
       if (!checked.ok) {
         return res.status(400).json({ error: "Invalid customer details" });
       }
@@ -1029,7 +950,6 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
   // A line with mixed sizes becomes one item per size, so the order reads as
   // something you can actually pick and pack.
   const orderItems = summary.lines.flatMap((line) => {
-    const fulfillment = lineFulfillments.get(line.product.id) ?? { method: "ship" as const };
     const base = {
       productId: line.product.id,
       title: line.product.title,
@@ -1080,7 +1000,7 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     try {
       await updateUser(userId, {
         name: contact.name ?? auth?.user?.name,
-        // A pickup-only order has no address; the saved one stays as it was.
+        // A pickup order has no address; the saved one stays as it was.
         ...(address ? { defaultShipping: address } : {}),
       });
     } catch (error) {
@@ -1088,32 +1008,30 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     }
   }
 
-  const fulfillment = describePrepared(prepared, summary.lines);
-  const shippingFeeCents = prepared?.shippingFeeCents ?? 0;
-  const totalCents = summary.grossCents + shippingFeeCents;
+  const receiptFulfillment = describePrepared(prepared);
 
   await sendReceiptEmail({
     orderId,
     orderNumber,
-    totalCents,
+    totalCents: summary.grossCents,
     customerName: contact.name,
     customerEmail: customerEmail,
     shippingAddress: address,
     items: orderItems,
     paymentRef: paymentIntentId ?? undefined,
-    fulfillment,
+    fulfillment: receiptFulfillment,
   });
   void sendPurchaseNotificationEmail({
     orderId,
     orderNumber,
-    totalCents,
+    totalCents: summary.grossCents,
     customerName: contact.name,
     customerEmail: customerEmail,
     shippingAddress: address,
     items: orderItems,
     paymentRef: paymentIntentId ?? undefined,
     orderedAt: new Date().toISOString(),
-    fulfillment,
+    fulfillment: receiptFulfillment,
   })
     .then((sent) => {
       if (sent) console.log(`[mailer] Purchase notification sent for ${orderId}`);
@@ -1136,10 +1054,7 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
     orderId,
     orderNumber,
     totals: {
-      grossCents: totalCents,
-      itemsCents: summary.grossCents,
-      shippingFeeCents,
-      paidCents,
+      grossCents: summary.grossCents,
       items: summary.totalItems,
     },
     // The customer-facing summary: no payment processor references here.
@@ -1150,10 +1065,9 @@ catalogRouter.post("/checkout/confirm", async (req, res) => {
       qty: item.qty,
       imageUrl: item.imageUrl ?? null,
       detail: item.detail ?? null,
-      method: item.method,
       lineTotalCents: item.lineTotalCents,
     })),
-    fulfillment,
+    fulfillment: receiptFulfillment,
     customer: { name: contact.name ?? null, email: customerEmail ?? null },
     shippingAddress: address ?? null,
   });

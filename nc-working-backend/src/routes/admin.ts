@@ -97,24 +97,11 @@ import {
   type ShippingAddress,
 } from "../lib/mailer.js";
 import {
-  APPROVAL_KEYS,
-  DEFAULT_PICKUP_BONUS,
-  DEFAULT_PICKUP_WINDOW_MONTHS,
   dateLabel,
-  deleteSetup,
-  describeSetup,
-  duplicateSetup,
-  getSetup,
-  listSetups,
-  publicShowMerch,
-  saveSetup,
-  setSetupApproval,
-  setSetupPublished,
-  showLocation,
+  pickupAvailability,
   validateShippingAddress,
   type AddressInput,
-  type ShowMerchSetup as ShowMerchSetupType,
-} from "../lib/showMerch.js";
+} from "../lib/pickup.js";
 import {
   getOrderFulfillment,
   issueAddressToken,
@@ -504,300 +491,10 @@ adminRouter.get("/sales/export.csv", requireKey, (_req, res) => {
   res.sendFile(csvPath);
 });
 
-/** ========= Show merch ========= **/
-
-/** The shows a setup can point at, with what matters for pickup. */
-function adminShows() {
-  return getKydContent().shows.map((show) => ({
-    id: show.id,
-    title: show.title,
-    date: show.date,
-    city: show.city,
-    venue: show.venue ?? "",
-    status: show.status ?? "",
-    timezone: show.timezone ?? "",
-    merchPickup: show.merchPickup ?? { enabled: false },
-    location: showLocation(show),
-  }));
-}
-
-/**
- * Sales tax as this checkout handles it today. Nothing is calculated or
- * added; saying so plainly beats a setting that pretends otherwise.
- */
-function taxStatus() {
-  return {
-    configured: false,
-    mode: "none",
-    label: "Not configured",
-    summary:
-      "Checkout charges exactly the price entered for each product. No sales tax is calculated, added or reported. " +
-      "Stripe is used for card and wallet payments only (PaymentIntents), not for tax.",
-    ownerSteps: [
-      "Decide with an accountant whether Oklahoma (and any other state you ship to) requires collecting sales tax on these orders, and register if so.",
-      "If tax should be added at checkout: enable Stripe Tax in the Stripe Dashboard (Settings → Tax), set the origin address, and assign the clothing product tax code (txcd_30011000) to the products.",
-      "Then the checkout code needs a tax calculation step before payment (pickup orders taxed at the venue address, shipped orders at the destination). That step is not built yet — it is listed as a launch requirement, not a switch to flip.",
-      "If tax should be included in the price instead: keep this as it is and record it that way in your books.",
-    ],
-  };
-}
-
-function showMerchOverview() {
-  const now = new Date();
-  return {
-    ok: true,
-    setups: listSetups().map((setup) => {
-      const full = describeSetup(setup, now);
-      return {
-        id: full.id,
-        name: full.name,
-        showId: full.showId,
-        productIds: full.productIds,
-        published: full.published,
-        status: full.status,
-        statusLabel: full.statusLabel,
-        show: full.show ? { id: full.show.id, title: full.show.title, date: full.show.date, location: full.show.location } : null,
-        pickup: full.pickup ? { eligible: full.pickup.eligible, closed: full.pickup.closed, reason: full.pickup.reason, cutoffLabel: full.pickup.cutoffLabel ?? "" } : null,
-        blockers: full.blockers.length,
-        updatedAt: full.updatedAt,
-        copiedFrom: full.copiedFrom ?? null,
-      };
-    }),
-    shows: adminShows(),
-    catalog: listCatalog(),
-    drop: getCurrentDrop(),
-    // What the live storefront reads right now (published setups only).
-    live: publicShowMerch(now),
-    tax: taxStatus(),
-  };
-}
-
-adminRouter.get("/show-merch", requireKey, (_req, res) => {
-  res.json(showMerchOverview());
-});
-
-adminRouter.get("/tax", requireKey, (_req, res) => {
-  res.json({ ok: true, tax: taxStatus() });
-});
-
-adminRouter.post("/show-merch/setups", requireKey, async (req, res) => {
-  try {
-    const setup = await saveSetup({
-      name: req.body?.name,
-      showId: req.body?.showId,
-      pickupBonus: typeof req.body?.pickupBonus === "string" ? req.body.pickupBonus : DEFAULT_PICKUP_BONUS,
-      pickupWindowMonths: req.body?.pickupWindowMonths ?? DEFAULT_PICKUP_WINDOW_MONTHS,
-      shippingIncluded: req.body?.shippingIncluded ?? true,
-    });
-    res.json({ ok: true, setup: describeSetup(setup) });
-  } catch (error) {
-    console.error("[admin] failed to create setup", error);
-    res.status(500).json({ error: "Unable to create the setup" });
-  }
-});
-
-adminRouter.get("/show-merch/setups/:id", requireKey, (req, res) => {
-  const setup = getSetup(req.params.id);
-  if (!setup) return res.status(404).json({ error: "Setup not found" });
-  res.json({ ok: true, setup: describeSetup(setup), shows: adminShows(), catalog: listCatalog() });
-});
-
-adminRouter.put("/show-merch/setups/:id", requireKey, async (req, res) => {
-  try {
-    const saved = await saveSetup(req.body ?? {}, req.params.id);
-    res.json({ ok: true, setup: describeSetup(saved) });
-  } catch (error) {
-    if (error instanceof Error && error.message === "Setup not found") return res.status(404).json({ error: error.message });
-    console.error("[admin] failed to save setup", error);
-    res.status(500).json({ error: "Unable to save the setup" });
-  }
-});
-
-adminRouter.delete("/show-merch/setups/:id", requireKey, async (req, res) => {
-  const setup = getSetup(req.params.id);
-  if (!setup) return res.status(404).json({ error: "Setup not found" });
-  if (setup.published) return res.status(409).json({ error: "Unpublish the setup before deleting it." });
-  await deleteSetup(req.params.id);
-  res.json({ ok: true });
-});
-
-adminRouter.post("/show-merch/setups/:id/duplicate", requireKey, async (req, res) => {
-  const copy = await duplicateSetup(req.params.id);
-  if (!copy) return res.status(404).json({ error: "Setup not found" });
-  res.json({ ok: true, setup: describeSetup(copy) });
-});
-
-adminRouter.post("/show-merch/setups/:id/approve", requireKey, async (req, res) => {
-  const key = req.body?.key;
-  if (!APPROVAL_KEYS.includes(key)) return res.status(400).json({ error: "Unknown approval group" });
-  const setup = await setSetupApproval(req.params.id, key, req.body?.approved !== false);
-  if (!setup) return res.status(404).json({ error: "Setup not found" });
-  res.json({ ok: true, setup: describeSetup(setup) });
-});
-
-adminRouter.post("/show-merch/setups/:id/publish", requireKey, async (req, res) => {
-  const result = await setSetupPublished(req.params.id, req.body?.published !== false);
-  if (!result.ok) {
-    return res.status(result.blockers.length ? 409 : 404).json({ error: result.error, blockers: result.blockers });
-  }
-  res.json({ ok: true, setup: describeSetup(result.setup) });
-});
-
-/**
- * Put the setup's products in a drop: schedule a new one, or add them to the
- * live one. Stocked products take the quantities given; made-to-order ones
- * join with no unit count.
- */
-adminRouter.post("/show-merch/setups/:id/drop", requireKey, (req, res) => {
-  const setup = getSetup(req.params.id);
-  if (!setup) return res.status(404).json({ error: "Setup not found" });
-  const qtyInput = (req.body?.qty && typeof req.body.qty === "object" ? req.body.qty : {}) as Record<string, unknown>;
-  const qty: Record<string, number> = {};
-  for (const productId of setup.productIds) {
-    const product = getProduct(productId);
-    if (!product) continue;
-    if (product.inventoryMode === "made_to_order") {
-      qty[productId] = 0;
-      continue;
-    }
-    const n = Math.floor(Number(qtyInput[productId]));
-    if (!Number.isFinite(n) || n <= 0) {
-      return res.status(400).json({ error: `Enter how many ${product.title} are available.` });
-    }
-    qty[productId] = n;
-  }
-  if (!Object.keys(qty).length) return res.status(400).json({ error: "The setup has no products to put in a drop." });
-
-  const current = getCurrentDrop();
-  if (current?.status === "live" && req.body?.mode === "add") {
-    const additions = Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0));
-    const result = Object.keys(additions).length ? addInventoryToLive(additions) : { applied: {}, analytics: getCurrentDropAnalytics() };
-    // Made-to-order products join the live drop with an empty count.
-    for (const [productId, n] of Object.entries(qty)) if (n === 0) setLiveInventory(productId, 0);
-    return res.json({ ok: true, drop: getCurrentDrop(), applied: result?.applied ?? {} });
-  }
-  if (current && current.status !== "ended") {
-    return res.status(409).json({ error: `A drop is already ${current.status}. End it first, or add these products to it.` });
-  }
-  const startsAt = typeof req.body?.startsAt === "string" && req.body.startsAt ? req.body.startsAt : "now";
-  const durationMinutes = Number(req.body?.durationMinutes) || 120;
-  const drop = createManualDrop({ startsAt, durationMinutes, initialQty: qty });
-  res.json({ ok: true, drop });
-});
-
-/** Which lines belong to a setup: by id, or (older lines) by product and show. */
-function setupLines(setup: ShowMerchSetupType) {
-  const orders = groupSalesByOrder(listSales(5000));
-  const out: Array<{ order: OrderSummary; line: OrderSummary["items"][number] }> = [];
-  for (const order of orders) {
-    for (const line of order.items) {
-      const f = line.fulfillment;
-      const mine =
-        f.setupId === setup.id ||
-        (!f.setupId && f.showMerch && setup.productIds.includes(line.productId) && (f.method !== "pickup" || f.show?.id === setup.showId));
-      if (mine) out.push({ order, line });
-    }
-  }
-  return out;
-}
-
-function setupReport(setup: ShowMerchSetupType) {
-  const lines = setupLines(setup);
-  const orderIds = { pickup: new Set<string>(), ship: new Set<string>() };
-  const totals = { pickup: { orders: 0, items: 0, revenueCents: 0 }, ship: { orders: 0, items: 0, revenueCents: 0 } };
-  const byProduct = new Map<string, { productId: string; title: string; sizes: Map<string, { pickup: number; ship: number }> }>();
-  const progress = { awaitingPickup: 0, pickedUp: 0, missed: 0, awaitingShipment: 0, shipped: 0 };
-  const seenOrders = new Set<string>();
-
-  for (const { order, line } of lines) {
-    const method = line.fulfillment.method;
-    const bucket = totals[method];
-    orderIds[method].add(order.orderId);
-    bucket.items += line.qty;
-    bucket.revenueCents += line.lineTotalCents;
-    const entry = byProduct.get(line.productId) ?? { productId: line.productId, title: line.productTitle ?? line.productId, sizes: new Map() };
-    const size = line.size ?? "—";
-    const counts = entry.sizes.get(size) ?? { pickup: 0, ship: 0 };
-    counts[method] += line.qty;
-    entry.sizes.set(size, counts);
-    byProduct.set(line.productId, entry);
-    if (!seenOrders.has(order.orderId)) {
-      seenOrders.add(order.orderId);
-      const status = getOrderFulfillment(order.orderId);
-      if (order.items.some((l) => l.fulfillment.method === "pickup" && l.fulfillment.setupId === setup.id)) {
-        if (status.pickupStatus === "picked_up") progress.pickedUp += 1;
-        else if (status.pickupStatus === "missed") progress.missed += 1;
-        else progress.awaitingPickup += 1;
-      }
-      if (order.items.some((l) => l.fulfillment.method === "ship") || status.missedPickupAddress) {
-        if (status.shippingStatus === "shipped") progress.shipped += 1;
-        else progress.awaitingShipment += 1;
-      }
-    }
-  }
-  totals.pickup.orders = orderIds.pickup.size;
-  totals.ship.orders = orderIds.ship.size;
-
-  const sizeOrder = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL"];
-  const products = [...byProduct.values()].map((entry) => {
-    const rows = [...entry.sizes.entries()]
-      .map(([size, counts]) => ({ size, pickup: counts.pickup, ship: counts.ship, total: counts.pickup + counts.ship }))
-      .sort((a, b) => {
-        const ai = sizeOrder.indexOf(a.size.toUpperCase());
-        const bi = sizeOrder.indexOf(b.size.toUpperCase());
-        return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi) || a.size.localeCompare(b.size);
-      });
-    return {
-      productId: entry.productId,
-      title: entry.title,
-      rows,
-      total: rows.reduce((sum, r) => sum + r.total, 0),
-      pickup: rows.reduce((sum, r) => sum + r.pickup, 0),
-      ship: rows.reduce((sum, r) => sum + r.ship, 0),
-    };
-  });
-
-  return { totals, progress, products, generatedAt: new Date().toISOString() };
-}
-
-adminRouter.get("/show-merch/setups/:id/report", requireKey, (req, res) => {
-  const setup = getSetup(req.params.id);
-  if (!setup) return res.status(404).json({ error: "Setup not found" });
-  res.json({ ok: true, report: setupReport(setup) });
-});
-
-adminRouter.get("/show-merch/setups/:id/production.csv", requireKey, (req, res) => {
-  const setup = getSetup(req.params.id);
-  if (!setup) return res.status(404).json({ error: "Setup not found" });
-  const report = setupReport(setup);
-  const rows = report.products.flatMap((p) => p.rows.map((r) => [p.title, p.productId, r.size, r.pickup, r.ship, r.total]));
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="production-${setup.id}-${new Date().toISOString().slice(0, 10)}.csv"`);
-  res.send(csvRows(["product", "product_id", "size", "pickup_qty", "ship_qty", "total_qty"], rows));
-});
-
-/** Edit one show's fields in place — the same document the KYD tab saves. */
-adminRouter.patch("/kyd/shows/:id", requireKey, async (req, res) => {
-  const content = getKydContent();
-  const index = content.shows.findIndex((s) => s.id === req.params.id);
-  if (index < 0) return res.status(404).json({ error: "Show not found" });
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const show = { ...content.shows[index] } as Record<string, unknown>;
-  for (const key of ["title", "date", "city", "venue", "status", "timezone"]) {
-    if (key in body) show[key] = body[key];
-  }
-  if ("merchPickup" in body) {
-    show.merchPickup = { ...((show.merchPickup as object) ?? {}), ...((body.merchPickup as object) ?? {}) };
-  }
-  content.shows[index] = show as unknown as (typeof content.shows)[number];
-  try {
-    const saved = await saveKydContent(content);
-    const updated = saved.shows.find((s) => s.id === req.params.id) ?? null;
-    res.json({ ok: true, show: updated ? { ...updated, location: showLocation(updated) } : null, shows: adminShows() });
-  } catch (error) {
-    console.error("[admin] failed to save show", error);
-    res.status(500).json({ error: "Unable to save the show" });
-  }
+/** ========= Show pickup ========= **/
+// Every show's pickup verdict, for the pills on Live dates in the KYD tab.
+adminRouter.get("/pickup", requireKey, (_req, res) => {
+  res.json({ ok: true, shows: pickupAvailability(new Date()).checks });
 });
 
 /** ========= Orders by fulfillment ========= **/
@@ -925,8 +622,7 @@ adminRouter.patch("/orders/:orderId/fulfillment", requireKey, async (req, res) =
   try {
     if (body.missedPickupAddress && typeof body.missedPickupAddress === "object") {
       // Same rules as checkout for show merch shipping, so it can actually be shipped.
-      const setupId = order.items.find((l) => l.fulfillment.setupId)?.fulfillment.setupId;
-      const checked = validateShippingAddress(body.missedPickupAddress as AddressInput, true, setupId ? getSetup(setupId) : undefined);
+      const checked = validateShippingAddress(body.missedPickupAddress as AddressInput);
       if (!checked.ok) return res.status(400).json({ error: checked.error });
       body.missedPickupAddress = checked.address;
     }
@@ -1082,8 +778,7 @@ adminRouter.get("/orders/export.csv", requireKey, (req, res) => {
             line.productTitle ?? line.productId,
             line.size ?? "",
             line.qty,
-            line.fulfillment.showMerch ? "yes" : "",
-            line.fulfillment.method === "pickup" ? "missed pickup" : line.fulfillment.shipsAfter ? dateLabel(line.fulfillment.shipsAfter) : "",
+            line.fulfillment.method === "pickup" ? "yes" : "",
             SHIPPING_STATUS_LABEL[order.status.shippingStatus] ?? order.status.shippingStatus,
             order.status.carrier ?? "",
             order.status.trackingNumber ?? "",
@@ -1094,7 +789,7 @@ adminRouter.get("/orders/export.csv", requireKey, (req, res) => {
       [
         "order_id", "order_number", "ordered_at", "customer_name", "customer_email",
         "ship_line_1", "ship_line_2", "ship_city", "ship_state", "ship_postal_code", "ship_country",
-        "item", "size", "quantity", "show_merch", "ships_after", "shipping_status", "carrier", "tracking_number", "shipping_update_sent_at",
+        "item", "size", "quantity", "missed_pickup", "shipping_status", "carrier", "tracking_number", "shipping_update_sent_at",
       ],
       rows,
     );

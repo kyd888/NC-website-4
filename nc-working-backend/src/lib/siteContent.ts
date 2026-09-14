@@ -21,7 +21,7 @@ export type KydProject = {
 
 export type ShowStatus = "confirmed" | "tentative" | "canceled";
 
-/** Merch pickup at a show. See lib/showMerch.ts for when it actually opens. */
+/** Merch pickup at a show. See lib/pickup.ts for when it actually opens. */
 export type ShowMerchPickup = {
   enabled: boolean;
   /**
@@ -35,6 +35,10 @@ export type ShowMerchPickup = {
   location?: string;
   /** How to collect, in full. Shown to customers exactly as written. */
   instructions?: string;
+  /** Something extra with a pickup order, e.g. "Sticker pack". Optional. */
+  bonus?: string;
+  /** What happens to an order nobody collects. Shown exactly as written. */
+  missedPolicy?: string;
 };
 
 export type KydShow = {
@@ -338,13 +342,17 @@ function sanitizeMerchPickup(input: unknown): ShowMerchPickup | undefined {
   // Capped at what a paid order can carry: the whole text is copied onto the
   // order at checkout, and that snapshot has a 500-character limit per field.
   const instructions = str(r.instructions).slice(0, 500);
+  const bonus = str(r.bonus).slice(0, 60);
+  const missedPolicy = str(r.missedPolicy).slice(0, 500);
   const out: ShowMerchPickup = { enabled: r.enabled === true };
   if (cutoff) out.cutoff = cutoff;
   if (hours) out.hours = hours;
   if (location) out.location = location;
   if (instructions) out.instructions = instructions;
+  if (bonus) out.bonus = bonus;
+  if (missedPolicy) out.missedPolicy = missedPolicy;
   // Nothing set at all: leave the field off, so plain shows stay plain.
-  if (!out.enabled && !out.cutoff && !out.hours && !out.location && !out.instructions) return undefined;
+  if (!out.enabled && Object.keys(out).length === 1) return undefined;
   return out;
 }
 

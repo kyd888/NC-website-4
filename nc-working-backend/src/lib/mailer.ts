@@ -30,21 +30,15 @@ export type ReceiptItem = {
   method?: FulfillmentMethod;
 };
 
-/** Show merch details for the order, captured when it was paid. */
+/** Pickup details for the order, captured when it was paid. */
 export type ReceiptFulfillment = {
-  /** The show merch choice; null when the order has no show merch. */
+  /** "pickup" when the order is collected at a show; null when it ships. */
   method: FulfillmentMethod | null;
   show?: { name: string; dateLabel: string; location: string };
   pickupHours?: string;
   pickupInstructions?: string;
   missedPickupPolicy?: string;
   bonus?: string;
-  shipsAfterLabel?: string;
-  dispatchEstimate?: string;
-  /** Delivery charged on top of the items, when shipping isn't in the price. */
-  shippingFeeCents?: number;
-  /** Other items in the order ship the usual way. */
-  otherItemsShip: boolean;
 };
 
 export type ReceiptEmailPayload = {
@@ -522,14 +516,6 @@ function fulfillmentSections(payload: ReceiptEmailPayload, { includeAddress = tr
       f.missedPickupPolicy ? `If you can't make it: ${f.missedPickupPolicy}` : "",
     ]);
   }
-  if (f?.method === "ship") {
-    block("Ships after the show", [
-      f.shipsAfterLabel ? `Ships after ${f.shipsAfterLabel}.` : "Ships after the show.",
-      f.dispatchEstimate ?? "",
-      f.shippingFeeCents ? `Delivery: ${currencyFormatter.format(f.shippingFeeCents / 100)}` : "",
-      "We'll email you when it ships.",
-    ]);
-  }
   if (payload.shippingAddress && includeAddress) {
     block(shippingAddressTitle(payload), formatAddress(payload.shippingAddress).split("\n"));
   }
@@ -537,15 +523,13 @@ function fulfillmentSections(payload: ReceiptEmailPayload, { includeAddress = tr
   return { text: text.join("\n\n"), html: html.join("") };
 }
 
-/** In a pickup order the address is only for the other items, so it says so. */
-function shippingAddressTitle(payload: ReceiptEmailPayload) {
-  const f = payload.fulfillment;
-  return f?.method === "pickup" && f.otherItemsShip ? "Other items ship to" : "Shipping to";
+function shippingAddressTitle(_payload: ReceiptEmailPayload) {
+  return "Shipping to";
 }
 
-/** Pickup-only orders have nothing to ship, so the receipt says so. */
+/** Pickup orders have nothing to ship, so the receipt says so. */
 function isPickupOnly(payload: ReceiptEmailPayload) {
-  return payload.fulfillment?.method === "pickup" && !payload.fulfillment.otherItemsShip && !payload.shippingAddress;
+  return payload.fulfillment?.method === "pickup";
 }
 
 export function buildReceiptEmail(payload: ReceiptEmailPayload) {
@@ -684,9 +668,9 @@ function fulfillmentHeadline(payload: ReceiptEmailPayload) {
   if (!f?.method) return "Ship";
   if (f.method === "pickup") {
     const where = f.show ? ` at ${f.show.name} (${f.show.dateLabel})` : "";
-    return `PICKUP${where}${f.otherItemsShip ? " + other items ship" : ""}`;
+    return `PICKUP${where}`;
   }
-  return `Ship after ${f.shipsAfterLabel || "the show"}`;
+  return "Ship";
 }
 
 export function buildPurchaseNotificationEmail(payload: PurchaseNotificationPayload) {
@@ -821,7 +805,7 @@ export function buildAddressRequestEmail(payload: AddressRequestEmailPayload) {
   const greeting = payload.customerName ? `Hi ${payload.customerName},` : "Hi there,";
   const itemsText = formatItemsText(payload.items || []);
   const where = payload.show ? ` at ${payload.show.name} (${payload.show.dateLabel})` : "";
-  const intro = `Your order ${payload.orderNumber} wasn't collected${where}, so we'll ship it to you instead. Standard shipping was already covered by your order, so there's nothing more to pay.`;
+  const intro = `Your order ${payload.orderNumber} wasn't collected${where}, so we'll ship it to you instead. There's nothing more to pay.`;
   const siteUrl = process.env.FRONTEND_ORIGIN ?? process.env.BACKEND_ORIGIN ?? "https://nc-website.com";
 
   const textBody = `${greeting}
