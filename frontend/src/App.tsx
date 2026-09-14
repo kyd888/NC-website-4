@@ -31,6 +31,12 @@ import {
   trackViewContent,
   type PixelLine,
 } from "./lib/metaPixel";
+import {
+  describeLeftOut,
+  hasCheckoutLink,
+  readCheckoutLinkParams,
+  resolveCheckoutLink,
+} from "./lib/checkoutLink";
 
 // The shop the visitor last saw, replayed while the API wakes up.
 const CATALOG_CACHE_KEY = "catalog";
@@ -302,6 +308,22 @@ function App() {
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  // The code from a checkout link, if the visitor arrived through one. It is
+  // recorded on the payment so an order can be traced back to the post or
+  // flyer that sent it; it changes no price.
+  const [linkCoupon, setLinkCoupon] = useState<string | null>(null);
+  // Both read during the first render, before any response can land or the
+  // address bar is tidied: the loaders above need to know a link is about to
+  // fill the bag, and the link itself has to survive being taken out of the
+  // URL — under StrictMode the effect below mounts, unmounts and mounts again,
+  // and the second pass would otherwise find an address bar it had already
+  // cleaned and conclude the link was empty.
+  const linkFillRef = useRef<"idle" | "running" | "done">(
+    typeof window !== "undefined" && hasCheckoutLink(window.location.search) ? "running" : "idle",
+  );
+  const linkParamsRef = useRef(
+    typeof window !== "undefined" ? readCheckoutLinkParams(window.location.search) : { products: "", coupon: "" },
+  );
   // Sizes are picked in the bag, one per unit: { "tee-black": ["M", "L"] }.
   const [sizeChoices, setSizeChoices] = useState<Record<string, string[]>>(() => {
     try {
@@ -423,7 +445,9 @@ function App() {
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
         if (cancelled || !data) return;
-        if (data.cart) {
+        // A checkout link fills the bag itself. This request was already in
+        // flight when it started, so its answer is stale by the time it lands.
+        if (data.cart && linkFillRef.current === "idle") {
           setCart(toCartList(data.cart));
         }
       } catch {
@@ -439,12 +463,119 @@ function App() {
   // Arriving from another section via CART (n) / Account → open that sheet immediately.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
     if (params.get("cart") === "open") setCartOpen(true);
     if (params.get("account") === "open") setAccountOpen(true);
     if (params.has("cart") || params.has("account")) {
-      window.history.replaceState(null, "", window.location.pathname);
+      // Drop only what this effect consumed. Clearing the whole query string
+      // here would eat a checkout link arriving on the same URL, before the
+      // effect below ever gets to read it.
+      params.delete("cart");
+      params.delete("account");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
+  }, []);
+
+  /**
+   * Arriving on a checkout link: /shop?products=tee-black:2,socks&coupon=SHOW-2026
+   *
+   * The link is a request, not a reservation — the server resolves it against
+   * the live catalog first, and only what is genuinely for sale goes in the
+   * bag, through the same /cart/add every other add uses. The bag opens so the
+   * visitor sees exactly what they got, and anything left behind is named
+   * rather than silently dropped.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (linkFillRef.current !== "running") return;
+
+    const params = linkParamsRef.current;
+    const controller = new AbortController();
+    let cancelled = false;
+
+    // Taken out of the address bar right away: a reload should not re-add
+    // everything, and the URL the visitor can copy should be the plain shop.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("products");
+    url.searchParams.delete("coupon");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+
+    // The bag this visitor already had. The loader above dropped its answer to
+    // stay out of the way of the fill, so if the fill adds nothing — a dead
+    // link, a closed drop — that bag has to be put back rather than read as
+    // empty.
+    const restoreExistingCart = async () => {
+      try {
+        const res = await fetchWithSession(`${BACKEND_URL}/api/cart/state`, { headers: { Accept: "application/json" } });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!cancelled && data?.cart) setCart(toCartList(data.cart));
+      } catch {
+        // Nothing to restore: the bag stays as it is.
+      }
+    };
+
+    (async () => {
+      try {
+        const resolved = await resolveCheckoutLink(params, controller.signal);
+        if (cancelled) return;
+        if (!resolved) {
+          await restoreExistingCart();
+          if (cancelled) return;
+          showToast("That link didn't work", 2200);
+          return;
+        }
+        if (resolved.coupon) setLinkCoupon(resolved.coupon);
+
+        let snapshot: BackendCartSnapshot | null = null;
+        let added = 0;
+        let refused = "";
+
+        for (const item of resolved.items) {
+          if (item.status !== "ok") continue;
+          try {
+            const res = await fetchWithSession(`${BACKEND_URL}/api/cart/add`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ productId: item.productId, qty: item.qty }),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (cancelled) return;
+            if (res.ok && json.ok) {
+              added += 1;
+              if (json.cart) snapshot = json.cart as BackendCartSnapshot;
+              trackAddToCart({ id: item.productId, title: item.title ?? item.productId, priceCents: item.priceCents ?? 0 }, item.qty);
+            } else if (!refused) {
+              refused = typeof json.error === "string" ? json.error : "";
+            }
+          } catch {
+            if (cancelled) return;
+            if (!refused) refused = "Network error";
+          }
+        }
+
+        if (cancelled) return;
+        if (snapshot) setCart(toCartList(snapshot));
+        else await restoreExistingCart();
+        if (cancelled) return;
+
+        const leftOut = describeLeftOut(resolved.items) || refused;
+        if (added) {
+          setCartOpen(true);
+          showToast(leftOut ? `Bag filled — ${leftOut}` : "Bag filled from your link", leftOut ? 3000 : 1800);
+        } else {
+          showToast(leftOut || "Nothing from that link is available", 3000);
+        }
+      } finally {
+        if (!cancelled) linkFillRef.current = "done";
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -1013,7 +1144,9 @@ function App() {
       const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        // Recorded on the payment when the bag came from a checkout link. The
+        // charge is the bag's own total either way — see the server.
+        body: JSON.stringify(linkCoupon ? { coupon: linkCoupon } : {}),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.clientSecret) {
@@ -1078,6 +1211,8 @@ function App() {
       }
       const purchasedLines = pixelLines();
       setCart([]);
+      // The code belonged to that order. A bag built afterwards is a new one.
+      setLinkCoupon(null);
       setPaymentIntentState(null);
       setPaymentModalOpen(false);
       const confirmed: OrderConfirmation = confirmationFromResponse(json, paymentIntentId, customer, paymentIntentState?.amount ?? 0, itemsTotal);
@@ -1605,11 +1740,13 @@ function App() {
                   <CartPaymentRequestButton
                     amountCents={priceTotalCents}
                     sizes={sizesPayload}
+                    coupon={linkCoupon}
                     onPrepare={(paymentIntentId, customer) => prepareCheckout(paymentIntentId, customer, SHIP_BY_DEFAULT)}
                     onCheckoutStart={() => trackInitiateCheckout(pixelLines(), priceTotalCents)}
                     onOrderComplete={(confirmation) => {
                       const purchasedLines = pixelLines();
                       setCart([]);
+                      setLinkCoupon(null);
                       setCartOpen(false);
                       setOrderConfirmation(confirmation);
                       trackPurchase(confirmation.orderId, purchasedLines, confirmation.totalCents);
@@ -2511,6 +2648,7 @@ function formatAccountAddress(address: AccountShippingAddress) {
 function CartPaymentRequestButton({
   amountCents,
   sizes,
+  coupon,
   onPrepare,
   onCheckoutStart,
   onOrderComplete,
@@ -2518,6 +2656,8 @@ function CartPaymentRequestButton({
 }: {
   amountCents: number;
   sizes: Record<string, string[]>;
+  /** The code the bag arrived with, if it came from a checkout link. */
+  coupon?: string | null;
   onPrepare: (paymentIntentId: string, customer: CheckoutCustomer) => Promise<PrepareResult>;
   /** Fired once a wallet payment has a payment intent (Meta InitiateCheckout). */
   onCheckoutStart?: () => void;
@@ -2538,6 +2678,8 @@ function CartPaymentRequestButton({
   useEffect(() => { onPrepareRef.current = onPrepare; });
   const sizesPayloadRef = useRef(sizes);
   useEffect(() => { sizesPayloadRef.current = sizes; }, [sizes]);
+  const couponRef = useRef(coupon);
+  useEffect(() => { couponRef.current = coupon; }, [coupon]);
   useEffect(() => { onOrderCompleteRef.current = onOrderComplete; });
   useEffect(() => { onErrorRef.current = onError; });
 
@@ -2588,7 +2730,7 @@ function CartPaymentRequestButton({
         const res = await fetchWithSession(`${BACKEND_URL}/api/checkout/create-intent`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify(couponRef.current ? { coupon: couponRef.current } : {}),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.clientSecret) {

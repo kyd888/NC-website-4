@@ -20,6 +20,47 @@
 
 > Optional proxy: Instead of `VITE_BACKEND_URL`, add a redirect in `netlify.toml` pointing `/api/*` to the Render URL and switch the frontend calls to relative `/api/...`. Only use one approach at a time.
 
+## Checkout Links
+
+One URL that opens the shop with the bag already filled — for a post, an email,
+or a QR code at a show.
+
+```
+https://no-connection.com/shop?products=<id>:<qty>,<id>:<qty>&coupon=<CODE>
+```
+
+- `products` — comma-separated product ids from the catalog. The quantity after
+  the colon is optional, so `?products=tee-black` means one. Quantities are
+  capped at the shop's own per-item limit (3), and a link carries at most 20
+  products.
+- `coupon` — optional. Letters, digits and dashes, 3-32 characters. Stored
+  upper-cased on the Stripe PaymentIntent so an order can be traced back to the
+  campaign that sent it. **It does not change any price.** The shop runs no
+  discounts today; charging less than the bag showed would need real pricing
+  rules in `summarizeCart`, not a code in a URL.
+
+A link is a request, never a reservation. Opening one resolves it against the
+live catalog first (`GET /api/checkout/link`), and only what is genuinely for
+sale goes in the bag, through the same `/api/cart/add` every other add uses.
+Anything sold out, pulled from the drop, or misspelled is named in the shop
+rather than silently dropped, and the link is taken out of the address bar so a
+reload doesn't add everything twice.
+
+Nothing in a link is trusted: malformed entries are skipped rather than
+rejecting the whole link, so `?products=tee-black:2,junk,other:two` still opens
+a bag with two tees in it. Sizes can't be set from a link — they're picked in
+the bag, and checkout won't charge without them.
+
+Check what a link will do before sharing it:
+
+```
+curl "https://<render-service>.onrender.com/api/checkout/link?products=tee-black:2&coupon=SHOW-2026"
+```
+
+The response gives each item a `status` (`ok`, `unknown`, `sold_out`,
+`scheduled`, `unavailable`), the subtotal of what is buyable, anything it
+couldn't parse in `problems`, and a cleaned-up `link` to share instead.
+
 ## Local Verification
 ```
 # Backend

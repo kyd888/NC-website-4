@@ -42,6 +42,13 @@ import { getKydContent } from "../lib/siteContent.js";
 import { sizesForProduct, normalizeSize } from "../lib/sizing.js";
 import { updateUser } from "../lib/users.js";
 import { addSaveToVault, getVaultSnapshot } from "../lib/vault.js";
+import { absoluteUrl, availabilityOf, frontendOrigin } from "../lib/storefront.js";
+import {
+  buildCheckoutLink,
+  normalizeCoupon,
+  parseCheckoutLink,
+  MAX_QTY_PER_ITEM as LINK_MAX_QTY_PER_ITEM,
+} from "../lib/checkoutLink.js";
 
 type DropState = "idle" | "scheduled" | "live";
 type SessionCartLine = { qty: number; reservedAt: number };
@@ -713,6 +720,78 @@ catalogRouter.get("/cart/state", (req, res) => {
   });
 });
 
+/**
+ * Resolves a checkout link against what is actually for sale.
+ *
+ * The link (`/shop?products=<id>:<qty>,...&coupon=<CODE>`) is written by
+ * whoever shares it, so every id in it is a claim, not a fact: a piece can
+ * have sold out, been pulled from the drop, or never existed. This says which
+ * is which, with the real title and price, so the shop can fill the bag and
+ * name anything it had to leave behind.
+ *
+ * Read-only on purpose. It reserves nothing — opening a link must not hold
+ * units for someone who never came back — so the shop still adds each line
+ * through /cart/add, which is where the reservation and the per-item limit
+ * live. The quantities here are therefore what the link asked for, capped;
+ * what ends up in the bag is whatever /cart/add could actually hold.
+ */
+catalogRouter.get("/checkout/link", (req, res) => {
+  const parsed = parseCheckoutLink({
+    products: typeof req.query.products === "string" ? req.query.products : null,
+    coupon: typeof req.query.coupon === "string" ? req.query.coupon : null,
+  });
+
+  const items = parsed.items.map((item) => {
+    const product = getProduct(item.productId);
+    if (!product || product.enabled === false) {
+      return { productId: item.productId, qty: item.qty, status: "unknown" as const };
+    }
+
+    // The same availability the share page and the Meta feed read, so a link
+    // can't call something in stock that the product page calls sold out.
+    const availability = availabilityOf(product.id);
+    const status =
+      availability.state === "available" || availability.state === "low"
+        ? ("ok" as const)
+        : availability.state === "soldout"
+        ? ("sold_out" as const)
+        : availability.state === "scheduled"
+        ? ("scheduled" as const)
+        : ("unavailable" as const);
+
+    return {
+      productId: product.id,
+      title: product.title,
+      priceCents: product.priceCents,
+      imageUrl: absoluteUrl(req, product.imageUrl),
+      // A link can't choose a size — sizes are picked in the bag, and checkout
+      // refuses to charge without one. Sent so the shop can say so up front.
+      sizes: sizesForProduct(product),
+      qty: item.qty,
+      status,
+    };
+  });
+
+  const buyable = items.filter((item) => item.status === "ok");
+  const shop = frontendOrigin();
+
+  res.set("Cache-Control", "no-store");
+  res.json({
+    ok: true,
+    items,
+    subtotalCents: buyable.reduce((sum, item) => sum + (item.priceCents ?? 0) * item.qty, 0),
+    coupon: parsed.coupon,
+    // The code is carried through checkout and saved on the payment; it does
+    // not change a price. Nothing in the shop discounts anything today, and a
+    // link that quietly implied otherwise would be a promise we can't keep.
+    couponNote: parsed.coupon ? `Code ${parsed.coupon} noted on this order` : "No coupon applied",
+    problems: parsed.problems,
+    maxQtyPerItem: LINK_MAX_QTY_PER_ITEM,
+    // The link as it should have been written: shareable again, junk removed.
+    link: shop ? buildCheckoutLink(`${shop}/shop`, { items: buyable.map((i) => ({ productId: i.productId, qty: i.qty })), coupon: parsed.coupon }) : null,
+  });
+});
+
 catalogRouter.post("/checkout/create-intent", async (req, res) => {
   if (!stripe) {
     return res.status(500).json({ error: "Stripe is not configured" });
@@ -742,6 +821,12 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
     return res.status(400).json({ error: "Cart is empty" });
   }
 
+  // Arrived with the bag from a checkout link. Saved on the payment so the
+  // order can be traced back to the campaign, flyer or post that sent it.
+  // It changes no price: the shop runs no discounts, and charging a different
+  // amount than the bag showed is the one thing checkout must never do.
+  const coupon = normalizeCoupon(req.body?.coupon);
+
   try {
     const intent = await stripe.paymentIntents.create({
       amount: summary.grossCents,
@@ -750,6 +835,7 @@ catalogRouter.post("/checkout/create-intent", async (req, res) => {
       metadata: {
         dropId: drop.id,
         items: summary.lines.map((line) => `${line.product.id}:${line.qty}`).join(","),
+        ...(coupon ? { coupon } : {}),
       },
     });
 
