@@ -443,6 +443,28 @@ input,select,textarea{font-size:16px}
   will-change:opacity, transform;
   transform:translateZ(0);
 }
+/* A name that doesn't fit drifts to show its end, then comes back. Only the
+   overflowing ones get the class, so short names never move. As an
+   inline-block it can travel past the box (which clips it) instead of being
+   cut short by the parent's ellipsis. */
+.title__text{white-space:nowrap}
+.title__text.is-drifting{
+  /* inline-block so it can be moved by a transform. Its own box stays the
+     width of the bar and the name overflows it; the bar clips that, and the
+     transform slides the name through. */
+  display:inline-block;
+  animation:title-drift var(--drift-seconds,10s) ease-in-out infinite;
+}
+@keyframes title-drift{
+  0%,14%{transform:translateX(0)}
+  56%,70%{transform:translateX(calc(var(--drift-shift,0px) * -1))}
+  100%{transform:translateX(0)}
+}
+/* Asked for less motion: hold still and fall back to the ellipsis, which
+   needs the text inline again for the parent to draw it. */
+@media (prefers-reduced-motion:reduce){
+  .title__text.is-drifting{display:inline;animation:none}
+}
 .price{font-size:14px;opacity:.8}
 .tagline{
   font-size:11px;

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { loadStripe } from "@stripe/stripe-js";
 import SiteHeader from "./components/SiteHeader";
 import PickupOption from "./components/PickupOption";
+import DriftingTitle from "./components/DriftingTitle";
 import { emails as siteEmails } from "./data/site";
 import {
   SHIP_BY_DEFAULT,
@@ -1501,7 +1502,7 @@ function App() {
                   exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.22, ease: "easeOut" }}
                 >
-                  {active.title}
+                  <DriftingTitle text={active.title} />
                 </motion.span>
               </AnimatePresence>
             </div>
