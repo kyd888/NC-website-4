@@ -9,6 +9,7 @@ import {
   chosenShow,
   fetchPickup,
   pickupProblem,
+  shipAllowed,
   type ConfirmedFulfillment,
   type DeliveryChoice,
   type PickupOffer,
@@ -974,6 +975,17 @@ function App() {
     if (paymentModalOpen) void refreshPickup();
   }, [paymentModalOpen, refreshPickup]);
 
+  // Pickup only: shipping isn't offered, so the order is a pickup from the
+  // start rather than a choice the customer has to correct. Runs whenever the
+  // offer is refreshed, including a cutoff that passed while they were paying
+  // — shipping comes back and the choice returns with it.
+  const canShip = shipAllowed(pickupOffer);
+  useEffect(() => {
+    if (canShip || delivery.method === "pickup") return;
+    const only = pickupOffer?.shows.length === 1 ? pickupOffer.shows[0].id : null;
+    setDelivery({ method: "pickup", showId: only });
+  }, [canShip, delivery.method, pickupOffer]);
+
   const deliveryProblem = pickupProblem(pickupOffer, delivery);
   // Pickup covers the whole order, so no address is needed for it.
   const needsAddress = delivery.method !== "pickup";
@@ -1784,8 +1796,10 @@ function App() {
                   <strong>{formatCurrency(priceTotalCents)}</strong>
                 </div>
                 {/* The wallet sheet charges straight from the bag and always ships;
-                    pickup is chosen in Checkout. It waits for sizes like Checkout does. */}
-                {isLive && !missingSizeFor ? (
+                    pickup is chosen in Checkout. It waits for sizes like Checkout does,
+                    and stays hidden while a show is pickup only — the server would
+                    refuse a shipped order, so offering it would only dead-end. */}
+                {isLive && !missingSizeFor && canShip ? (
                   <CartPaymentRequestButton
                     amountCents={priceTotalCents}
                     sizes={sizesPayload}

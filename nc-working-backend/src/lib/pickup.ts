@@ -10,6 +10,10 @@ import type { SaleFulfillment, ShowSnapshot } from "./types.js";
  * instructions, bonus, missed-pickup policy). Nothing else needs setting up:
  * no product is flagged, and the price is the same either way.
  *
+ * Each show sets its own delivery: ship only (pickup off), ship or pick up, or
+ * pickup only (merchPickup.shipping = "off"), which withholds shipping while
+ * that show's pickup is open.
+ *
  * A show offers pickup only when it is confirmed, has a timezone, falls within
  * the next two calendar months, has pickup on with hours and instructions
  * written, and its order cutoff hasn't passed — all read in the show's own
@@ -22,6 +26,7 @@ export const SHIP_LABEL = "Ship to me";
 
 const NOT_OPEN_TEXT = "Pickup opens when the show is within two months.";
 const CLOSED_TEXT = "Pickup orders for this show have closed.";
+const PICKUP_ONLY_TEXT = "This drop is pickup only — collect it at the show.";
 
 // ---------------------------------------------------------------------------
 // Time, in a show's own timezone
@@ -116,6 +121,8 @@ export type ShowPickupCheck = ShowSnapshot & {
   eligible: boolean;
   /** Everything else qualifies, but the cutoff has passed. */
   closed: boolean;
+  /** This show is set to pickup only: no shipping while its pickup is open. */
+  pickupOnly: boolean;
   /** Plain-language status for the admin. */
   reason: string;
   cutoffAt?: string;
@@ -132,6 +139,7 @@ export function checkShowPickup(show: KydShow, now: Date): ShowPickupCheck {
     ...snapshotOfShow(show),
     eligible: false,
     closed: false,
+    pickupOnly: pickup?.shipping === "off",
     reason: "",
     hours: pickup?.hours,
     instructions: pickup?.instructions,
@@ -160,7 +168,12 @@ export function checkShowPickup(show: KydShow, now: Date): ShowPickupCheck {
   if (show.date > addCalendarMonths(today, PICKUP_WINDOW_MONTHS)) {
     return { ...base, ...detail, reason: "More than two months away" };
   }
-  return { ...base, ...detail, eligible: true, reason: "Open for pickup orders" };
+  return {
+    ...base,
+    ...detail,
+    eligible: true,
+    reason: base.pickupOnly ? "Open for pickup orders · no shipping" : "Open for pickup orders",
+  };
 }
 
 export type PickupAvailability = {
@@ -171,17 +184,29 @@ export type PickupAvailability = {
   closedShow?: ShowPickupCheck;
   /** Every show with pickup turned on, checked — for the admin. */
   checks: ShowPickupCheck[];
+  /** False only while pickup is open and every open show is pickup only. */
+  shipAllowed: boolean;
 };
 
 const byDate = (a: ShowPickupCheck, b: ShowPickupCheck) => a.date.localeCompare(b.date);
 
+/**
+ * Shipping is only ever withheld while pickup is genuinely open, and only when
+ * no open show still offers it. So a passed cutoff, a canceled show or a show
+ * that has been and gone all bring shipping back by themselves — the piece
+ * can't be left with no way to buy it.
+ */
+function shippingAllowed(open: ShowPickupCheck[]): boolean {
+  return open.length === 0 || open.some((show) => !show.pickupOnly);
+}
+
 export function pickupAvailability(now = new Date(), shows: KydShow[] = getKydContent().shows): PickupAvailability {
   const checks = shows.map((show) => checkShowPickup(show, now));
   const open = checks.filter((c) => c.eligible).sort(byDate);
-  if (open.length) return { state: "available", shows: open, checks };
+  if (open.length) return { state: "available", shows: open, checks, shipAllowed: shippingAllowed(open) };
   const closed = checks.filter((c) => c.closed).sort(byDate);
-  if (closed.length) return { state: "closed", shows: [], closedShow: closed[0], checks };
-  return { state: "unavailable", shows: [], checks };
+  if (closed.length) return { state: "closed", shows: [], closedShow: closed[0], checks, shipAllowed: true };
+  return { state: "unavailable", shows: [], checks, shipAllowed: true };
 }
 
 function publicShow(check: ShowPickupCheck) {
@@ -210,6 +235,9 @@ export function publicPickup(now = new Date()) {
     shows: availability.shows.map(publicShow),
     closedShow: availability.closedShow ? publicShow(availability.closedShow) : null,
     message: availability.state === "available" ? "" : availability.state === "closed" ? CLOSED_TEXT : NOT_OPEN_TEXT,
+    /** False means checkout must not offer shipping: this drop is pickup only. */
+    shipAllowed: availability.shipAllowed,
+    shipMessage: availability.shipAllowed ? "" : PICKUP_ONLY_TEXT,
     checkedAt: now.toISOString(),
   };
 }
@@ -229,7 +257,21 @@ export function planPickup(
   choice: PickupChoice,
   now = new Date(),
 ): { ok: true; pickup: ShowPickupCheck | null } | { ok: false; status: number; code: string; error: string } {
-  if (choice?.method !== "pickup") return { ok: true, pickup: null };
+  if (choice?.method !== "pickup") {
+    // Shipping, while an open show is pickup only. Checkout hides shipping in
+    // that case, so this catches a stale page or a request that skipped it —
+    // including the wallet sheet, which always asks to ship.
+    const availability = pickupAvailability(now);
+    if (!availability.shipAllowed) {
+      return {
+        ok: false,
+        status: 409,
+        code: "SHIPPING_UNAVAILABLE",
+        error: `${PICKUP_ONLY_TEXT} Choose “${PICKUP_LABEL}” to continue.`,
+      };
+    }
+    return { ok: true, pickup: null };
+  }
 
   const availability = pickupAvailability(now);
   const switchPrompt = ` Choose “${SHIP_LABEL}” to continue.`;

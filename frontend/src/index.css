@@ -1204,6 +1204,9 @@ input,select,textarea{font-size:16px}
 .fulfill__legend--small{font-size:10px;color:rgba(17,17,17,.6)}
 .fulfill__sub{margin:0;font-size:12px;line-height:1.45;color:rgba(17,17,17,.6)}
 .fulfill__notice{margin:0;padding:10px 12px;border-radius:12px;background:#fee2e2;color:#991b1b;font-size:13px;line-height:1.45}
+/* Pickup only: a term of the drop, not something that went wrong, so it's
+   stated plainly rather than in the red of __notice. */
+.fulfill__only{margin:0;padding:10px 12px;border-radius:12px;background:#f4f4f2;color:rgba(17,17,17,.75);font-size:13px;line-height:1.45}
 .fulfill__option{
   display:flex;gap:12px;align-items:flex-start;padding:14px;min-height:44px;
   border:1.5px solid rgba(0,0,0,.14);border-radius:14px;background:#fff;cursor:pointer;

@@ -25,6 +25,16 @@ export type ShowStatus = "confirmed" | "tentative" | "canceled";
 export type ShowMerchPickup = {
   enabled: boolean;
   /**
+   * Whether shipping stays on offer while this show's pickup is open.
+   * "off" is pickup-only: the customer must collect at the show.
+   *
+   * Absent means "allowed", so shows saved before this existed keep offering
+   * both. It only bites while pickup is actually open — once the cutoff
+   * passes (or the show is canceled or done) shipping comes back on its own,
+   * so a piece is never left unbuyable. See shippingAllowed in lib/pickup.ts.
+   */
+  shipping?: "allowed" | "off";
+  /**
    * When pickup orders close: a wall-clock time (YYYY-MM-DDTHH:mm) in the
    * show's own timezone. Pickup stays closed until one is set.
    */
@@ -345,6 +355,9 @@ function sanitizeMerchPickup(input: unknown): ShowMerchPickup | undefined {
   const bonus = str(r.bonus).slice(0, 60);
   const missedPolicy = str(r.missedPolicy).slice(0, 500);
   const out: ShowMerchPickup = { enabled: r.enabled === true };
+  // Only ever stored as the explicit opt-out; anything else means shipping
+  // stays on, which is what every show saved before this field read as.
+  if (r.shipping === "off") out.shipping = "off";
   if (cutoff) out.cutoff = cutoff;
   if (hours) out.hours = hours;
   if (location) out.location = location;

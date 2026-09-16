@@ -29,8 +29,20 @@ export type PickupOffer = {
   closedShow: PickupShow | null;
   /** Why pickup isn't offered; empty while it is. */
   message: string;
+  /**
+   * False when the open show is pickup only: checkout must not offer shipping.
+   * Older servers don't send it, so treat a missing value as shipping allowed.
+   */
+  shipAllowed?: boolean;
+  /** Why shipping isn't offered; empty while it is. */
+  shipMessage?: string;
   checkedAt: string;
 };
+
+/** Shipping is offered unless the server says this drop is pickup only. */
+export function shipAllowed(offer: PickupOffer | null): boolean {
+  return offer?.shipAllowed !== false;
+}
 
 /** Shipping unless the customer chooses pickup. Never changed on their behalf. */
 export type DeliveryChoice = {
@@ -70,7 +82,14 @@ export function chosenShow(offer: PickupOffer | null, choice: DeliveryChoice): P
 
 /** Why the order can't be paid with this choice, or null when it can. */
 export function pickupProblem(offer: PickupOffer | null, choice: DeliveryChoice): string | null {
-  if (choice.method !== "pickup") return null;
+  if (choice.method !== "pickup") {
+    // Pickup only: the server refuses a shipped order, so stop it here rather
+    // than at payment. Checkout hides shipping, so this is a stale page.
+    if (!shipAllowed(offer)) {
+      return `${offer?.shipMessage || "This drop is pickup only."} Choose “Pick up at the show” to continue.`;
+    }
+    return null;
+  }
   if (!offer || offer.state !== "available") return `${offer?.message || "Pickup isn't available."} Choose “Ship to me” to continue.`;
   if (!chosenShow(offer, choice)) return choice.showId ? "Pickup orders for that show have closed. Choose another show, or ship it." : "Choose which show you’ll pick up at.";
   return null;

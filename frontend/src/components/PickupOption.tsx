@@ -1,5 +1,5 @@
 import type { DeliveryChoice, PickupOffer, PickupShow } from "../lib/pickup";
-import { chosenShow } from "../lib/pickup";
+import { chosenShow, shipAllowed } from "../lib/pickup";
 
 type Props = {
   offer: PickupOffer;
@@ -19,6 +19,9 @@ type Props = {
  */
 export default function PickupOption({ offer, choice, onChange, notice }: Props) {
   const open = offer.state === "available";
+  // Pickup only: shipping isn't on offer at all, so there's nothing to choose
+  // between. The pickup details still show, as the terms of the order.
+  const canShip = shipAllowed(offer);
   const shows = offer.shows;
   const single = shows.length === 1 ? shows[0] : null;
   const picked = chosenShow(offer, choice);
@@ -51,14 +54,18 @@ export default function PickupOption({ offer, choice, onChange, notice }: Props)
         </p>
       ) : null}
 
-      <label className={`fulfill__option${shipOn ? " is-on" : ""}`}>
-        <input type="radio" name="delivery" value="ship" checked={shipOn} onChange={() => onChange({ method: "ship", showId: null })} />
-        <span className="fulfill__body">
-          <span className="fulfill__head">
-            <span className="fulfill__title">{offer.labels.ship}</span>
+      {canShip ? (
+        <label className={`fulfill__option${shipOn ? " is-on" : ""}`}>
+          <input type="radio" name="delivery" value="ship" checked={shipOn} onChange={() => onChange({ method: "ship", showId: null })} />
+          <span className="fulfill__body">
+            <span className="fulfill__head">
+              <span className="fulfill__title">{offer.labels.ship}</span>
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      ) : (
+        <p className="fulfill__only">{offer.shipMessage || "This drop is pickup only."}</p>
+      )}
 
       <label className={`fulfill__option${pickupOn ? " is-on" : ""}${open ? "" : " is-disabled"}`}>
         <input

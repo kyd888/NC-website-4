@@ -420,7 +420,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           </div>
 
           <div class="section-title">Live dates</div>
-          <p class="form-note" style="margin:0 0 10px">Turning on pickup for a show adds &ldquo;Pick up at the show&rdquo; to checkout, for the whole order, at the same price. It appears once the show is confirmed, has a timezone, is within two calendar months, has pickup hours and instructions, and its order cutoff hasn&rsquo;t passed. Canceled and past shows never offer it.</p>
+          <p class="form-note" style="margin:0 0 10px"><strong>Delivery for this show</strong> sets what checkout offers, for the whole order, at the same price: ship only, ship or pick up, or pick up only. Pickup appears once the show is confirmed, has a timezone, is within two calendar months, has pickup hours and instructions, and its order cutoff hasn&rsquo;t passed. Canceled and past shows never offer it. With <strong>pick up only</strong>, shipping comes back on its own the moment pickup stops being offered &mdash; when the cutoff passes, or the show is canceled or done &mdash; so a piece is never left with no way to buy it.</p>
           <datalist id="kydTimezones">
             <option value="America/New_York"></option>
             <option value="America/Chicago"></option>
@@ -1341,6 +1341,11 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
     function opt(value, label) {
       return '<option value="' + value + '"' + (status === value ? " selected" : "") + ">" + label + "</option>";
     }
+    // Delivery is stored as two fields (pickup on/off, shipping allowed/off);
+    // the admin picks one of the three combinations that mean anything.
+    function dopt(value, label, selected) {
+      return '<option value="' + value + '"' + (selected ? " selected" : "") + ">" + label + "</option>";
+    }
     return '<div class="kyd-pickup">' +
       '<div class="kyd-pickup__head"><span class="subheading" style="margin:0">Merch pickup</span>' + pill + "</div>" +
       '<div class="kyd-grid">' +
@@ -1352,8 +1357,12 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           '<input type="text" list="kydTimezones" autocomplete="off" data-kyds-index="' + i + '" data-kyds-key="timezone" value="' + escapeHtml(row.timezone || "") + '" /></div>' +
         '<div class="kyd-field"><label>Pickup orders close (show time)</label>' +
           '<input type="datetime-local" data-kydp-index="' + i + '" data-kydp-key="cutoff" value="' + escapeHtml(pickup.cutoff || "") + '" /></div>' +
-        '<div class="kyd-field" style="align-self:end"><label class="kyd-check">' +
-          '<input type="checkbox" data-kydp-index="' + i + '" data-kydp-key="enabled"' + (pickup.enabled ? " checked" : "") + " /> Offer merch pickup</label></div>" +
+        '<div class="kyd-field"><label>Delivery for this show</label>' +
+          '<select data-kydp-index="' + i + '" data-kydp-key="delivery">' +
+            dopt("ship", "Ship only", !pickup.enabled) +
+            dopt("both", "Ship or pick up", pickup.enabled && pickup.shipping !== "off") +
+            dopt("pickup", "Pick up only (no shipping)", pickup.enabled && pickup.shipping === "off") +
+          "</select></div>" +
         '<div class="kyd-field"><label>Pickup hours (shown up front)</label>' +
           '<input type="text" data-kydp-index="' + i + '" data-kydp-key="hours" value="' + escapeHtml(pickup.hours || "") + '" placeholder="e.g. Merch table, 6–10 pm" /></div>' +
         '<div class="kyd-field"><label>Public pickup location (optional)</label>' +
@@ -1386,7 +1395,12 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       if (!target) return true;
       if (!target.merchPickup) target.merchPickup = { enabled: false };
       var key = el.getAttribute("data-kydp-key");
-      target.merchPickup[key] = key === "enabled" ? el.checked : el.value;
+      if (key === "delivery") {
+        target.merchPickup.enabled = el.value !== "ship";
+        target.merchPickup.shipping = el.value === "pickup" ? "off" : "allowed";
+      } else {
+        target.merchPickup[key] = key === "enabled" ? el.checked : el.value;
+      }
       kydSetStatus("Unsaved changes.");
       return true;
     }
