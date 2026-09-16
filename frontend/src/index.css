@@ -427,7 +427,12 @@ input,select,textarea{font-size:16px}
   padding-left:calc(16px + env(safe-area-inset-left));
   padding-right:calc(16px + env(safe-area-inset-right));
 }
-.title-wrap{position:relative;height:1.25em;display:flex;align-items:flex-end;}
+/* The title column of the sticky bar. min-width:0 is load-bearing: as a flex
+   item it would otherwise refuse to shrink below the full width of a long
+   title, shoving Add and Share off the right edge of a phone where they can't
+   be tapped or even seen. With it the title ellipsizes instead. */
+.meta-text{display:grid;gap:6px;min-width:0}
+.title-wrap{position:relative;height:1.25em;display:flex;align-items:flex-end;min-width:0}
 .title{
   font-weight:700;
   font-size:clamp(18px,2.2vw,22px);
@@ -470,6 +475,8 @@ input,select,textarea{font-size:16px}
   justify-content:flex-start;
   gap:12px;
   flex-wrap:wrap;
+  /* Never give up room to the title: the buttons are the point of the bar. */
+  flex:none;
 }
 .meta-actions.has-bag{
   display:grid;

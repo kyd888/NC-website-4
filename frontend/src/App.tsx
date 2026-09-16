@@ -738,22 +738,14 @@ function App() {
   }, [dropState, refreshKey]);
 
   const visibleCatalog = useMemo(() => {
+    // The order set in Admin → Catalog, which is the order the server sends.
+    // Only one thing outranks it: something nobody can buy right now sinks,
+    // so the shop never opens on a sold-out piece.
     const sorted = [...catalog].sort((a, b) => {
       const inStockA = a.madeToOrder ? (a.inDrop ? 1 : 0) : (remainingById[a.id] ?? 0) > 0 ? 1 : 0;
       const inStockB = b.madeToOrder ? (b.inDrop ? 1 : 0) : (remainingById[b.id] ?? 0) > 0 ? 1 : 0;
       if (inStockA !== inStockB) {
         return inStockB - inStockA;
-      }
-
-      const tagA = a.tags[0]?.toLowerCase() ?? "";
-      const tagB = b.tags[0]?.toLowerCase() ?? "";
-      if (tagA && tagB) {
-        const cmp = tagA.localeCompare(tagB);
-        if (cmp !== 0) return cmp;
-      } else if (tagA && !tagB) {
-        return -1;
-      } else if (!tagA && tagB) {
-        return 1;
       }
       return a.order - b.order;
     });
@@ -1498,7 +1490,7 @@ function App() {
 
       {active && (
         <div ref={metaRef} className="meta">
-          <div style={{ display: "grid", gap: 6 }}>
+          <div className="meta-text">
             <div className="title-wrap">
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span

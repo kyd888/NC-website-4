@@ -29,6 +29,16 @@ export type ProductDetails = {
   /** Label per image URL — "Front", "Back (blank)", "Artwork close-up". */
   imageLabels?: Record<string, string>;
   inventoryMode?: InventoryMode;
+  /**
+   * Where this product sits in the shop, lowest first. Set with the Up and
+   * Down buttons in Admin → Catalog, which number every product at once.
+   *
+   * It has to be stored rather than inferred from the order of the catalog
+   * array: with a database the rows come back ordered by updated_at, so the
+   * array order doesn't survive a restart. Products that have never been
+   * arranged have none and sit after the ones that have.
+   */
+  sortIndex?: number;
 };
 
 export type CatalogItem = ProductDetails & {

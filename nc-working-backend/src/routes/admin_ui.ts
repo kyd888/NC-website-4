@@ -316,6 +316,7 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
           </div>
           <div class="card-surface">
             <div class="subheading">Include products</div>
+            <p class="form-note" style="margin:0 0 10px">This is the order the shop shows, top first &mdash; use <strong>Up</strong> and <strong>Down</strong> to arrange it. Each move saves on its own. Anything sold out or left out of the live drop still sinks to the bottom of the shop, so the drop never opens on something nobody can buy.</p>
             <div id="productList" class="list"></div>
           </div>
           <div class="btnline">
@@ -964,7 +965,27 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       btnDelete.textContent = "Delete";
       btnDelete.addEventListener("click", () => handleDelete(p.id));
 
+      // This list is the shop's own order, so moving a row moves the product.
+      const index = products.indexOf(p);
+      const btnUp = document.createElement("button");
+      btnUp.className = "btn small";
+      btnUp.type = "button";
+      btnUp.textContent = "Up";
+      btnUp.title = "Move earlier in the shop";
+      btnUp.disabled = index <= 0;
+      btnUp.addEventListener("click", () => handleMove(index, -1));
+
+      const btnDown = document.createElement("button");
+      btnDown.className = "btn small";
+      btnDown.type = "button";
+      btnDown.textContent = "Down";
+      btnDown.title = "Move later in the shop";
+      btnDown.disabled = index < 0 || index >= products.length - 1;
+      btnDown.addEventListener("click", () => handleMove(index, 1));
+
       actions.appendChild(uploadInput);
+      actions.appendChild(btnUp);
+      actions.appendChild(btnDown);
       actions.appendChild(btnUpload);
       actions.appendChild(btnLink);
       actions.appendChild(btnToggle);
@@ -2040,6 +2061,30 @@ adminUiRouter.get("/", requireAdminPage, (_req, res) => {
       });
       await refreshProducts();
     } catch (err) {
+      alert(err.message || String(err));
+    }
+  }
+
+  /**
+   * Moves one product up or down the shop. The whole list is sent, so the
+   * saved order is always exactly what the admin is looking at. The move is
+   * shown straight away and put back if the save fails.
+   */
+  async function handleMove(index, direction) {
+    var target = index + direction;
+    if (index < 0 || target < 0 || target >= products.length) return;
+    var before = products.slice();
+    var moved = products.splice(index, 1)[0];
+    products.splice(target, 0, moved);
+    renderProducts();
+    try {
+      await apiJson("/api/admin/products/order", {
+        method: "PUT",
+        body: { ids: products.map(function (p) { return p.id; }) },
+      });
+    } catch (err) {
+      products = before;
+      renderProducts();
       alert(err.message || String(err));
     }
   }

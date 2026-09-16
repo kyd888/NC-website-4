@@ -195,6 +195,8 @@ function normalizeDetails(input: Partial<ProductDetails> | undefined, images: st
   if (imageLabels) out.imageLabels = imageLabels;
   if (input.inventoryMode === "made_to_order") out.inventoryMode = "made_to_order";
   else if (input.inventoryMode === "stocked") out.inventoryMode = "stocked";
+  const sortIndex = Number(input.sortIndex);
+  if (Number.isFinite(sortIndex) && sortIndex >= 0) out.sortIndex = Math.floor(sortIndex);
   return out;
 }
 
@@ -204,14 +206,14 @@ function normalizeProduct(input: CatalogItem): CatalogItem {
   const images = normalizeImages(input.images);
   const primary = input.imageUrl?.trim() || images[0];
   if (primary && !images.includes(primary)) images.unshift(primary);
-  const { description, printPlacement, garment, sizeGuide, sizes, imageLabels, inventoryMode, ...rest } = input;
+  const { description, printPlacement, garment, sizeGuide, sizes, imageLabels, inventoryMode, sortIndex, ...rest } = input;
   return {
     ...rest,
     imageUrl: primary || undefined,
     images,
     enabled: input.enabled !== false,
     tags: normalizeTags(input.tags),
-    ...normalizeDetails({ description, printPlacement, garment, sizeGuide, sizes, imageLabels, inventoryMode }, images),
+    ...normalizeDetails({ description, printPlacement, garment, sizeGuide, sizes, imageLabels, inventoryMode, sortIndex }, images),
   };
 }
 
@@ -793,8 +795,41 @@ export async function loadInventoryFromDb() {
   }
 }
 
+/**
+ * Products in the order the shop shows them: the arrangement saved in
+ * Admin → Catalog first, then anything never arranged, each keeping the
+ * position it already had. Every caller reads the catalog through here —
+ * the shop, the admin list, the feeds, share links — so they all agree.
+ */
 export function listCatalog(): CatalogItem[] {
-  return catalog.map((item) => normalizeProduct(item));
+  const rank = (item: CatalogItem) => (typeof item.sortIndex === "number" ? item.sortIndex : Number.MAX_SAFE_INTEGER);
+  // sort() keeps equal entries in place, so untouched products stay as they were.
+  return catalog.map((item) => normalizeProduct(item)).sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Arranges the shop. Ids are the new order, front to back; every product
+ * named gets numbered, so a half-list (or a stale one that has lost a
+ * product) can't leave two products fighting over one position. Anything
+ * left out keeps no number and falls in after the arranged ones.
+ */
+export async function setCatalogOrder(ids: string[]): Promise<boolean> {
+  const seen = new Set<string>();
+  let position = 0;
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const item = catalog.find((entry) => entry.id === id);
+    if (!item) continue;
+    seen.add(id);
+    item.sortIndex = position++;
+  }
+  if (!seen.size) return false;
+  if (dbEnabled) {
+    await persistCatalogNow();
+  } else {
+    scheduleCatalogPersist();
+  }
+  return true;
 }
 
 export function getProduct(id: string): CatalogItem | undefined {

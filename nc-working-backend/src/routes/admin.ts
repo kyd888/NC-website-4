@@ -12,6 +12,7 @@ const __dirname = path.dirname(__filename);
 // ---- inventory (you have these in src/lib/inventory.ts) ----
 import {
   listCatalog,
+  setCatalogOrder,
   upsertProduct,
   patchProduct,
   deleteProduct,
@@ -287,6 +288,20 @@ adminRouter.get("/saved-data", requireKey, (_req, res) => {
 /** ========= Catalog / Products ========= **/
 adminRouter.get("/products", requireKey, (_req, res) => {
   res.json({ products: listCatalog() });
+});
+
+/** Arranges the shop: ids front to back, as the admin list shows them. */
+adminRouter.put("/products/order", requireKey, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter((id: unknown): id is string => typeof id === "string") : [];
+    if (!ids.length) return res.status(400).json({ error: "Send the product ids in their new order." });
+    const ok = await setCatalogOrder(ids);
+    if (!ok) return res.status(400).json({ error: "None of those products exist." });
+    res.json({ ok: true, products: listCatalog() });
+  } catch (error) {
+    console.error("[admin] failed to reorder products", error);
+    res.status(500).json({ error: "Unable to save the order" });
+  }
 });
 
 /** The garment fields an admin can set, taken from a request body as-is (the catalog sanitizes them). */
